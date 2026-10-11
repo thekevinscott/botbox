@@ -4,7 +4,7 @@ default:
     @just --list
 
 # ---- Python --------------------------------------------------------------
-# pytest exit 5 means no tests collected: integration and e2e lanes exist before their tests do.
+# pytest exit 5 means no tests collected: the e2e lane exists before its tests do.
 
 lint:
     cd packages/python && uv run ruff check . && uv run ruff format --check .
@@ -19,7 +19,7 @@ test-unit:
     cd packages/python && uv run pytest src
 
 test-integration:
-    cd packages/python && { uv run pytest tests/integration || [ $? -eq 5 ]; }
+    cd packages/python && uv run pytest tests/integration
 
 test-e2e:
     cd packages/python && { uv run pytest tests/e2e || [ $? -eq 5 ]; }
