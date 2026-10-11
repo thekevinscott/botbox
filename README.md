@@ -204,17 +204,6 @@ result = box.run(
 )
 ```
 
-## Development
-
-```sh
-cd packages/python
-uv sync
-uv run pytest                  # unit, no Docker
-uv run pytest -m integration   # real daemon
-uv run pytest -m e2e           # builds images, runs a real prompt
-```
-
-
 ## License
 
 MIT. See [LICENSE](./LICENSE).
