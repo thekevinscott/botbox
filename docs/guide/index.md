@@ -4,8 +4,12 @@ diataxis: how-to
 
 # How-to Guides
 
-<!--
-Task-oriented pages: each answers "how do I X?" with a runnable example.
-Open with the problem the guide solves (the why); end by pointing to the next
-guide or the reference. Register each page in the sidebar in .vitepress/config.ts.
--->
+Recipes for common tasks once you have a first run working.
+
+- [Extending the image](./extending-the-image) — add tools on top of the agent's image.
+- [Allowing hosts](./allowing-hosts) — admit hostnames through the proxy.
+- [Mounting directories](./mounting-directories) — give the agent read-only or read-write directories.
+- [Reading the result](./reading-the-result) — stdout, exit code, transcript, proxy log.
+- [Testing conventions](./testing-conventions) — pass this repo's colocated-test check.
+
+For every argument and field, see the [Reference](../reference/).

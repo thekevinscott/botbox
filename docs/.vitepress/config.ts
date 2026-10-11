@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
-  title: '',
-  description: '',
+  title: 'botbox',
+  description: 'Run a coding agent inside a locked-down Docker container.',
   base: '/botbox/',
   cleanUrls: true,
   // AGENTS.md is an agent-facing contract, not site content — keep it out of
@@ -31,6 +31,10 @@ export default defineConfig({
           text: 'How-to Guides',
           items: [
             { text: 'Overview', link: '/guide/' },
+            { text: 'Extending the image', link: '/guide/extending-the-image' },
+            { text: 'Allowing hosts', link: '/guide/allowing-hosts' },
+            { text: 'Mounting directories', link: '/guide/mounting-directories' },
+            { text: 'Reading the result', link: '/guide/reading-the-result' },
             { text: 'Testing conventions', link: '/guide/testing-conventions' },
           ],
         },

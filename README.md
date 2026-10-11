@@ -5,6 +5,8 @@ Run a coding agent inside a locked-down Docker container.
 [![CI](https://github.com/thekevinscott/botbox/actions/workflows/python.yml/badge.svg)](https://github.com/thekevinscott/botbox/actions/workflows/python.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+Docs: https://thekevinscott.github.io/botbox/
+
 ## Goals
 
 An experiment that puts an agent in a box needs five things:
@@ -12,7 +14,7 @@ An experiment that puts an agent in a box needs five things:
 1. **A pre-configured agent CLI.** Claude Code or Pi pre-configured.
 2. **No capabilities, no privilege escalation.** `--cap-drop ALL`, `no-new-privileges`, no setuid binaries.
 3. **Network only to an allowlist.** No network access beyond the whitelist.
-4. **Mounted directories.** Read-only or read-write
+4. **Mounted directories.** Read-only or read-write.
 5. **Logs available.** The agent's transcript and the proxy's log come back on the result.
 
 The Python SDK is the public API.
@@ -37,11 +39,11 @@ Requires Docker.
 ```python
 from botbox import Botbox, ClaudeAgent
 
-agent = ClaudeAgent()
+agent = ClaudeAgent(model="claude-opus-5", effort="high")
 box = Botbox(agent)
 
 result = box.run(
-    command='claude -p "Make the failing tests pass please" --model claude-opus-5.5 --effort high',
+    command=agent.command("Make the failing tests pass please"),
     mounts=[
         ("./tests", "/tests", "ro"),
         ("./work", "/work", "rw"),
@@ -115,7 +117,7 @@ mounts=[
 ]
 ```
 
-if workdir provided, `workdir` must be a mounted path or inside one; otherwise `run()` raises. Docker would create it root-owned and the agent could not write to it.
+If given, `workdir` must be a mounted path or inside one; otherwise `run()` raises. Docker would create it root-owned and the agent could not write to it.
 
 ### Home and credentials
 
@@ -162,7 +164,7 @@ Two rules: end as `USER node`; leave the agent's home where it is.
 
 ## Agents
 
-An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, and the hosts the CLI needs.
+An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI.
 
 | Agent       | Class         | Dockerfile          | Status     |
 | ----------- | ------------- | ------------------- | ---------- |
@@ -171,9 +173,27 @@ An agent is a Dockerfile plus a class that knows the home path, the credentials 
 
 No shared base image. To add an agent: one Dockerfile, one class, one row.
 
+### `command()`
+
+```python
+ClaudeAgent(model: str | None = None, effort: str | None = None)
+PiAgent(provider: str, model: str | None = None)
+
+agent.command(prompt: str) -> str
+```
+
+Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
+
+`PiAgent` requires `provider` first because it selects the egress allowlist.
+
+```python
+agent = ClaudeAgent(model="claude-opus-5", effort="high")
+box.run(agent.command("Fix the tests"))
+```
+
 ## Sample consumer Dockerfile extension
 
-The layer `porting-harness` uses. The reference is mounted at run time, not copied in.
+The layer `port_codebase` uses. The reference is mounted at run time, not copied in.
 
 ```dockerfile
 FROM botbox-claude:latest
@@ -195,11 +215,12 @@ USER node
 ```
 
 ```python
-box = Botbox(ClaudeAgent(), dockerfile=Path(__file__).parent / "Dockerfile")
+agent = ClaudeAgent(model=model, effort=effort)
+box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
 result = box.run(
-    command=f'claude -p {shlex.quote(prompt)} --model {model} --effort {effort}',
-    mounts=[(reference, "/input", "ro"), (output_directory, "/target", "rw")],
+    command=agent.command(prompt),
+    mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
     workdir="/target",
 )
 ```

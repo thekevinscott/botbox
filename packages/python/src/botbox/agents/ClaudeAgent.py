@@ -1,3 +1,4 @@
+import shlex
 import shutil
 from pathlib import Path
 
@@ -13,8 +14,24 @@ class ClaudeAgent:
     transcripts = ".claude/projects/**/*.jsonl"
     allow: tuple[str, ...] = ("api.anthropic.com",)
 
-    def __init__(self, *, host_home: Path | None = None) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        effort: str | None = None,
+        *,
+        host_home: Path | None = None,
+    ) -> None:
+        self.model = model
+        self.effort = effort
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
+
+    def command(self, prompt: str) -> str:
+        command = f"claude -p {shlex.quote(prompt)} --output-format json"
+        if self.model is not None:
+            command += f" --model {self.model}"
+        if self.effort is not None:
+            command += f" --effort {self.effort}"
+        return command
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".claude"

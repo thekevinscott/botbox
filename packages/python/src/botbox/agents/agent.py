@@ -17,3 +17,7 @@ class Agent(Protocol):
     def stage_auth(self, home: Path) -> None:
         """Copy the host's credentials into `home`, the per-run temp home."""
         ...
+
+    def command(self, prompt: str) -> str:
+        """The agent's CLI invocation for `prompt`, as a shell string for `run()`."""
+        ...
