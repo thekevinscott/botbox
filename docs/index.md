@@ -2,9 +2,8 @@
 layout: home
 
 hero:
-  name: ''
-  text: ''
-  tagline: ''
+  name: botbox
+  tagline: Run a coding agent inside a locked-down Docker container.
   actions:
     - theme: brand
       text: Getting Started
@@ -17,10 +16,10 @@ hero:
       link: /explanation/
 
 features:
-  - title: ''
-    details: ''
-  - title: ''
-    details: ''
-  - title: ''
-    details: ''
+  - title: No capabilities, no privilege escalation
+    details: "--cap-drop ALL, no-new-privileges, no setuid binaries."
+  - title: Network only to an allowlist
+    details: No network access beyond the whitelist.
+  - title: Logs available
+    details: The agent's transcript and the proxy's log come back on the result.
 ---
