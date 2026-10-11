@@ -116,3 +116,23 @@ def describe_stage_auth() -> None:
         (pi_home / "models.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"models\.json"):
             agent.stage_auth(home)
+
+
+def describe_command() -> None:
+    def it_runs_pi_in_print_mode_with_json_output_against_the_provider() -> None:
+        assert PiAgent(provider="openrouter").command("Fix the tests") == (
+            "pi -p 'Fix the tests' --mode json --provider openrouter"
+        )
+
+    def it_shell_quotes_the_prompt() -> None:
+        assert PiAgent(provider="openrouter").command("it's $HOME") == (
+            "pi -p 'it'\"'\"'s $HOME' --mode json --provider openrouter"
+        )
+
+    def it_passes_the_model_when_set() -> None:
+        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == (
+            "pi -p hi --mode json --provider openrouter --model qwen/qwen3-coder"
+        )
+
+    def it_takes_the_model_by_keyword() -> None:
+        assert PiAgent(provider="openrouter", model="m").command("hi").endswith(" --model m")
