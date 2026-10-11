@@ -2,5 +2,6 @@
 
 from botbox.agents import Agent, ClaudeAgent, PiAgent
 from botbox.Botbox import Botbox
+from botbox.RunResult import RunResult
 
-__all__ = ["Agent", "Botbox", "ClaudeAgent", "PiAgent"]
+__all__ = ["Agent", "Botbox", "ClaudeAgent", "PiAgent", "RunResult"]

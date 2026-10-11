@@ -232,5 +232,5 @@ MIT. See [LICENSE](./LICENSE).
 ## Internal - Checks
 
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
-- [ ] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
-- [ ] add test for docker daemon dying
+- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
+- [x] add test for docker daemon dying
