@@ -170,10 +170,10 @@ Two rules: end as `USER node`; leave the agent's home where it is.
 
 An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI.
 
-| Agent       | Class         | Dockerfile          | Status     |
-| ----------- | ------------- | ------------------- | ---------- |
-| Claude Code | `ClaudeAgent` | `claude.Dockerfile` | supported  |
-| pi          | `PiAgent`     | `pi.Dockerfile`     | image only |
+| Agent       | Class         | Dockerfile                 | Status     |
+| ----------- | ------------- | -------------------------- | ---------- |
+| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | supported  |
+| pi          | `PiAgent`     | `agents/pi/Dockerfile`     | image only |
 
 No shared base image. To add an agent: one Dockerfile, one class, one row.
 

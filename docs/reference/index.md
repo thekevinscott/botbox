@@ -63,10 +63,10 @@ Builds the agent's image, then your `dockerfile` on top, and returns the tag. `r
 
 ## Agents
 
-| Agent       | Class         | Dockerfile          | Status     |
-| ----------- | ------------- | ------------------- | ---------- |
-| Claude Code | `ClaudeAgent` | `claude.Dockerfile` | supported  |
-| pi          | `PiAgent`     | `pi.Dockerfile`     | image only |
+| Agent       | Class         | Dockerfile                 | Status     |
+| ----------- | ------------- | -------------------------- | ---------- |
+| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | supported  |
+| pi          | `PiAgent`     | `agents/pi/Dockerfile`     | image only |
 
 Agent images contain the CLI, its runtime, `git`, and `ca-certificates`.
 
