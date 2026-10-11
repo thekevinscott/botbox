@@ -48,6 +48,10 @@ Nothing parsed.
 | `exit_code` | The command's exit code.                                             |
 | `transcript`| `dict[str, str]`: path relative to the agent's home → file contents. |
 | `proxy`     | `str`: the proxy log. Every connection, admitted or refused.         |
+| `container` | `str`: the id of the exited container. Yours to remove.              |
+| `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+
+The container is kept, exited; remove it with `docker rm <id>`. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
 
 ## `build()`
 

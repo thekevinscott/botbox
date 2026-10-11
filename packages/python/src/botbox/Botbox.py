@@ -55,10 +55,13 @@ class Botbox:
 
         Mounts and `workdir` are checked before anything is built. The agent's home is a fresh
         host temp directory with the credentials staged in; the proxy logs into the same
-        directory. Both are read into the result once the container is gone, then deleted.
+        directory. Both are read into the result once the container exits, then deleted.
         A non-zero exit is a normal result; so is the daemon dying mid-run, with `exit_code`
         -1 and whatever output, transcript and proxy log made it to the host. Raises only when
         setup fails or the run is interrupted, after tearing down what was started.
+
+        A returned result leaves its container in place, exited; the caller removes it. A run
+        that raises removes its container.
         """
         agent = self.agent
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -82,12 +85,13 @@ class Botbox:
                 )
                 try:
                     stdout, stderr, exit_code = collect(container)
-                finally:
+                except BaseException:
                     with suppress(DockerException):
                         docker.container.remove(container, force=True)
+                    raise
             transcript = {
                 path.relative_to(home).as_posix(): path.read_text()
                 for path in sorted(home.glob(agent.transcripts))
                 if path.is_file()
             }
-        return RunResult(stdout, stderr, exit_code, transcript, jail.log)
+        return RunResult(stdout, stderr, exit_code, transcript, jail.log, str(container), image)

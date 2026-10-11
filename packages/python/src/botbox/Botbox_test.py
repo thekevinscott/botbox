@@ -236,9 +236,23 @@ def describe_run() -> None:
         collect.side_effect = container_writes
         assert run.run("true").transcript == {"sessions/a/b.jsonl": "b", "sessions/c.jsonl": "c"}
 
-    def it_removes_the_container(run: Botbox, docker: MagicMock) -> None:
+    def it_returns_the_container_it_ran(run: Botbox) -> None:
+        assert run.run("true").container == "a-container"
+
+    def it_returns_the_image_it_ran(run: Botbox) -> None:
+        assert run.run("true").image == "an-agent:latest"
+
+    def it_returns_the_layered_image_when_given_a_dockerfile(
+        run: Botbox,  # noqa: ARG001
+        agent: Mock,
+        layer: Path,
+    ) -> None:
+        box = Botbox(agent, dockerfile=layer)
+        assert box.run("true").image == box.build()
+
+    def it_keeps_the_container(run: Botbox, docker: MagicMock) -> None:
         run.run("true")
-        docker.container.remove.assert_called_once_with("a-container", force=True)
+        docker.container.remove.assert_not_called()
 
     def it_removes_the_container_when_interrupted(
         run: Botbox, docker: MagicMock, collect: MagicMock
@@ -248,10 +262,6 @@ def describe_run() -> None:
             run.run("true")
         docker.container.remove.assert_called_once_with("a-container", force=True)
         assert not home_of(docker).parent.exists()
-
-    def it_returns_when_the_container_cannot_be_removed(run: Botbox, docker: MagicMock) -> None:
-        docker.container.remove.side_effect = DockerException("gone")
-        assert run.run("true").exit_code == 7
 
     def it_removes_nothing_when_the_container_never_started(run: Botbox, docker: MagicMock) -> None:
         docker.run.side_effect = DockerException("no such image")

@@ -89,12 +89,16 @@ box.run(
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `container`, `image`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
 | `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
 | `proxy`      | `str`: the proxy log.                                                           |
+| `container`  | `str`: the id of the exited container. Yours to remove.                         |
+| `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+
+The container is kept, exited; remove it with `docker rm <id>`. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
 
 A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted.
 
