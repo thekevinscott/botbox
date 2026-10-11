@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from botbox.agents.agent import Agent
 from botbox.agents.PiAgent import PiAgent
 
 
@@ -16,7 +15,7 @@ def pi_home(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def agent(pi_home: Path) -> Agent:
+def agent(pi_home: Path) -> PiAgent:
     return PiAgent(provider="openrouter", host_home=pi_home)
 
 
@@ -35,19 +34,19 @@ def home(tmp_path: Path) -> Path:
 
 
 def describe_the_container() -> None:
-    def it_names_its_own_image(agent: Agent) -> None:
+    def it_names_its_own_image(agent: PiAgent) -> None:
         assert agent.image == "botbox-pi:latest"
 
-    def it_points_at_its_own_dockerfile(agent: Agent) -> None:
+    def it_points_at_its_own_dockerfile(agent: PiAgent) -> None:
         assert agent.dockerfile.name == "pi.Dockerfile"
 
-    def it_ships_its_dockerfile_with_the_package(agent: Agent) -> None:
+    def it_ships_its_dockerfile_with_the_package(agent: PiAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")
 
-    def it_lives_in_the_node_users_home(agent: Agent) -> None:
+    def it_lives_in_the_node_users_home(agent: PiAgent) -> None:
         assert agent.home == "/home/node"
 
-    def it_finds_transcripts_under_the_sessions_directory(agent: Agent) -> None:
+    def it_finds_transcripts_under_the_sessions_directory(agent: PiAgent) -> None:
         assert agent.transcripts == ".pi/agent/sessions/**/*.jsonl"
 
 
@@ -88,7 +87,7 @@ def describe_the_provider() -> None:
 
 def describe_stage_auth() -> None:
     def it_stages_the_key_and_the_provider_catalogue_where_pi_looks(
-        agent: Agent, home: Path
+        agent: PiAgent, home: Path
     ) -> None:
         agent.stage_auth(home)
         assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
@@ -99,20 +98,20 @@ def describe_stage_auth() -> None:
         ]
 
     def it_copies_rather_than_shares_the_host_files(
-        agent: Agent, pi_home: Path, home: Path
+        agent: PiAgent, pi_home: Path, home: Path
     ) -> None:
         agent.stage_auth(home)
         copy = home / ".pi" / "agent" / "auth.json"
         assert copy.read_text() == '{"key": "k"}'
         assert copy.stat().st_ino != (pi_home / "auth.json").stat().st_ino
 
-    def it_raises_when_the_host_has_no_key(agent: Agent, pi_home: Path, home: Path) -> None:
+    def it_raises_when_the_host_has_no_key(agent: PiAgent, pi_home: Path, home: Path) -> None:
         (pi_home / "auth.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"auth\.json"):
             agent.stage_auth(home)
 
     def it_raises_when_the_host_has_no_provider_catalogue(
-        agent: Agent, pi_home: Path, home: Path
+        agent: PiAgent, pi_home: Path, home: Path
     ) -> None:
         (pi_home / "models.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"models\.json"):

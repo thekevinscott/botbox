@@ -18,5 +18,5 @@ class ClaudeAgent:
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".claude"
-        destination.mkdir(parents=True, exist_ok=True)
+        destination.mkdir()
         shutil.copy(self.host_home / CREDENTIALS, destination / CREDENTIALS)

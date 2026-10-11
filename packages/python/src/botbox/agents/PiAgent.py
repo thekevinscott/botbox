@@ -38,6 +38,6 @@ class PiAgent:
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".pi" / "agent"
-        destination.mkdir(parents=True, exist_ok=True)
+        destination.mkdir(parents=True)
         for name in AUTH_FILENAMES:
             shutil.copy(self.host_home / name, destination / name)
