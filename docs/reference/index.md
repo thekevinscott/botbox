@@ -85,7 +85,7 @@ PiAgent(provider: str, model: str | None = None)
 agent.command(prompt: str) -> str
 ```
 
-Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
+Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")
