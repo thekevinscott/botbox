@@ -26,7 +26,9 @@ class ClaudeAgent:
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
 
     def command(self, prompt: str) -> str:
-        command = f"claude -p {shlex.quote(prompt)} --output-format json"
+        command = (
+            f"claude -p {shlex.quote(prompt)} --output-format json --dangerously-skip-permissions"
+        )
         if self.model is not None:
             command += f" --model {self.model}"
         if self.effort is not None:

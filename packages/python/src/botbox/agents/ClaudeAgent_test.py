@@ -94,27 +94,29 @@ def describe_stage_auth() -> None:
 
 
 def describe_command() -> None:
-    def it_runs_claude_in_print_mode_with_json_output() -> None:
+    def it_runs_claude_in_print_mode_with_json_output_and_tools_permitted() -> None:
         assert ClaudeAgent().command("Fix the tests") == (
-            "claude -p 'Fix the tests' --output-format json"
+            "claude -p 'Fix the tests' --output-format json --dangerously-skip-permissions"
         )
 
     def it_shell_quotes_the_prompt() -> None:
         assert ClaudeAgent().command("it's $HOME; rm -rf /") == (
             "claude -p 'it'\"'\"'s $HOME; rm -rf /' --output-format json"
+            " --dangerously-skip-permissions"
         )
 
     def it_passes_the_model_when_set() -> None:
         assert ClaudeAgent(model="claude-opus-5").command("hi") == (
-            "claude -p hi --output-format json --model claude-opus-5"
+            "claude -p hi --output-format json --dangerously-skip-permissions --model claude-opus-5"
         )
 
     def it_passes_the_effort_when_set() -> None:
         assert ClaudeAgent(effort="high").command("hi") == (
-            "claude -p hi --output-format json --effort high"
+            "claude -p hi --output-format json --dangerously-skip-permissions --effort high"
         )
 
     def it_passes_both_when_both_are_set() -> None:
         assert ClaudeAgent("claude-opus-5", "high").command("hi") == (
-            "claude -p hi --output-format json --model claude-opus-5 --effort high"
+            "claude -p hi --output-format json --dangerously-skip-permissions"
+            " --model claude-opus-5 --effort high"
         )

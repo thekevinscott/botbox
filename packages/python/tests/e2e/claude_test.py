@@ -1,7 +1,8 @@
-"""One real Claude Code session in the box, billed. Module-scoped: it runs once."""
+"""Real Claude Code sessions in the box, billed. Module-scoped: each runs once."""
 
 import json
 from fnmatch import fnmatch
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,18 @@ from botbox import Botbox, ClaudeAgent, RunResult
 def result() -> RunResult:
     agent = ClaudeAgent(model="claude-opus-5", effort="low")
     return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+
+
+@pytest.fixture(scope="module")
+def out(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("out")
+
+
+@pytest.fixture(scope="module")
+def tool_result(out: Path) -> RunResult:
+    agent = ClaudeAgent(model="claude-opus-5", effort="low")
+    prompt = "Write the text pong to /out/pong.txt using a tool. Do nothing else."
+    return Botbox(agent).run(agent.command(prompt), mounts=[(out, "/out", "rw")], workdir="/out")
 
 
 def describe_a_claude_session() -> None:
@@ -30,3 +43,12 @@ def describe_a_claude_session() -> None:
 
     def it_reaches_the_api_through_the_proxy(result: RunResult) -> None:
         assert 'Established connection to host "api.anthropic.com"' in result.proxy
+
+
+def describe_a_tool_call() -> None:
+    def it_is_not_denied(tool_result: RunResult) -> None:
+        assert json.loads(tool_result.stdout)["permission_denials"] == []
+
+    def it_writes_into_the_rw_mount(tool_result: RunResult, out: Path) -> None:
+        assert tool_result
+        assert (out / "pong.txt").read_text().strip() == "pong"
