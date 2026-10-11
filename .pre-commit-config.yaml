@@ -23,17 +23,3 @@ repos:
       - id: ruff-format
         files: ^packages/python/
 
-  - repo: local
-    hooks:
-      - id: rust-fmt
-        name: cargo fmt
-        entry: bash -c 'cd packages/rust && cargo fmt --all -- --check'
-        language: system
-        files: ^packages/rust/.*\.rs$
-        pass_filenames: false
-      - id: rust-clippy
-        name: cargo clippy
-        entry: bash -c 'cd packages/rust && cargo clippy --all-targets -- -D warnings'
-        language: system
-        files: ^packages/rust/.*\.rs$
-        pass_filenames: false

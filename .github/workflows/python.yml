@@ -4,37 +4,67 @@ on:
   pull_request:
     paths:
       - 'packages/python/**'
-      - 'packages/rust/**'
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
+      - 'justfile'
       - '.github/workflows/python.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: Build wheel + smoke
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+      - uses: extractions/setup-just@v3
+      - run: just lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+      - uses: extractions/setup-just@v3
+      - run: just typecheck
+
+  unit:
+    name: Unit (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: packages/rust
-      - uses: actions/setup-python@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install maturin
-      - name: Build wheel
-        run: maturin build --release -o dist
-        working-directory: packages/python
-      - name: Install wheel + smoke (--version)
-        run: |
-          python -m venv .venv
-          .venv/bin/pip install packages/python/dist/*.whl
-          .venv/bin/mynewproduct --version
+      - uses: extractions/setup-just@v3
+      - run: just test-unit
+
+  integration:
+    name: Integration (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: extractions/setup-just@v3
+      - run: just test-integration

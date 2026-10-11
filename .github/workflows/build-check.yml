@@ -13,9 +13,7 @@ on:
     # a subset of the toml's carve-outs, or a merge can release something
     # this never built.
     paths:
-      - 'packages/rust/**'
       - 'packages/python/**'
-      - 'packages/node/**'
       - '!packages/*/testing-conventions.toml'
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'

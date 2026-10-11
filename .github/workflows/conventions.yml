@@ -1,8 +1,7 @@
 name: Testing Conventions
 
 # Enforce the testing-conventions standard on this repo's packages: every
-# source file must have a colocated unit test (Python `foo.py` -> `foo_test.py`;
-# TypeScript `foo.ts` -> `foo.test.ts`; Rust an inline `#[cfg(test)]` module).
+# source file must have a colocated unit test (`foo.py` -> `foo_test.py`).
 # Calls the upstream reusable workflow, which installs the published
 # `testing-conventions` binary and runs each rule as its own job, failing the
 # build on any violation.
@@ -12,10 +11,7 @@ name: Testing Conventions
 # putitoutthere pin): v0 tracks the latest backwards-compatible release of the
 # reusable workflow.
 #
-# Per-language `source` because this is a monorepo: Python sources live under
-# packages/python, TypeScript under packages/node/src. Rust points at the crate
-# root, packages/rust, because detection needs the Cargo.toml in scope. The
-# reusable workflow scans a single root, so it is called once per language.
+# Python sources live under packages/python.
 
 on:
   pull_request:
@@ -36,16 +32,3 @@ jobs:
       languages: '["python"]'
       source: packages/python
 
-  rust:
-    name: Rust
-    uses: thekevinscott/testing-conventions/.github/workflows/testing-conventions.yml@v0
-    with:
-      languages: '["rust"]'
-      source: packages/rust
-
-  typescript:
-    name: TypeScript
-    uses: thekevinscott/testing-conventions/.github/workflows/testing-conventions.yml@v0
-    with:
-      languages: '["typescript"]'
-      source: packages/node/src

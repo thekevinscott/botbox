@@ -8,9 +8,7 @@ Conventions, supervision rules, and per-language style live under
 
 - `docs/internals/repo.md` — cross-cutting rules (changelog/migration fragment philosophy, public-API surface, CI-logic-in-scripts).
 - `docs/AGENTS.md` — how the docs site is organized ([Diataxis](https://diataxis.fr)) and the per-page quadrant rule.
-- `docs/internals/rust/` — Rust style, testing, shipping, review, code-smells.
 - `docs/internals/python/` — Python style, testing, shipping, review, setup.
-- `docs/internals/typescript/` — TypeScript style, testing, shipping, review, setup.
 
 ## Package layout
 
@@ -24,8 +22,8 @@ Conventions, supervision rules, and per-language style live under
 ## Workflow
 
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
-- Unit tests are **colocated** with their source (`foo.py` ↔ `foo_test.py`,
-  `foo.ts` ↔ `foo.test.ts`; Rust uses inline `#[cfg(test)]`). This is the
+- Unit tests are **colocated** with their source (`foo.py` ↔ `foo_test.py`).
+  This is the
   [testing-conventions](https://github.com/thekevinscott/testing-conventions)
   standard, enforced in CI by `.github/workflows/conventions.yml`.
 - **CI logic lives in scripts, not workflow YAML.** `run:` / `github-script`
@@ -49,23 +47,14 @@ Conventions, supervision rules, and per-language style live under
 
 Before the first `Release` run on a fresh scaffold:
 
-1. **Repo must be public.** Trusted Publishing on npm / PyPI / crates.io
-   requires the provider to inspect the workflow file at the configured
-   ref; private repos cannot satisfy this. The `preflight` job in
-   `.github/workflows/release.yml` fails fast if the repo is private.
-2. **`NPM_TOKEN` and `CARGO_REGISTRY_TOKEN` set as repo secrets.** npm
-   and crates.io Trusted Publishing bind to an already-published package,
-   so the first publish needs a long-lived token. `release.yml` forwards
-   both to the putitoutthere reusable workflow, which publishes with them
-   when set. Easy to forget — without `NPM_TOKEN` the first npm publish
-   404s. The npm token must bypass 2FA for writes (a classic Automation
-   token, or a granular token with "Bypass 2FA" enabled), or the publish
-   fails with `EOTP`.
-3. **After the first publish, switch to Trusted Publishing.** Register a
-   Trusted Publisher for every published package (each npm per-platform
-   sub-package needs its own), then delete both secrets. putitoutthere's
+1. **Repo must be public.** PyPI Trusted Publishing requires the provider
+   to inspect the workflow file at the configured ref; private repos cannot
+   satisfy this. The `preflight` job in `.github/workflows/release.yml` fails
+   fast if the repo is private.
+2. **Register a PyPI Trusted Publisher** (a pending publisher for a brand-new
+   project). putitoutthere's
    [first-release guide](https://github.com/thekevinscott/putitoutthere/blob/main/.claude/skills/first-release/reference/trusted-publishers.md)
-   has the per-registry steps.
+   has the steps.
 
 ## Out of scope
 
