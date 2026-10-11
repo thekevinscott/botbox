@@ -6,7 +6,7 @@ through its own CLI, to see what a run left behind.
 
 import subprocess
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +23,14 @@ def docker_lines(*args: str) -> list[str]:
     return subprocess.run(
         ["docker", *args], check=True, capture_output=True, text=True
     ).stdout.split()
+
+
+def removed(result: RunResult) -> Iterator[RunResult]:
+    """Yield `result`, then remove the container the run kept."""
+    try:
+        yield result
+    finally:
+        subprocess.run(["docker", "rm", "-f", result.container], check=True, capture_output=True)
 
 
 def leftovers() -> set[str]:
@@ -56,6 +64,7 @@ def probe(box: Botbox) -> Probe:
     def run(probes: Mapping[str, str], **options: Any) -> tuple[RunResult, dict[str, str]]:
         script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
         result = box.run(script, **options)
+        subprocess.run(["docker", "rm", "-f", result.container], check=True, capture_output=True)
         fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
         return result, {name: value.strip() for name, value in fields}
 

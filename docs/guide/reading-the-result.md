@@ -4,7 +4,7 @@ diataxis: how-to
 
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, and `proxy`. Nothing is parsed.
+`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `container`, and `image`. Nothing is parsed.
 
 ## Check the exit code
 
@@ -30,6 +30,15 @@ for path, contents in result.transcript.items():
 
 ```python
 print(result.proxy)
+```
+
+## Inspect the container
+
+The exited container is kept. `result.container` is its id; `docker diff` lists what the run wrote outside the mounts. Remove it when done.
+
+```python
+subprocess.run(["docker", "diff", result.container])
+subprocess.run(["docker", "rm", result.container])
 ```
 
 Next: the [Reference](../reference/#runresult) for every field, or [the error model](../explanation/#the-error-model).

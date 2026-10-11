@@ -1,0 +1,1 @@
+**Changed** (**BREAKING**, see [migration](../migrations.d/2026-10-11-python-keep-container.md)): `run()` keeps the exited container instead of removing it; the caller removes it (`docker rm <id>`). A run that raises still removes its container. `RunResult` gains `container` (the container id) and `image` (the tag that ran).

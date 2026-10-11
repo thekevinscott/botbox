@@ -1,18 +1,20 @@
 """Real Claude Code sessions in the box, billed. Module-scoped: each runs once."""
 
 import json
+from collections.abc import Iterator
 from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
+from conftest import removed
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
 
 @pytest.fixture(scope="module")
-def result() -> RunResult:
+def result() -> Iterator[RunResult]:
     agent = ClaudeAgent(model="claude-opus-5", effort="low")
-    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+    yield from removed(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
 @pytest.fixture(scope="module")
@@ -21,10 +23,11 @@ def out(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def tool_result(out: Path) -> RunResult:
+def tool_result(out: Path) -> Iterator[RunResult]:
     agent = ClaudeAgent(model="claude-opus-5", effort="low")
     prompt = "Write the text pong to /out/pong.txt using a tool. Do nothing else."
-    return Botbox(agent).run(agent.command(prompt), mounts=[(out, "/out", "rw")], workdir="/out")
+    box = Botbox(agent)
+    yield from removed(box.run(agent.command(prompt), mounts=[(out, "/out", "rw")], workdir="/out"))
 
 
 def describe_a_claude_session() -> None:

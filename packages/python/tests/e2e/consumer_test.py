@@ -5,9 +5,11 @@ It is written to a stable path: the layer's tag is derived from the Dockerfile's
 """
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from conftest import removed
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -22,11 +24,11 @@ def sample_dockerfile() -> str:
 
 
 @pytest.fixture(scope="module")
-def result(pytestconfig: pytest.Config) -> RunResult:
+def result(pytestconfig: pytest.Config) -> Iterator[RunResult]:
     dockerfile = pytestconfig.cache.mkdir("consumer") / "Dockerfile"
     dockerfile.write_text(sample_dockerfile())
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
-    return box.run("uv --version && pytest --version && vitest --version")
+    yield from removed(box.run("uv --version && pytest --version && vitest --version"))
 
 
 def describe_the_sample_consumer_dockerfile() -> None:

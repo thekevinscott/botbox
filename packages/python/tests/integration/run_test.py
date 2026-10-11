@@ -381,12 +381,12 @@ def describe_run() -> None:
             assert home.parent == proxy_log.parent
 
     def describe_teardown() -> None:
-        def it_removes_the_container_the_sidecar_and_both_networks(
+        def it_keeps_the_container_and_removes_the_sidecar_and_both_networks(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            box.run("true")
-            removed = [c.args[0] for c in docker["container"].remove.call_args_list]
-            assert removed == ["agent-container", "proxy-container"]
+            result = box.run("true")
+            assert result.container == "agent-container"
+            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
             [egress] = docker["network"].create.call_args.args
             assert [c.args[0] for c in docker["network"].remove.call_args_list] == [
                 daemon.agent["networks"][0],
@@ -398,7 +398,7 @@ def describe_run() -> None:
         ) -> None:
             daemon.exit_code = 1
             box.run("false")
-            assert docker["container"].remove.call_count == 2
+            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
             assert docker["network"].remove.call_count == 2
 
         def it_tears_down_when_the_container_fails_to_start(
@@ -487,9 +487,11 @@ def describe_run() -> None:
             assert not Path(volume(daemon.agent, "/home/node")[0]).parent.exists()
 
         @pytest.mark.usefixtures("dead")
-        def it_still_tries_to_remove_everything(box: Botbox, docker: dict[str, MagicMock]) -> None:
+        def it_still_tries_to_remove_the_sidecar_and_both_networks(
+            box: Botbox, docker: dict[str, MagicMock]
+        ) -> None:
             box.run("true")
-            assert docker["container"].remove.call_count == 2
+            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
             assert docker["network"].remove.call_count == 2
 
         def it_keeps_the_exit_code_when_only_teardown_fails(
