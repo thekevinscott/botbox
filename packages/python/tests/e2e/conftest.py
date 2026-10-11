@@ -4,6 +4,7 @@ Every test drives `botbox` through its public entry point. Docker is only ever r
 through its own CLI, to see what a run left behind.
 """
 
+import os
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
@@ -13,6 +14,11 @@ from typing import Any
 import pytest
 
 from botbox import Botbox, ClaudeAgent, RunResult
+
+# A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
+API_KEY = os.environ["ANTHROPIC_API_KEY"]
+if not API_KEY:
+    raise RuntimeError("ANTHROPIC_API_KEY is empty")
 
 LINE = 'printf "%s\\t" "{name}"; ({command}) 2>&1 | tr "\\n" " "; echo'
 

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -54,7 +55,7 @@ def describe_host_home() -> None:
 
     def it_is_keyword_only(claude_home: Path) -> None:
         with pytest.raises(TypeError):
-            ClaudeAgent(None, None, claude_home)  # type: ignore[call-arg]
+            ClaudeAgent(None, None, claude_home)  # type: ignore[call-arg, arg-type]
 
 
 def describe_stage_auth() -> None:
@@ -91,6 +92,45 @@ def describe_stage_auth() -> None:
         (claude_home / ".credentials.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"\.credentials\.json"):
             agent.stage_auth(home)
+
+
+def describe_api_key() -> None:
+    @pytest.fixture
+    def keyed(claude_home: Path) -> ClaudeAgent:
+        return ClaudeAgent(api_key="sk-test", host_home=claude_home)
+
+    def it_is_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            ClaudeAgent(None, None, "sk-test")  # type: ignore[call-arg]
+
+    def it_stages_the_key_and_a_helper_that_reads_it(keyed: ClaudeAgent, home: Path) -> None:
+        keyed.stage_auth(home)
+        assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
+            ".claude",
+            ".claude/api_key",
+            ".claude/settings.json",
+        ]
+        assert (home / ".claude" / "api_key").read_text() == "sk-test"
+        assert json.loads((home / ".claude" / "settings.json").read_text()) == {
+            "apiKeyHelper": "cat /home/node/.claude/api_key"
+        }
+
+    def it_makes_the_key_readable_by_its_owner_only(keyed: ClaudeAgent, home: Path) -> None:
+        keyed.stage_auth(home)
+        assert (home / ".claude" / "api_key").stat().st_mode & 0o777 == 0o600
+
+    def it_stages_no_credentials_file(keyed: ClaudeAgent, home: Path) -> None:
+        keyed.stage_auth(home)
+        assert not (home / ".claude" / ".credentials.json").exists()
+
+    def it_needs_no_host_credentials(tmp_path: Path, home: Path) -> None:
+        ClaudeAgent(api_key="sk-test", host_home=tmp_path / "missing").stage_auth(home)
+        assert (home / ".claude" / "api_key").exists()
+
+    def it_stages_no_key_without_one(agent: ClaudeAgent, home: Path) -> None:
+        agent.stage_auth(home)
+        assert not (home / ".claude" / "api_key").exists()
+        assert not (home / ".claude" / "settings.json").exists()
 
 
 def describe_command() -> None:

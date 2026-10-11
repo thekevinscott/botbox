@@ -125,7 +125,14 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. Credentials (Claude Code: `~/.claude/.credentials.json`) are copied in before the command starts. After it exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+
+`ClaudeAgent` authenticates one of two ways, never both:
+
+- Default: `~/.claude/.credentials.json` is copied into the temporary home.
+- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
+
+botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ### Network
 
@@ -180,7 +187,7 @@ No shared base image. To add an agent: one Dockerfile, one class, one row.
 ### `command()`
 
 ```python
-ClaudeAgent(model: str | None = None, effort: str | None = None)
+ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None)
 PiAgent(provider: str, model: str | None = None)
 
 agent.command(prompt: str) -> str

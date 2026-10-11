@@ -1,0 +1,1 @@
+**Added**: `ClaudeAgent(api_key=...)` authenticates Claude Code with an API key instead of `~/.claude/.credentials.json`: the key is staged into the run's temporary home with a `settings.json` `apiKeyHelper` that reads it.

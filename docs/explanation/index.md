@@ -26,7 +26,14 @@ A non-zero exit is a normal `RunResult`. API errors inside the container are the
 
 ## Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. Credentials (Claude Code: `~/.claude/.credentials.json`) are copied in before the command starts. After it exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+
+`ClaudeAgent` authenticates one of two ways, never both:
+
+- Default: `~/.claude/.credentials.json` is copied into the temporary home.
+- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
+
+botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ## Network
 
