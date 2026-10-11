@@ -4,10 +4,40 @@ diataxis: explanation
 
 # Explanation
 
-<!--
-Understanding-oriented pages: the "why" behind the design — concepts,
-architecture, trade-offs, and the reasoning a reader needs to build a mental
-model. Open with why the topic matters; end by linking the How-to that applies
-it. Discursive, not step-by-step — no task instructions or exhaustive parameter
-tables; link out to How-to and Reference for those.
--->
+Why botbox is shaped the way it is.
+
+## Goals
+
+An experiment that puts an agent in a box needs five things:
+
+1. **A pre-configured agent CLI.** Claude Code or Pi pre-configured.
+2. **No capabilities, no privilege escalation.** `--cap-drop ALL`, `no-new-privileges`, no setuid binaries.
+3. **Network only to an allowlist.** No network access beyond the whitelist.
+4. **Mounted directories.** Read-only or read-write.
+5. **Logs available.** The agent's transcript and the proxy's log come back on the result.
+
+The Python SDK is the public API.
+
+## The error model
+
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist.
+
+`run()` raises only when setup fails or the run is interrupted.
+
+## Home and credentials
+
+Each run gets a fresh temporary home, mounted at the agent's home path. Credentials (Claude Code: `~/.claude/.credentials.json`) are copied in before the command starts. After it exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+
+## Network
+
+The container joins a Docker `--internal` network. The only way out is a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); `allow` adds more.
+
+Every connection, admitted or refused, is logged to `result.proxy`. Network and proxy are per run and removed afterwards, including on failure.
+
+There is no network at run time beyond the allowlist, so installs happen in the image build.
+
+## No shared base image
+
+An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI. Each agent's image stands alone. To add an agent: one Dockerfile, one class, one row.
+
+Apply this: [Allowing hosts](../guide/allowing-hosts), [Reading the result](../guide/reading-the-result).
