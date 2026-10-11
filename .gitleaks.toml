@@ -1,0 +1,17 @@
+# gitleaks configuration. Extends the bundled default ruleset and adds
+# repo-specific allowlists. Run locally: `gitleaks detect --source .`
+# CI invocation lives in .github/workflows/security.yml (or wherever
+# scanning runs in this repo).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Repo-wide allowlists"
+paths = [
+  '''(?i)^docs/.vitepress/cache/''',
+  '''(?i)^packages/rust/target/''',
+  '''(?i)^packages/node/dist/''',
+  '''(?i)^packages/python/dist/''',
+  '''(?i)\.lock$''',
+]

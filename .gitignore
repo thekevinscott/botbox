@@ -1,0 +1,27 @@
+target/
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
+
+# Fragment folders staged into the npm package at build time (scripts/build.mjs)
+packages/node/changelog.d/
+packages/node/migrations.d/
+
+# Beads issue tracker (local only)
+.beads/
+docs/.vitepress/cache
+docs/.vitepress/dist
+docs/node_modules/

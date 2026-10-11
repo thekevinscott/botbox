@@ -1,0 +1,25 @@
+name: Workflow lint
+
+# Fail the build if a workflow or composite action encodes logic inline
+# (loops, `case` dispatch, text-munging, long bodies) instead of calling a
+# tested script. Runs testing-conventions' workflow-lint check alone, so a
+# workflow-only PR isn't also held to the package checks in conventions.yml.
+# See docs/internals/repo.md.
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-lint:
+    name: Workflow lint
+    uses: thekevinscott/testing-conventions/.github/workflows/testing-conventions.yml@v0
+    with:
+      languages: '["python"]'
+      source: packages/python
+      gates: '["workflow-lint"]'

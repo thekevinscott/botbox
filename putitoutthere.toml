@@ -1,0 +1,75 @@
+[putitoutthere]
+version = 1
+
+# Three artifacts, one binary. Python ships a maturin-built wheel per
+# target; npm ships a top-level package + per-platform sub-packages.
+# Cascade: Rust source edits retrigger PyPI + npm builds.
+# Split root files from subtrees to keep gate config and bookkeeping out
+# of releases. Use extglobs: leading ! patterns do not subtract matches.
+
+[[package]]
+name = "mynewproduct-rust"
+kind = "crates"
+crate = "mynewproduct"
+path = "packages/rust"
+first_version = "0.0.1"
+globs = [
+  "packages/rust/!(testing-conventions.toml)",
+  "packages/rust/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "LICENSE",
+]
+
+[[package]]
+name = "mynewproduct-py"
+kind = "pypi"
+pypi = "mynewproduct"
+path = "packages/python"
+first_version = "0.0.1"
+build = "maturin"
+depends_on = ["mynewproduct-rust"]
+globs = [
+  "packages/python/!(testing-conventions.toml)",
+  "packages/python/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "packages/rust/!(testing-conventions.toml)",
+  "packages/rust/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "LICENSE",
+]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+[[package]]
+name = "mynewproduct-npm"
+kind = "npm"
+npm = "mynewproduct"
+path = "packages/node"
+first_version = "0.0.1"
+build = [{ mode = "bundled-cli", name = "@mynewproduct/{triple}" }]
+depends_on = ["mynewproduct-rust"]
+globs = [
+  "packages/node/!(testing-conventions.toml)",
+  "packages/node/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "packages/rust/!(testing-conventions.toml)",
+  "packages/rust/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "LICENSE",
+]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-pc-windows-msvc",
+]
+
+# Required, not optional: `build = [{ mode = "bundled-cli" }]` above declares the
+# shape, but the reusable workflow gates every bundled-cli step on this block
+# existing — `write-crate-version` included. Without it the npm binaries are
+# built by packages/node/scripts/build.mjs against an unbumped Cargo.toml, and
+# each release ships a binary reporting the previous version.
+[package.bundle_cli]
+bin = "mynewproduct"
+crate_path = "packages/rust"

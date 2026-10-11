@@ -1,0 +1,23 @@
+name: Check
+
+# PR-time validation of putitoutthere.toml via piot's reusable check
+# workflow (sibling to the release.yml we already consume). Catches
+# config-level mistakes — TOML/schema errors, duplicate package names,
+# depends_on cycles, dangling refs — so they surface here instead of
+# during a Release run on main. Cheap: a couple of seconds, no per-target
+# build. Pinned to @v0 to match release.yml.
+
+on:
+  pull_request:
+    paths:
+      - 'putitoutthere.toml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/build-check.yml'
+      - '.github/workflows/check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  putitoutthere-check:
+    uses: thekevinscott/putitoutthere/.github/workflows/check.yml@v0

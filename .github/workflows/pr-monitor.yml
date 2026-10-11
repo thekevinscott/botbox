@@ -1,0 +1,19 @@
+name: PR Monitor
+
+on:
+  pull_request:
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  monitor:
+    name: 'CI Gate'
+    runs-on: ubuntu-latest
+    # The action has no timeout of its own. If a predicted run never
+    # dispatches, the gate waits until the job is killed.
+    timeout-minutes: 20
+    steps:
+      - uses: thekevinscott/pr-monitor@v1
