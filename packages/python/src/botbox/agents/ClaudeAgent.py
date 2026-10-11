@@ -28,6 +28,7 @@ class ClaudeAgent:
     def command(self, prompt: str) -> str:
         command = (
             f"claude -p {shlex.quote(prompt)} --output-format json --dangerously-skip-permissions"
+            " --strict-mcp-config"
         )
         if self.model is not None:
             command += f" --model {self.model}"

@@ -44,6 +44,10 @@ def describe_a_claude_session() -> None:
     def it_reaches_the_api_through_the_proxy(result: RunResult) -> None:
         assert 'Established connection to host "api.anthropic.com"' in result.proxy
 
+    def it_reaches_for_no_refused_host(result: RunResult) -> None:
+        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+        assert refused == []
+
 
 def describe_a_tool_call() -> None:
     def it_is_not_denied(tool_result: RunResult) -> None:

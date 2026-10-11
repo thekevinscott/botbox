@@ -1,0 +1,1 @@
+**Fixed**: `ClaudeAgent.command()` now renders `--strict-mcp-config`; without it, Claude Code connected to the user's claude.ai MCP connectors through `mcp-proxy.anthropic.com` and the proxy refused every CONNECT.
