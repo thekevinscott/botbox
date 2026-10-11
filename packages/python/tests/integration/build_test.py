@@ -1,3 +1,5 @@
+import contextlib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -16,6 +18,12 @@ def layer(tmp_path: Path) -> Path:
     dockerfile = directory / "Dockerfile"
     dockerfile.write_text(LAYER)
     return dockerfile
+
+
+@pytest.fixture
+def in_layer_directory(layer: Path) -> Iterator[None]:
+    with contextlib.chdir(layer.parent):
+        yield
 
 
 def describe_build() -> None:
@@ -66,10 +74,10 @@ def describe_build() -> None:
             Botbox(ClaudeAgent(), dockerfile=str(layer)).build()
             assert builds[1]["file"] == layer
 
+        @pytest.mark.usefixtures("in_layer_directory")
         def it_resolves_a_relative_dockerfile_against_the_working_directory(
-            builds: list[dict[str, Any]], layer: Path, monkeypatch: pytest.MonkeyPatch
+            builds: list[dict[str, Any]], layer: Path
         ) -> None:
-            monkeypatch.chdir(layer.parent)
             Botbox(ClaudeAgent(), dockerfile="./Dockerfile").build()
             assert builds[1]["context"] == layer.parent
             assert builds[1]["file"] == layer
