@@ -1,56 +1,30 @@
 # Architecture
 
-A single Rust binary is the source of truth. Python and Node wrappers
-exist only to put that binary on `PATH` under their respective package
-manager.
+botbox is a pure-Python library. The root [README](README.md) is the spec.
 
 ## Packages
 
 ```
 packages/
-  rust/      crate — the CLI + library. clap for parsing.
-  python/    maturin-built wheel that bundles the rust binary.
-  node/      thin wrapper, resolves a per-platform optional dep
-             whose payload is the rust binary.
+  python/    the `botbox` package (hatchling, src layout).
+ci/          repo-internal CI gate CLI (never published).
 docs/        VitePress site (published to GitHub Pages).
   internals/ contributor + agent conventions (not published).
 ```
 
 ## Release flow
 
-`putitoutthere.toml` declares the three artifacts and their dependency
-cascade. The `Release` workflow (`.github/workflows/release.yml`) calls
-the reusable workflow at `thekevinscott/putitoutthere`. Rust package changes
-retrigger PyPI and npm builds via the cascade. Release globs exclude each
-package's `testing-conventions.toml`, `changelog.d/`, `migrations.d/`, and
-`e2e-attestations/` bookkeeping, including the Rust paths watched by its wrappers.
+`putitoutthere.toml` declares the one PyPI artifact. The `Release` workflow (`.github/workflows/release.yml`) calls the reusable workflow at `thekevinscott/putitoutthere`. The version comes from git tags via `hatch-vcs`.
 
 ## CI gates
 
-- Per-language workflow (`rust.yml`, `python.yml`, `node.yml`) runs lint + test + build with path filters.
-- [`conventions.yml`](.github/workflows/conventions.yml) calls the upstream [testing-conventions workflow](https://github.com/thekevinscott/testing-conventions/blob/v0/.github/workflows/testing-conventions.yml) at `v0`; its current coverage is described below.
+- [`python.yml`](.github/workflows/python.yml) runs lint, typecheck, unit, and integration tests. E2E tests never run on CI.
+- [`conventions.yml`](.github/workflows/conventions.yml) calls the upstream [testing-conventions workflow](https://github.com/thekevinscott/testing-conventions/blob/v0/.github/workflows/testing-conventions.yml) at `v0` against `packages/python`, with upstream defaults.
 - `changelog.yml` enforces a changelog fragment under `docs/changelog.d/` on PRs that touch package code.
+- `build-check.yml` and `check.yml` validate the release build and `putitoutthere.toml` on PRs.
 - `docs.yml` builds + deploys the VitePress site.
 - `pr-monitor.yml` gates merge on the aggregate CI status.
 
-Testing conventions cover colocated tests and source/test co-change, unit-test
-isolation and mocking hygiene, one function per file, unit and changed-line
-coverage, mutation testing on changed lines, integration-test layout, exclusion
-of tests from built distributions, and E2E attestation freshness. Gates run
-when applicable to the detected sources, distributions, and attestations.
-
-The Python lane scans `packages/python` with upstream defaults; this binary-only
-wrapper currently has no Python source files. The TypeScript lane scans
-`packages/node/src` with upstream defaults.
-There is no Rust conventions lane yet; Rust's separate lint/test/build workflow
-does not replace those checks.
-
-The intended template policy is upstream defaults on every lane, with no custom
-`testing-conventions.toml` or exemptions, so clones inherit the full standard.
-
 ## Public-API surface
 
-Defined in `docs/internals/repo.md`: every exported value/type, every CLI
-flag, every config key, every observable artifact. Changes to that
-surface require a fragment under `docs/changelog.d/` (plus
-`docs/migrations.d/` when breaking).
+Defined in `docs/internals/repo.md`: every exported value/type, every config key, every observable artifact. Changes to that surface require a fragment under `docs/changelog.d/` (plus `docs/migrations.d/` when breaking).

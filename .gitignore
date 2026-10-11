@@ -1,4 +1,3 @@
-target/
 node_modules/
 dist/
 coverage/
@@ -15,10 +14,6 @@ build/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
-
-# Fragment folders staged into the npm package at build time (scripts/build.mjs)
-packages/node/changelog.d/
-packages/node/migrations.d/
 
 # Beads issue tracker (local only)
 .beads/

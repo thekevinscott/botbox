@@ -3,56 +3,29 @@ set shell := ["bash", "-cu"]
 default:
     @just --list
 
-# ---- Rust ----------------------------------------------------------------
-
-rust-lint:
-    cd packages/rust && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings
-
-rust-format:
-    cd packages/rust && cargo fmt --all
-
-rust-test:
-    cd packages/rust && cargo test
-
-rust-cov:
-    cd packages/rust && cargo llvm-cov --ignore-filename-regex 'main\.rs' --fail-under-lines 95
-
-rust-build:
-    cd packages/rust && cargo build --release
-
 # ---- Python --------------------------------------------------------------
+# pytest exit 5 means no tests collected: lanes exist before their tests do.
 
-py-lint:
-    cd packages/python && ruff check . && ruff format --check .
+lint:
+    cd packages/python && uv run ruff check . && uv run ruff format --check .
 
-py-format:
-    cd packages/python && ruff check --fix . && ruff format .
+format:
+    cd packages/python && uv run ruff check --fix . && uv run ruff format .
 
-py-typecheck:
-    cd packages/python && mypy .
+typecheck:
+    cd packages/python && uv run mypy src
 
-py-test:
-    cd packages/python && pytest
+test-unit:
+    cd packages/python && { uv run pytest src || [ $? -eq 5 ]; }
 
-py-build:
-    cd packages/python && maturin build --release
+test-integration:
+    cd packages/python && { uv run pytest tests/integration || [ $? -eq 5 ]; }
 
-# ---- Node ----------------------------------------------------------------
+test-e2e:
+    cd packages/python && { uv run pytest tests/e2e || [ $? -eq 5 ]; }
 
-node-install:
-    cd packages/node && pnpm install --no-frozen-lockfile
-
-node-lint:
-    cd packages/node && pnpm run lint
-
-node-typecheck:
-    cd packages/node && pnpm run typecheck
-
-node-test:
-    cd packages/node && pnpm run test
-
-node-build:
-    cd packages/node && pnpm run build
+build:
+    cd packages/python && uv build
 
 # ---- Docs ----------------------------------------------------------------
 
@@ -77,16 +50,12 @@ gha-test:
 
 # ---- Aggregates ----------------------------------------------------------
 
-lint: rust-lint py-lint node-lint gha-lint
-format: rust-format py-format
-typecheck: py-typecheck node-typecheck
-test: rust-test py-test node-test gha-test
-build: rust-build py-build node-build
+test: test-unit test-integration gha-test
 
-ci: lint typecheck test
+ci: lint gha-lint typecheck test
 
 hooks:
     pre-commit install --install-hooks
 
 clean:
-    rm -rf packages/rust/target packages/python/dist packages/node/dist docs/.vitepress/dist
+    rm -rf packages/python/dist docs/.vitepress/dist

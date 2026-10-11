@@ -1,6 +1,6 @@
 # Repo-wide conventions
 
-Cross-cutting rules that apply across all language packages. Language-specific guidance lives in `python-supervision.md`, `typescript-supervision.md`, `rust-supervision.md`.
+Cross-cutting rules that apply across all language packages. Language-specific guidance lives in `python/`.
 
 ## Changelog + migration fragments
 
@@ -22,7 +22,7 @@ Every PR that changes public API adds at least one fragment naming each touched 
 
 **Stubs at the conventional paths** — `packages/<pkg>/CHANGELOG.md`, `packages/<pkg>/MIGRATIONS.md`, and `docs/migrations.md` are short pointers into the folders, so anyone fetching the conventional filename gets one hop instead of a 404. Never append entries to the stubs.
 
-**Ship the folders in artifacts where the toolchain allows** — the npm package stages both folders into the tarball at build time (`files:` allowlist + a copy step in `scripts/build.mjs`), so the installed copy under `node_modules/` is version-exact: it contains precisely the fragments up to that release. `cargo package` and maturin cannot include files outside the package root, so crate and wheel consumers take the stub → folder hop on GitHub instead.
+**Wheels do not ship the folders** — the wheel cannot include files outside the package root, so consumers take the stub → folder hop on GitHub.
 
 Public-API surface for the purpose of these fragments: every exported value/type, every CLI flag, every config key, every observable artifact (tag format, GitHub Release body shape). Internal refactors, test-only changes, and docs-only edits stay out.
 
