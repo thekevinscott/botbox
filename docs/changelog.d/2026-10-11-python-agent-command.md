@@ -1,0 +1,1 @@
+**Added**: `Agent.command(prompt) -> str`, implemented by `ClaudeAgent` and `PiAgent`, rendering the CLI invocation for a shell-quoted prompt. `ClaudeAgent` takes `model` and `effort`; `PiAgent` takes `model`.

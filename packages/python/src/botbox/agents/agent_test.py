@@ -17,6 +17,9 @@ def describe_agent() -> None:
     def it_stages_credentials_into_a_home() -> None:
         assert get_type_hints(Agent.stage_auth) == {"home": Path, "return": type(None)}
 
+    def it_renders_a_command_for_a_prompt() -> None:
+        assert get_type_hints(Agent.command) == {"prompt": str, "return": str}
+
     def it_types_the_dockerfile_as_a_path() -> None:
         assert get_type_hints(Agent)["dockerfile"] is Path
 

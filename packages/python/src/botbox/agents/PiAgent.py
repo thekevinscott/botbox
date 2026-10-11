@@ -1,4 +1,5 @@
 import os
+import shlex
 import shutil
 from pathlib import Path
 
@@ -29,12 +30,21 @@ class PiAgent:
     home = "/home/node"
     transcripts = ".pi/agent/sessions/**/*.jsonl"
 
-    def __init__(self, provider: str, *, host_home: Path | None = None) -> None:
+    def __init__(
+        self, provider: str, model: str | None = None, *, host_home: Path | None = None
+    ) -> None:
         if provider not in PROVIDERS:
             raise ValueError(f"unknown provider {provider!r}: expected {', '.join(PROVIDERS)}")
         self.provider = provider
+        self.model = model
         self.allow = resolve_allow(provider)
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
+
+    def command(self, prompt: str) -> str:
+        command = f"pi -p {shlex.quote(prompt)} --mode json --provider {self.provider}"
+        if self.model is not None:
+            command += f" --model {self.model}"
+        return command
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".pi" / "agent"
