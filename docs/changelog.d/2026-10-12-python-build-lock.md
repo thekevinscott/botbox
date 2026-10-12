@@ -1,0 +1,1 @@
+**Fixed**: Concurrent `build()` calls on the same tag, including parallel `run()`s from separate processes, no longer fail with `No such image: sha256:...`. Builds of one tag take turns on a file lock in the system temp directory.

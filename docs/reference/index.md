@@ -61,6 +61,8 @@ box.build() -> str
 
 Builds the agent's image, then your `dockerfile` on top, and returns the tag. `run()` calls this every time.
 
+Concurrent builds of one tag, from any process, take turns.
+
 ## Agents
 
 | Agent       | Class         | Dockerfile                 | Status     |

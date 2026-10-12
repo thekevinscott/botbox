@@ -9,6 +9,7 @@ from python_on_whales.exceptions import DockerException
 
 from botbox.agents.agent import Agent
 from botbox.bind_mounts import Mount, bind_mounts
+from botbox.build_lock import build_lock
 from botbox.collect import collect
 from botbox.lockdown import lockdown
 from botbox.RunResult import RunResult
@@ -31,17 +32,20 @@ class Botbox:
     def build(self) -> str:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
 
-        Built on every call; Docker's layer cache keeps an unchanged build fast.
+        Built on every call; Docker's layer cache keeps an unchanged build fast. Concurrent
+        builds of one tag, from any process, take turns.
         """
-        agent_dockerfile = self.agent.dockerfile
-        docker.build(
-            agent_dockerfile.parent, tags=self.agent.image, file=agent_dockerfile, progress=False
-        )
+        agent = self.agent
+        with build_lock(agent.image):
+            docker.build(
+                agent.dockerfile.parent, tags=agent.image, file=agent.dockerfile, progress=False
+            )
         if self.dockerfile is None:
-            return self.agent.image
+            return agent.image
         digest = hashlib.sha256(str(self.dockerfile).encode()).hexdigest()[:12]
-        tag = f"{self.agent.image.split(':')[0]}-{digest}:latest"
-        docker.build(self.dockerfile.parent, tags=tag, file=self.dockerfile, progress=False)
+        tag = f"{agent.image.split(':')[0]}-{digest}:latest"
+        with build_lock(tag):
+            docker.build(self.dockerfile.parent, tags=tag, file=self.dockerfile, progress=False)
         return tag
 
     def run(
