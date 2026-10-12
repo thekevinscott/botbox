@@ -7,7 +7,6 @@ botbox is a pure-Python library. The root [README](README.md) is the spec.
 ```
 packages/
   python/    the `botbox` package (hatchling, src layout).
-ci/          repo-internal CI gate CLI (never published).
 docs/        VitePress site (published to GitHub Pages).
   internals/ contributor + agent conventions (not published).
 ```

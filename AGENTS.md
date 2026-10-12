@@ -16,8 +16,6 @@ Conventions, supervision rules, and per-language style live under
 - `internals/` holds internal-only packages, built and tested to the same
   standards but never published. Private workspaces that only produce build
   artifacts for a published package belong here too.
-- The root-level `ci/` package is an exception: CI logic stays there under the
-  workflow policy below.
 
 ## Workflow
 
