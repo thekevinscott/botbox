@@ -1,5 +1,5 @@
+import hashlib
 from collections.abc import Callable, Iterator
-from fnmatch import fnmatch
 from pathlib import Path
 from threading import Event, Thread
 from unittest.mock import patch
@@ -58,4 +58,5 @@ def describe_build_lock() -> None:
         with build_lock("an-agent:latest"):
             pass
         [path] = tempdir.iterdir()
-        assert fnmatch(path.name, "botbox-build-*.lock")
+        digest = hashlib.sha256(b"an-agent:latest").hexdigest()[:12]
+        assert path.name == f"botbox-build-{digest}.lock"
