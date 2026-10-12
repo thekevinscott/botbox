@@ -37,7 +37,7 @@ def describe_build() -> None:
 
         def it_builds_the_shipped_claude_dockerfile(builds: list[dict[str, Any]]) -> None:
             Botbox(ClaudeAgent()).build()
-            assert builds[0]["file"].name == "claude.Dockerfile"
+            assert builds[0]["file"].parts[-2:] == ("claude", "Dockerfile")
             assert builds[0]["text"].startswith("FROM node:24.20.0-slim\n")
 
         def it_uses_the_agent_dockerfiles_directory_as_context(
@@ -48,7 +48,7 @@ def describe_build() -> None:
 
         def it_builds_the_pi_image_for_pi(builds: list[dict[str, Any]]) -> None:
             assert Botbox(PiAgent(provider="openrouter")).build() == "botbox-pi:latest"
-            assert builds[0]["file"].name == "pi.Dockerfile"
+            assert builds[0]["file"].parts[-2:] == ("pi", "Dockerfile")
 
     def describe_with_a_dockerfile() -> None:
         def it_builds_the_agent_image_then_the_layer(

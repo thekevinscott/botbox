@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from botbox.agents.ClaudeAgent import ClaudeAgent
+from botbox.agents.claude.ClaudeAgent import ClaudeAgent
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def describe_the_container() -> None:
         assert agent.image == "botbox-claude:latest"
 
     def it_points_at_its_own_dockerfile(agent: ClaudeAgent) -> None:
-        assert agent.dockerfile.name == "claude.Dockerfile"
+        assert agent.dockerfile.parts[-2:] == ("claude", "Dockerfile")
 
     def it_ships_its_dockerfile_with_the_package(agent: ClaudeAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")

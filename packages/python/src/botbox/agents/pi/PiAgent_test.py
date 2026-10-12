@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from botbox.agents.PiAgent import PiAgent
+from botbox.agents.pi.PiAgent import PiAgent
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def describe_the_container() -> None:
         assert agent.image == "botbox-pi:latest"
 
     def it_points_at_its_own_dockerfile(agent: PiAgent) -> None:
-        assert agent.dockerfile.name == "pi.Dockerfile"
+        assert agent.dockerfile.parts[-2:] == ("pi", "Dockerfile")
 
     def it_ships_its_dockerfile_with_the_package(agent: PiAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")

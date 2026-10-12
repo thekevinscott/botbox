@@ -26,7 +26,7 @@ class PiAgent:
     """pi. Image only: botbox builds it, but runs are not yet supported."""
 
     image = "botbox-pi:latest"
-    dockerfile = Path(__file__).with_name("pi.Dockerfile")
+    dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/node"
     transcripts = ".pi/agent/sessions/**/*.jsonl"
 

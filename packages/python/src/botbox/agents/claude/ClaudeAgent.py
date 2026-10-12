@@ -9,7 +9,7 @@ class ClaudeAgent:
     """Claude Code."""
 
     image = "botbox-claude:latest"
-    dockerfile = Path(__file__).with_name("claude.Dockerfile")
+    dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/node"
     transcripts = ".claude/projects/**/*.jsonl"
     allow: tuple[str, ...] = ("api.anthropic.com",)
