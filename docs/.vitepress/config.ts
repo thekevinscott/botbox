@@ -53,6 +53,7 @@ export default defineConfig({
         },
       ],
     },
+    socialLinks: [{ icon: 'github', link: 'https://github.com/thekevinscott/botbox' }],
     search: { provider: 'local' },
     outline: [2, 3],
   },
