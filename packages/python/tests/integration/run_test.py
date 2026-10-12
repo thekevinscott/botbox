@@ -211,6 +211,29 @@ def describe_run() -> None:
             box.run("true")
             assert daemon.proxy["detach"] is True
 
+    def describe_an_api_key() -> None:
+        @pytest.fixture
+        def keyed(claude_home: Path) -> Botbox:
+            return Botbox(ClaudeAgent(api_key="sk-test", host_home=claude_home))
+
+        def it_stages_the_key_and_its_helper_instead_of_the_credentials(
+            keyed: Botbox, daemon: Daemon
+        ) -> None:
+            keyed.run("true")
+            files = daemon.agent["files"]["/home/node"]
+            assert files == {
+                ".claude/api_key": "sk-test",
+                ".claude/settings.json": '{"apiKeyHelper": "cat /home/node/.claude/api_key"}',
+            }
+
+        def it_keeps_the_key_out_of_the_container_create_call(
+            keyed: Botbox, daemon: Daemon
+        ) -> None:
+            keyed.run("true")
+            call = {k: v for k, v in daemon.agent.items() if k != "files"}
+            assert "sk-test" not in repr(call)
+            assert "sk-test" not in repr(daemon.proxy)
+
     def describe_the_allowlist() -> None:
         def it_admits_the_agents_hosts(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
