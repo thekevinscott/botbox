@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterator
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
@@ -65,6 +65,22 @@ def describe_botbox() -> None:
         assert Botbox(agent, allow=["registry.npmjs.org"]).allow == ("registry.npmjs.org",)
 
 
+@pytest.fixture
+def steps(docker: MagicMock) -> Iterator[list[str]]:
+    """Each lock taken and released, and each build, in order."""
+    steps: list[str] = []
+
+    @contextmanager
+    def lock(tag: str) -> Iterator[None]:
+        steps.append(f"lock {tag}")
+        yield
+        steps.append(f"unlock {tag}")
+
+    docker.build.side_effect = lambda *_args, tags, **_options: steps.append(f"build {tags}")
+    with patch("botbox.Botbox.build_lock", lock):
+        yield steps
+
+
 def describe_build() -> None:
     def describe_without_a_dockerfile() -> None:
         def it_returns_the_agents_tag(agent: Mock) -> None:
@@ -96,6 +112,19 @@ def describe_build() -> None:
                 ),
                 call(layer.parent, tags=tag, file=layer, progress=False),
             ]
+
+    def it_holds_each_tags_lock_only_while_building_it(
+        agent: Mock, layer: Path, steps: list[str]
+    ) -> None:
+        tag = Botbox(agent, dockerfile=layer).build()
+        assert steps == [
+            "lock an-agent:latest",
+            "build an-agent:latest",
+            "unlock an-agent:latest",
+            f"lock {tag}",
+            f"build {tag}",
+            f"unlock {tag}",
+        ]
 
 
 @pytest.fixture

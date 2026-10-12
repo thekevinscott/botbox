@@ -110,6 +110,8 @@ box.build() -> str
 
 Builds the agent's image, then your `dockerfile` on top, and returns the tag. `run()` calls this every time.
 
+Concurrent builds of one tag, from any process, take turns.
+
 ### Mounts
 
 Plain bind mounts. Missing host paths raise.
@@ -245,3 +247,4 @@ MIT. See [LICENSE](./LICENSE).
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
 - [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
 - [x] add test for docker daemon dying
+- [x] add test for concurrent builds of one tag
