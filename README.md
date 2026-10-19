@@ -95,10 +95,10 @@ box.run(
 | ------------ | ------------------------------------------------------------------------------ |
 | `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
 | `proxy`      | `str`: the proxy log.                                                           |
-| `container`  | `str`: the id of the exited container. Yours to remove.                         |
+| `container`  | `str`: the id of the exited container. Yours to remove, or removed when the `with` block exits. |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container is kept, exited; remove it with `docker rm <id>`. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
+The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits (`with Botbox(agent) as box:`), which removes every container its runs created. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
 
 A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted.
 

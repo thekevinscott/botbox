@@ -3,6 +3,8 @@ from collections.abc import Sequence
 from contextlib import suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import TracebackType
+from typing import Self
 
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
@@ -16,7 +18,10 @@ from botbox.RunResult import RunResult
 
 
 class Botbox:
-    """An agent, an optional image layer on top of it, and the extra hosts its proxy admits."""
+    """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
+
+    Used as a context manager, it removes every container its runs created on exit.
+    """
 
     def __init__(
         self,
@@ -28,6 +33,25 @@ class Botbox:
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         self.allow = tuple(allow)
+        self._containers: list[str] = []
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        containers, self._containers = self._containers, []
+        if not containers:
+            return
+        try:
+            docker.container.remove(containers, force=True)
+        except DockerException:
+            if exc is None:
+                raise
 
     def build(self) -> str:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
@@ -64,8 +88,8 @@ class Botbox:
         -1 and whatever output, transcript and proxy log made it to the host. Raises only when
         setup fails or the run is interrupted, after tearing down what was started.
 
-        A returned result leaves its container in place, exited; the caller removes it. A run
-        that raises removes its container.
+        A returned result leaves its container in place, exited; the caller removes it, or the
+        `with` block this box opened does on exit. A run that raises removes its container.
         """
         agent = self.agent
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -87,6 +111,7 @@ class Botbox:
                     cap_drop=["ALL"],
                     security_options=["no-new-privileges"],
                 )
+                self._containers.append(str(container))
                 try:
                     stdout, stderr, exit_code = collect(container)
                 except BaseException:

@@ -34,10 +34,21 @@ print(result.proxy)
 
 ## Inspect the container
 
-The exited container is kept. `result.container` is its id; `docker diff` lists what the run wrote outside the mounts. Remove it when done.
+The exited container is kept. `result.container` is its id; `docker diff` lists what the run wrote outside the mounts.
+
+Open the box with `with` and every container its runs created is removed when the block exits, including on an exception or Ctrl-C. Inspect inside the block. The rest of the result is plain data and stays readable after.
 
 ```python
-subprocess.run(["docker", "diff", result.container])
+with Botbox(agent) as box:
+    result = box.run(agent.command("Fix the tests"))
+    subprocess.run(["docker", "diff", result.container])
+print(result.stdout)
+```
+
+To keep a container for debugging, use the box without `with` and remove it yourself when done.
+
+```python
+result = box.run(agent.command("Fix the tests"))
 subprocess.run(["docker", "rm", result.container])
 ```
 

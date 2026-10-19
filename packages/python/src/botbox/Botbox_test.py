@@ -302,3 +302,69 @@ def describe_run() -> None:
         run.run("true")
         assert home_of(docker).parent.name.startswith("botbox-")
         assert not home_of(docker).parent.exists()
+
+
+def describe_with() -> None:
+    @pytest.fixture
+    def containers(docker: MagicMock) -> Iterator[None]:
+        docker.run.side_effect = ["one", "two"]
+        yield
+
+    def it_is_the_box(run: Botbox) -> None:
+        with run as box:
+            assert box is run
+
+    def it_removes_every_container_its_runs_created(
+        run: Botbox,
+        docker: MagicMock,
+        containers: None,  # noqa: ARG001
+    ) -> None:
+        with run:
+            run.run("true")
+            run.run("true")
+            docker.container.remove.assert_not_called()
+        docker.container.remove.assert_called_once_with(["one", "two"], force=True)
+
+    def it_leaves_the_results_readable(run: Botbox) -> None:
+        with run:
+            result = run.run("true")
+        assert (result.stdout, result.stderr, result.proxy) == ("out", "err", "a log")
+
+    def it_removes_nothing_when_nothing_ran(run: Botbox, docker: MagicMock) -> None:
+        with run:
+            pass
+        docker.container.remove.assert_not_called()
+
+    def it_removes_each_container_once(
+        run: Botbox,
+        docker: MagicMock,
+        containers: None,  # noqa: ARG001
+    ) -> None:
+        with run:
+            run.run("true")
+        with run:
+            run.run("true")
+        assert docker.container.remove.call_args_list == [
+            call(["one"], force=True),
+            call(["two"], force=True),
+        ]
+
+    @pytest.mark.parametrize("error", [ValueError("boom"), KeyboardInterrupt()])
+    def it_removes_the_containers_when_the_block_raises(
+        run: Botbox, docker: MagicMock, error: BaseException
+    ) -> None:
+        with pytest.raises(type(error)), run:
+            run.run("true")
+            raise error
+        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+
+    def it_keeps_the_blocks_error_when_removal_also_fails(run: Botbox, docker: MagicMock) -> None:
+        docker.container.remove.side_effect = DockerException("daemon gone")
+        with pytest.raises(ValueError, match="boom"), run:
+            run.run("true")
+            raise ValueError("boom")
+
+    def it_raises_when_removal_fails_after_a_clean_block(run: Botbox, docker: MagicMock) -> None:
+        docker.container.remove.side_effect = DockerException("daemon gone")
+        with pytest.raises(DockerException, match="daemon gone"), run:
+            run.run("true")

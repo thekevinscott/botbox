@@ -3,7 +3,7 @@ import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 from conftest import Daemon
@@ -470,6 +470,16 @@ def describe_run() -> None:
             ]
             box.run("true")
             assert docker["network"].remove.call_count == 2
+
+        def it_removes_the_container_when_the_with_block_exits(
+            box: Botbox, docker: dict[str, MagicMock]
+        ) -> None:
+            with box:
+                result = box.run("true")
+            assert result.stdout == ""
+            assert docker["container"].remove.call_args_list[-1] == call(
+                ["agent-container"], force=True
+            )
 
     def describe_when_the_daemon_dies_mid_run() -> None:
         @pytest.fixture
