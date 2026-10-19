@@ -9,7 +9,7 @@ import pytest
 from conftest import Daemon
 from python_on_whales.exceptions import DockerException
 
-from botbox import Botbox, ClaudeAgent, RunResult
+from botbox import Botbox, ClaudeAgent, PiAgent, RunResult
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered domain "github.com"\n'
@@ -233,6 +233,31 @@ def describe_run() -> None:
             call = {k: v for k, v in daemon.agent.items() if k != "files"}
             assert "sk-test" not in repr(call)
             assert "sk-test" not in repr(daemon.proxy)
+
+    def describe_a_pi_api_key() -> None:
+        @pytest.fixture
+        def keyed(tmp_path: Path) -> Botbox:
+            return Botbox(
+                PiAgent("openrouter", api_key="sk-or-test", host_home=tmp_path / "missing")
+            )
+
+        def it_stages_only_the_providers_key(keyed: Botbox, daemon: Daemon) -> None:
+            keyed.run("true")
+            assert daemon.agent["files"]["/home/node"] == {
+                ".pi/agent/auth.json": '{"openrouter": {"type": "api_key", "key": "sk-or-test"}}',
+            }
+
+        def it_keeps_the_key_out_of_the_container_create_call(
+            keyed: Botbox, daemon: Daemon
+        ) -> None:
+            keyed.run("true")
+            call = {k: v for k, v in daemon.agent.items() if k != "files"}
+            assert "sk-or-test" not in repr(call)
+            assert "sk-or-test" not in repr(daemon.proxy)
+
+        def it_deletes_the_key_afterwards(keyed: Botbox, daemon: Daemon) -> None:
+            keyed.run("true")
+            assert not Path(volume(daemon.agent, "/home/node")[0]).exists()
 
     def describe_the_allowlist() -> None:
         def it_admits_the_agents_hosts(box: Botbox, daemon: Daemon) -> None:

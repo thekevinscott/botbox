@@ -78,7 +78,7 @@ Agent images contain the CLI, its runtime, `git`, and `ca-certificates`.
 
 ```python
 ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None)
-PiAgent(provider: str, model: str | None = None)
+PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 ```
 
 `PiAgent` requires `provider` first because it selects the egress allowlist.
@@ -86,6 +86,7 @@ PiAgent(provider: str, model: str | None = None)
 | Agent         | Credentials                                                         | Own hosts           |
 | ------------- | ------------------------------------------------------------------- | ------------------- |
 | `ClaudeAgent` | `~/.claude/.credentials.json`, or `api_key` through `apiKeyHelper` | `api.anthropic.com` |
+| `PiAgent`     | `~/.pi/agent/auth.json` (and `models.json` if present), or `api_key` in a fresh `auth.json` | `openrouter.ai` for `openrouter`; `$PI_AGENT_HOST` for `tower` |
 
 ### `command()`
 

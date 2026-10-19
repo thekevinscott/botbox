@@ -1,3 +1,4 @@
+import json
 import os
 import shlex
 import shutil
@@ -9,7 +10,8 @@ PROVIDER_HOST_VARIABLES = {"tower": "PI_AGENT_HOST"}
 
 PROVIDERS = (*PROVIDER_HOSTS, *PROVIDER_HOST_VARIABLES)
 
-AUTH_FILENAMES = ("auth.json", "models.json")
+AUTH = "auth.json"
+MODELS = "models.json"
 
 
 def resolve_allow(provider: str) -> tuple[str, ...]:
@@ -31,12 +33,18 @@ class PiAgent:
     transcripts = ".pi/agent/sessions/**/*.jsonl"
 
     def __init__(
-        self, provider: str, model: str | None = None, *, host_home: Path | None = None
+        self,
+        provider: str,
+        model: str | None = None,
+        *,
+        api_key: str | None = None,
+        host_home: Path | None = None,
     ) -> None:
         if provider not in PROVIDERS:
             raise ValueError(f"unknown provider {provider!r}: expected {', '.join(PROVIDERS)}")
         self.provider = provider
         self.model = model
+        self.api_key = api_key
         self.allow = resolve_allow(provider)
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
 
@@ -49,5 +57,11 @@ class PiAgent:
     def stage_auth(self, home: Path) -> None:
         destination = home / ".pi" / "agent"
         destination.mkdir(parents=True)
-        for name in AUTH_FILENAMES:
-            shutil.copy(self.host_home / name, destination / name)
+        if self.api_key is not None:
+            auth = destination / AUTH
+            auth.touch(mode=0o600)
+            auth.write_text(json.dumps({self.provider: {"type": "api_key", "key": self.api_key}}))
+            return
+        shutil.copy(self.host_home / AUTH, destination / AUTH)
+        if (self.host_home / MODELS).is_file():
+            shutil.copy(self.host_home / MODELS, destination / MODELS)
