@@ -107,7 +107,7 @@ class Botbox:
                     volumes=[(str(home), agent.home, "rw"), *volumes],
                     workdir=agent.home if workdir is None else Path(workdir).as_posix(),
                     networks=[jail.network],
-                    user="node",
+                    user="user",
                     cap_drop=["ALL"],
                     security_options=["no-new-privileges"],
                 )

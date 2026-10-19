@@ -8,7 +8,7 @@ import pytest
 
 from botbox import Botbox, ClaudeAgent, PiAgent
 
-LAYER = "FROM botbox-claude:latest\nUSER root\nRUN npm install -g vitest@2.1.3\nUSER node\n"
+LAYER = "FROM botbox-claude:latest\nUSER root\nRUN npm install -g vitest@2.1.3\nUSER user\n"
 
 
 @pytest.fixture

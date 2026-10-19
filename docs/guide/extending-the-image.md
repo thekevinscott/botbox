@@ -13,10 +13,10 @@ FROM botbox-claude:latest
 
 USER root
 RUN npm install -g vitest@2.1.3
-USER node
+USER user
 ```
 
-Two rules: end as `USER node`; leave the agent's home where it is.
+Two rules: end as `USER user`; leave the agent's home where it is.
 
 ## Pass it to `Botbox`
 
@@ -46,7 +46,7 @@ RUN uv tool install --python 3.14.3 pytest==9.1.1 --with pytest-describe==3.2.0
 RUN npm install -g vitest@2.1.3
 ENV NODE_PATH=/usr/local/lib/node_modules
 
-USER node
+USER user
 ```
 
 ```python

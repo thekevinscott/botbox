@@ -44,8 +44,8 @@ def describe_the_container() -> None:
     def it_ships_its_dockerfile_with_the_package(agent: PiAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")
 
-    def it_lives_in_the_node_users_home(agent: PiAgent) -> None:
-        assert agent.home == "/home/node"
+    def it_lives_in_the_users_home(agent: PiAgent) -> None:
+        assert agent.home == "/home/user"
 
     def it_finds_transcripts_under_the_sessions_directory(agent: PiAgent) -> None:
         assert agent.transcripts == ".pi/agent/sessions/**/*.jsonl"

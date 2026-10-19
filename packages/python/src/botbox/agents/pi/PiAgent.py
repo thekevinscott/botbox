@@ -29,7 +29,7 @@ class PiAgent:
 
     image = "botbox-pi:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
-    home = "/home/node"
+    home = "/home/user"
     transcripts = ".pi/agent/sessions/**/*.jsonl"
 
     def __init__(
