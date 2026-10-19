@@ -200,7 +200,7 @@ def describe_run() -> None:
             volumes=[(str(home_of(docker)), "/home/agent", "rw"), ("/host/work", "/work", "rw")],
             workdir="/home/agent",
             networks=["a-jail"],
-            user="node",
+            user="user",
             cap_drop=["ALL"],
             security_options=["no-new-privileges"],
         )

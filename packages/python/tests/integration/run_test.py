@@ -123,9 +123,9 @@ def describe_run() -> None:
             assert daemon.agent["image"] == box.build()
             assert daemon.agent["image"] != "botbox-claude:latest"
 
-        def it_runs_as_the_node_user(box: Botbox, daemon: Daemon) -> None:
+        def it_runs_as_user(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            assert daemon.agent["user"] == "node"
+            assert daemon.agent["user"] == "user"
 
     def describe_the_build() -> None:
         def it_builds_the_agent_image_then_the_proxy_every_run(
@@ -220,10 +220,10 @@ def describe_run() -> None:
             keyed: Botbox, daemon: Daemon
         ) -> None:
             keyed.run("true")
-            files = daemon.agent["files"]["/home/node"]
+            files = daemon.agent["files"]["/home/user"]
             assert files == {
                 ".claude/api_key": "sk-test",
-                ".claude/settings.json": '{"apiKeyHelper": "cat /home/node/.claude/api_key"}',
+                ".claude/settings.json": '{"apiKeyHelper": "cat /home/user/.claude/api_key"}',
             }
 
         def it_keeps_the_key_out_of_the_container_create_call(
@@ -243,7 +243,7 @@ def describe_run() -> None:
 
         def it_stages_only_the_providers_key(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
-            assert daemon.agent["files"]["/home/node"] == {
+            assert daemon.agent["files"]["/home/user"] == {
                 ".pi/agent/auth.json": '{"openrouter": {"type": "api_key", "key": "sk-or-test"}}',
             }
 
@@ -257,7 +257,7 @@ def describe_run() -> None:
 
         def it_deletes_the_key_afterwards(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
-            assert not Path(volume(daemon.agent, "/home/node")[0]).exists()
+            assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
     def describe_the_allowlist() -> None:
         def it_admits_the_agents_hosts(box: Botbox, daemon: Daemon) -> None:
@@ -284,7 +284,7 @@ def describe_run() -> None:
             box: Botbox, daemon: Daemon, claude_home: Path
         ) -> None:
             box.run("true")
-            source, mode = volume(daemon.agent, "/home/node")
+            source, mode = volume(daemon.agent, "/home/user")
             assert mode == "rw"
             assert Path(source) != claude_home
             assert Path(source).is_absolute()
@@ -293,16 +293,16 @@ def describe_run() -> None:
             box: Botbox, daemon: Daemon
         ) -> None:
             box.run("true")
-            assert daemon.agent["files"]["/home/node"] == {".claude/.credentials.json": CREDENTIALS}
+            assert daemon.agent["files"]["/home/user"] == {".claude/.credentials.json": CREDENTIALS}
 
         def it_uses_a_fresh_home_each_run(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
             box.run("true")
-            assert volume(daemon.runs[1], "/home/node") != volume(daemon.runs[3], "/home/node")
+            assert volume(daemon.runs[1], "/home/user") != volume(daemon.runs[3], "/home/user")
 
         def it_deletes_the_home_afterwards(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            assert not Path(volume(daemon.agent, "/home/node")[0]).exists()
+            assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
         def it_deletes_the_proxy_log_directory_afterwards(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
@@ -319,7 +319,7 @@ def describe_run() -> None:
 
         def it_starts_the_command_in_the_home_by_default(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            assert daemon.agent["workdir"] == "/home/node"
+            assert daemon.agent["workdir"] == "/home/user"
 
     def describe_mounts() -> None:
         def it_bind_mounts_each_host_path_with_its_mode(
@@ -373,8 +373,8 @@ def describe_run() -> None:
             assert daemon.agent["workdir"] == "/work/pkg"
 
         def it_accepts_the_agents_home(box: Botbox, daemon: Daemon) -> None:
-            box.run("true", workdir="/home/node")
-            assert daemon.agent["workdir"] == "/home/node"
+            box.run("true", workdir="/home/user")
+            assert daemon.agent["workdir"] == "/home/user"
 
         @pytest.mark.parametrize("workdir", ["/elsewhere", "/workspace", "/work/../etc", "/"])
         def it_raises_before_any_container_outside_every_mount(
@@ -424,7 +424,7 @@ def describe_run() -> None:
             box: Botbox, daemon: Daemon
         ) -> None:
             box.run("true")
-            home = Path(volume(daemon.agent, "/home/node")[0])
+            home = Path(volume(daemon.agent, "/home/user")[0])
             proxy_log = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0])
             assert home.parent == proxy_log.parent
 
@@ -476,7 +476,7 @@ def describe_run() -> None:
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
             assert removed == ["agent-container", "proxy-container"]
             assert docker["network"].remove.call_count == 2
-            assert not Path(volume(daemon.agent, "/home/node")[0]).exists()
+            assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
         def it_force_removes_the_running_container(
             box: Botbox, docker: dict[str, MagicMock]
@@ -542,7 +542,7 @@ def describe_run() -> None:
         @pytest.mark.usefixtures("dead")
         def it_still_deletes_the_temporary_directory(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            assert not Path(volume(daemon.agent, "/home/node")[0]).parent.exists()
+            assert not Path(volume(daemon.agent, "/home/user")[0]).parent.exists()
 
         @pytest.mark.usefixtures("dead")
         def it_still_tries_to_remove_the_sidecar_and_both_networks(

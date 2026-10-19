@@ -101,7 +101,7 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
             )
             if image == PROXY_IMAGE:
                 return "proxy-container"
-            home = next(Path(s) for s, t, _ in volumes if t == "/home/node")
+            home = next(Path(s) for s, t, _ in volumes if t == "/home/user")
             proxy_log = next(
                 Path(s) for s, t, _ in daemon.proxy["volumes"] if t == "/var/log/tinyproxy"
             )

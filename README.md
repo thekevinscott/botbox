@@ -98,7 +98,7 @@ box.run(
 | `container`  | `str`: the id of the exited container. Yours to remove, or removed when the `with` block exits. |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits (`with Botbox(agent) as box:`), which removes every container its runs created. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
+The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits (`with Botbox(agent) as box:`), which removes every container its runs created. The agent's home (`/home/user`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
 
 A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted.
 
@@ -169,7 +169,7 @@ FROM botbox-claude:latest
 
 USER root
 RUN npm install -g vitest@2.1.3
-USER node
+USER user
 ```
 
 ```python
@@ -178,7 +178,7 @@ box = Botbox(ClaudeAgent(), dockerfile="./Dockerfile")
 
 The build context is the Dockerfile's directory. There is no network at run time, so installs happen here.
 
-Two rules: end as `USER node`; leave the agent's home where it is.
+Two rules: end as `USER user`; leave the agent's home where it is.
 
 ## Agents
 
@@ -229,7 +229,7 @@ RUN uv tool install --python 3.14.3 pytest==9.1.1 --with pytest-describe==3.2.0
 RUN npm install -g vitest@2.1.3
 ENV NODE_PATH=/usr/local/lib/node_modules
 
-USER node
+USER user
 ```
 
 ```python

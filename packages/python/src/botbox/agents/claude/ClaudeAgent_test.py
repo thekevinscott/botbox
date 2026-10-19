@@ -36,8 +36,8 @@ def describe_the_container() -> None:
     def it_ships_its_dockerfile_with_the_package(agent: ClaudeAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")
 
-    def it_lives_in_the_node_users_home(agent: ClaudeAgent) -> None:
-        assert agent.home == "/home/node"
+    def it_lives_in_the_users_home(agent: ClaudeAgent) -> None:
+        assert agent.home == "/home/user"
 
     def it_finds_transcripts_under_the_projects_directory(agent: ClaudeAgent) -> None:
         assert agent.transcripts == ".claude/projects/**/*.jsonl"
@@ -112,7 +112,7 @@ def describe_api_key() -> None:
         ]
         assert (home / ".claude" / "api_key").read_text() == "sk-test"
         assert json.loads((home / ".claude" / "settings.json").read_text()) == {
-            "apiKeyHelper": "cat /home/node/.claude/api_key"
+            "apiKeyHelper": "cat /home/user/.claude/api_key"
         }
 
     def it_makes_the_key_readable_by_its_owner_only(keyed: ClaudeAgent, home: Path) -> None:

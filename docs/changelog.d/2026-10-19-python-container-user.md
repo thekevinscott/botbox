@@ -1,0 +1,1 @@
+**Changed** (**BREAKING**, see [migration](../migrations.d/2026-10-19-python-container-user.md)): the container user is `user` (was `node`), with home `/home/user` (was `/home/node`). UID and GID stay 1000. `ClaudeAgent.home` and `PiAgent.home` are `/home/user`; a `dockerfile` layer must end as `USER user`.

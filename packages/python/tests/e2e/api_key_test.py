@@ -59,7 +59,7 @@ def describe_an_api_key_session() -> None:
     def it_keeps_the_key_out_of_a_failed_create(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=API_KEY)
         with pytest.raises(DockerException) as failure:
-            Botbox(agent).run("true", mounts=[(tmp_path, "/home/node", "rw")])
+            Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")])
         leaked = API_KEY in str(failure.value)
         assert not leaked
 

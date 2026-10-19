@@ -27,10 +27,10 @@ def report(session: tuple[RunResult, dict[str, str], set[str], set[str]]) -> dic
 
 def describe_the_home() -> None:
     def it_is_the_agents_home(report: dict[str, str]) -> None:
-        assert report["home"] == "/home/node"
+        assert report["home"] == "/home/user"
 
     def it_is_where_the_command_starts_without_a_workdir(report: dict[str, str]) -> None:
-        assert report["pwd"] == "/home/node"
+        assert report["pwd"] == "/home/user"
 
     def it_holds_the_staged_credentials(report: dict[str, str]) -> None:
         assert report["credentials"] == "present"

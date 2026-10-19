@@ -43,5 +43,5 @@ def describe_the_container() -> None:
     def it_runs_as_uid_1000(posture: dict[str, str]) -> None:
         assert posture["uid"] == "1000"
 
-    def it_runs_as_node(posture: dict[str, str]) -> None:
-        assert posture["user"] == "node"
+    def it_runs_as_user(posture: dict[str, str]) -> None:
+        assert posture["user"] == "user"

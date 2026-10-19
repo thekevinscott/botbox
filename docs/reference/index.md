@@ -15,7 +15,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 | Argument     | What it is                                                     |
 | ------------ | -------------------------------------------------------------- |
 | `agent`      | Which agent. See [Agents](#agents).                            |
-| `dockerfile` | Your layer on top of the agent's image. Build context is the Dockerfile's directory. Must end as `USER node` and leave the agent's home where it is. |
+| `dockerfile` | Your layer on top of the agent's image. Build context is the Dockerfile's directory. Must end as `USER user` and leave the agent's home where it is. |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 
 `Botbox` is a context manager. On exit from `with Botbox(...) as box:`, every container its runs created is removed, whether the block finished, raised, or was interrupted. A removal failure raises after a clean block; after a failed one, the block's exception propagates instead.
@@ -53,7 +53,7 @@ Nothing parsed.
 | `container` | `str`: the id of the exited container. Yours to remove, or removed when the `with` block exits. |
 | `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits. The agent's home (`/home/node`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
+The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits. The agent's home (`/home/user`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
 
 ## `build()`
 

@@ -6,10 +6,12 @@ RUN apt-get update && \
 
 RUN npm install -g @anthropic-ai/claude-code@2.1.296
 
+RUN usermod --login user --home /home/user --move-home node && groupmod --new-name user node
+
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 
-USER node
+USER user
 
 ENV DISABLE_AUTOUPDATER=1 \
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
-    CLAUDE_CONFIG_DIR=/home/node/.claude
+    CLAUDE_CONFIG_DIR=/home/user/.claude

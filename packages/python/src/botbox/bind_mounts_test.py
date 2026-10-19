@@ -4,7 +4,7 @@ import pytest
 
 from botbox.bind_mounts import bind_mounts
 
-HOME = "/home/node"
+HOME = "/home/user"
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def describe_bind_mounts() -> None:
         def it_accepts_a_mounted_path_or_one_inside_it(work: Path, workdir: str | Path) -> None:
             bind_mounts([(work, "/work", "rw")], workdir=workdir, home=HOME)
 
-        @pytest.mark.parametrize("workdir", ["/home/node", "/home/node/.claude"])
+        @pytest.mark.parametrize("workdir", ["/home/user", "/home/user/.claude"])
         def it_accepts_the_home(workdir: str) -> None:
             bind_mounts((), workdir=workdir, home=HOME)
 
