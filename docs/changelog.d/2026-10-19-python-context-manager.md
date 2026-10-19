@@ -1,0 +1,1 @@
+**Added**: `Botbox` is a context manager. `with Botbox(agent) as box:` removes every container its runs created when the block exits, including on an exception or interrupt; a removal failure never masks the block's own exception. Without `with`, `run()` still keeps its container for the caller to remove.

@@ -24,3 +24,10 @@ def describe_teardown() -> None:
         finally:
             subprocess.run(["docker", "rm", "-f", result.container], check=True)
         assert leftovers() == before
+
+    def it_leaves_nothing_after_a_with_block(box: Botbox) -> None:
+        before = leftovers()
+        with box:
+            box.run("true")
+            box.run("exit 1")
+        assert leftovers() == before
