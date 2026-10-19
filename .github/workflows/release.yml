@@ -39,11 +39,11 @@ jobs:
 
   # PyPI upload runs in the caller's workflow context. Required because
   # PyPI Trusted Publishers can't validate OIDC tokens minted from a
-  # cross-repo reusable workflow (pypi/warehouse#11096). The `if:` gate
-  # skips this job for non-PyPI repos.
+  # cross-repo reusable workflow (pypi/warehouse#11096). `pypi_pending` is
+  # only 'true' when the release job actually handed this job an upload.
   pypi-publish:
     needs: release
-    if: needs.release.outputs.has_pypi == 'true'
+    if: ${{ !cancelled() && needs.release.outputs.pypi_pending == 'true' }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -60,3 +60,15 @@ jobs:
           path: dist/
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Cuts the git tag for what pypi-publish uploaded. The release job leaves
+  # PyPI packages untagged, so without this job the next run re-plans the
+  # same version.
+  pypi-tag:
+    needs: [release, pypi-publish]
+    if: ${{ !cancelled() && needs.pypi-publish.result == 'success' }}
+    uses: thekevinscott/putitoutthere/.github/workflows/pypi-tag.yml@v0
+    permissions:
+      contents: write
+    with:
+      expect: ${{ needs.release.outputs.delegated_packages }}
