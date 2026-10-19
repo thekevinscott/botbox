@@ -33,6 +33,11 @@ Each run gets a fresh temporary home, mounted at the agent's home path. After th
 - Default: `~/.claude/.credentials.json` is copied into the temporary home.
 - `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
 
+`PiAgent` likewise, never both:
+
+- Default: `~/.pi/agent/auth.json` is copied into the temporary home, and `models.json` beside it if it exists.
+- `PiAgent(provider, api_key=key)`: a fresh `.pi/agent/auth.json` (mode 600) holds the key for `provider` and nothing else. No host files are read.
+
 botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ## Network
