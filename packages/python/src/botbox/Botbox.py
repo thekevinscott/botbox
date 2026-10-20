@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import Any, Self
+from uuid import uuid4
 
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
@@ -17,12 +18,14 @@ from botbox.collect import collect
 from botbox.lockdown import Lockdown, lockdown
 from botbox.RunResult import RunResult
 from botbox.Session import Session, read_transcript
+from botbox.sigterm import sigterm_unwinds
 
 
 class Botbox:
     """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
 
-    Used as a context manager, it removes every container its runs created on exit.
+    Used as a context manager, it removes every container its runs created on exit, including
+    on SIGTERM.
     """
 
     def __init__(
@@ -36,8 +39,10 @@ class Botbox:
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         self.allow = tuple(allow)
         self._containers: list[str] = []
+        self._held = ExitStack()
 
     def __enter__(self) -> Self:
+        self._held.enter_context(sigterm_unwinds())
         return self
 
     def __exit__(
@@ -46,14 +51,17 @@ class Botbox:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        containers, self._containers = self._containers, []
-        if not containers:
-            return
         try:
-            docker.container.remove(containers, force=True)
-        except DockerException:
-            if exc is None:
-                raise
+            containers, self._containers = self._containers, []
+            if not containers:
+                return
+            try:
+                docker.container.remove(containers, force=True)
+            except DockerException:
+                if exc is None:
+                    raise
+        finally:
+            self._held.close()
 
     def build(self) -> str:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
@@ -74,6 +82,7 @@ class Botbox:
             docker.build(self.dockerfile.parent, tags=tag, file=self.dockerfile, progress=False)
         return tag
 
+    @sigterm_unwinds()
     def run(
         self,
         command: str,
@@ -101,22 +110,26 @@ class Botbox:
             home.mkdir()
             agent.stage_auth(home)
             with lockdown((*agent.allow, *self.allow), Path(scratch)) as jail:
-                container = docker.run(
-                    image,
-                    ["sh", "-c", command],
-                    detach=True,
-                    **self._lockdown_options(home, jail, volumes, workdir),
-                )
-                self._containers.append(str(container))
+                # Named up front: an interrupted `docker run` can still leave the container.
+                name = _container_name()
+                self._containers.append(name)
                 try:
+                    container = docker.run(
+                        image,
+                        ["sh", "-c", command],
+                        detach=True,
+                        name=name,
+                        **self._lockdown_options(home, jail, volumes, workdir),
+                    )
                     stdout, stderr, exit_code = collect(container)
                 except BaseException:
                     with suppress(DockerException):
-                        docker.container.remove(container, force=True)
+                        docker.container.remove(name, force=True)
                     raise
             transcript = read_transcript(home, agent.transcripts)
         return RunResult(stdout, stderr, exit_code, transcript, jail.log, str(container), image)
 
+    @sigterm_unwinds()
     def session(
         self,
         *,
@@ -143,14 +156,16 @@ class Botbox:
             home.mkdir()
             agent.stage_auth(home)
             jail = resources.enter_context(lockdown((*agent.allow, *self.allow), scratch))
+            name = _container_name()
+            self._containers.append(name)
             container = docker.container.create(
                 image,
                 ["sh", "-c", command],
                 interactive=True,
                 init=True,
+                name=name,
                 **self._lockdown_options(home, jail, volumes, workdir),
             )
-            self._containers.append(str(container))
             process = subprocess.Popen(
                 ["docker", "start", "--attach", "--interactive", str(container)],
                 stdin=subprocess.PIPE,
@@ -186,3 +201,7 @@ class Botbox:
             "cap_drop": ["ALL"],
             "security_options": ["no-new-privileges"],
         }
+
+
+def _container_name() -> str:
+    return f"botbox-agent-{uuid4().hex[:12]}"

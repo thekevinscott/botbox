@@ -1,4 +1,6 @@
+import os
 import re
+import signal
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -169,6 +171,22 @@ def home_of(docker: MagicMock) -> Path:
     return Path(docker.run.call_args.kwargs["volumes"][0][0])
 
 
+def names(start: MagicMock) -> list[str]:
+    """The name each container was started under, in order."""
+    return [c.kwargs["name"] for c in start.call_args_list]
+
+
+@pytest.fixture
+def default_sigterm() -> Iterator[None]:
+    previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    yield
+    signal.signal(signal.SIGTERM, previous)
+
+
+def sigterm(*_args: object) -> None:
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
 def describe_run() -> None:
     def it_takes_mounts_and_workdir_by_keyword_only(run: Botbox) -> None:
         with pytest.raises(TypeError):
@@ -196,6 +214,7 @@ def describe_run() -> None:
             "an-agent:latest",
             ["sh", "-c", "echo hi"],
             detach=True,
+            name=names(docker.run)[0],
             envs=jail.envs,
             volumes=[(str(home_of(docker)), "/home/agent", "rw"), ("/host/work", "/work", "rw")],
             workdir="/home/agent",
@@ -204,6 +223,13 @@ def describe_run() -> None:
             cap_drop=["ALL"],
             security_options=["no-new-privileges"],
         )
+
+    def it_names_each_container_afresh(run: Botbox, docker: MagicMock) -> None:
+        run.run("true")
+        run.run("true")
+        first, second = names(docker.run)
+        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", first)
+        assert first != second
 
     def it_builds_before_it_runs(run: Botbox, docker: MagicMock) -> None:
         run.run("true")
@@ -289,14 +315,27 @@ def describe_run() -> None:
         collect.side_effect = KeyboardInterrupt
         with pytest.raises(KeyboardInterrupt):
             run.run("true")
-        docker.container.remove.assert_called_once_with("a-container", force=True)
+        docker.container.remove.assert_called_once_with(names(docker.run)[0], force=True)
         assert not home_of(docker).parent.exists()
 
-    def it_removes_nothing_when_the_container_never_started(run: Botbox, docker: MagicMock) -> None:
-        docker.run.side_effect = DockerException("no such image")
-        with pytest.raises(DockerException):
+    def it_removes_the_container_by_name_when_its_start_is_interrupted(
+        run: Botbox, docker: MagicMock
+    ) -> None:
+        docker.run.side_effect = KeyboardInterrupt
+        with pytest.raises(KeyboardInterrupt):
             run.run("true")
-        docker.container.remove.assert_not_called()
+        docker.container.remove.assert_called_once_with(names(docker.run)[0], force=True)
+
+    @pytest.mark.usefixtures("default_sigterm")
+    def it_removes_the_container_on_sigterm(
+        run: Botbox, docker: MagicMock, collect: MagicMock
+    ) -> None:
+        collect.side_effect = sigterm
+        with pytest.raises(SystemExit):
+            run.run("true")
+        docker.container.remove.assert_called_once_with(names(docker.run)[0], force=True)
+        assert not home_of(docker).parent.exists()
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
     def it_deletes_the_temporary_directory(run: Botbox, docker: MagicMock) -> None:
         run.run("true")
@@ -323,7 +362,7 @@ def describe_with() -> None:
             run.run("true")
             run.run("true")
             docker.container.remove.assert_not_called()
-        docker.container.remove.assert_called_once_with(["one", "two"], force=True)
+        docker.container.remove.assert_called_once_with(names(docker.run), force=True)
 
     def it_leaves_the_results_readable(run: Botbox) -> None:
         with run:
@@ -344,9 +383,10 @@ def describe_with() -> None:
             run.run("true")
         with run:
             run.run("true")
+        first, second = names(docker.run)
         assert docker.container.remove.call_args_list == [
-            call(["one"], force=True),
-            call(["two"], force=True),
+            call([first], force=True),
+            call([second], force=True),
         ]
 
     @pytest.mark.parametrize("error", [ValueError("boom"), KeyboardInterrupt()])
@@ -356,7 +396,20 @@ def describe_with() -> None:
         with pytest.raises(type(error)), run:
             run.run("true")
             raise error
-        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+        docker.container.remove.assert_called_once_with(names(docker.run), force=True)
+
+    @pytest.mark.usefixtures("default_sigterm")
+    def it_removes_the_containers_on_sigterm(run: Botbox, docker: MagicMock) -> None:
+        with pytest.raises(SystemExit), run:
+            run.run("true")
+            sigterm()
+        docker.container.remove.assert_called_once_with(names(docker.run), force=True)
+
+    @pytest.mark.usefixtures("default_sigterm")
+    def it_restores_the_default_sigterm_handler_on_exit(run: Botbox) -> None:
+        with run:
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
     def it_keeps_the_blocks_error_when_removal_also_fails(run: Botbox, docker: MagicMock) -> None:
         docker.container.remove.side_effect = DockerException("daemon gone")
@@ -439,6 +492,7 @@ def describe_session() -> None:
             ["sh", "-c", "an-agent --stream"],
             interactive=True,
             init=True,
+            name=names(docker.container.create)[0],
             envs=jail.envs,
             volumes=[
                 (str(session_home_of(docker)), "/home/agent", "rw"),
@@ -506,7 +560,13 @@ def describe_session() -> None:
     def it_removes_the_container_with_the_box(session_box: Botbox, docker: MagicMock) -> None:
         with session_box:
             session_box.session()
-        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+        docker.container.remove.assert_called_once_with(names(docker.container.create), force=True)
+
+    def it_names_the_container_before_creating_it(session_box: Botbox, docker: MagicMock) -> None:
+        docker.container.create.side_effect = KeyboardInterrupt
+        with pytest.raises(KeyboardInterrupt), session_box:
+            session_box.session()
+        docker.container.remove.assert_called_once_with(names(docker.container.create), force=True)
 
     def it_tears_down_when_attaching_fails(
         session_box: Botbox, docker: MagicMock, popen: MagicMock
