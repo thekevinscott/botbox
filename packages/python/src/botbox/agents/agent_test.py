@@ -2,8 +2,6 @@ from pathlib import Path
 from typing import Any, get_type_hints
 
 from botbox.agents.agent import Agent, SessionAgent
-from botbox.agents.claude import ClaudeAgent
-from botbox.agents.pi import PiAgent
 
 
 def describe_agent() -> None:
@@ -46,7 +44,31 @@ def describe_session_agent() -> None:
         }
 
     def it_recognises_an_agent_with_a_session_mode() -> None:
-        assert isinstance(PiAgent("openrouter"), SessionAgent)
+        assert isinstance(Streaming(), SessionAgent)
 
     def it_recognises_an_agent_without_one() -> None:
-        assert not isinstance(ClaudeAgent(), SessionAgent)
+        assert not isinstance(OneShot(), SessionAgent)
+
+
+class OneShot:
+    image = "an-agent:latest"
+    dockerfile = Path("/agents/an-agent.Dockerfile")
+    home = "/home/agent"
+    transcripts = "*.jsonl"
+    allow = ()
+
+    def stage_auth(self, home: Path) -> None: ...
+
+    def command(self, prompt: str) -> str:
+        return prompt
+
+
+class Streaming(OneShot):
+    def session_command(self) -> str:
+        return "an-agent --stream"
+
+    def encode(self, message: str) -> str:
+        return message
+
+    def turn_ended(self, event: dict[str, Any]) -> bool:
+        return bool(event)

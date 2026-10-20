@@ -1,12 +1,12 @@
 import io
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from botbox.RunResult import RunResult
 from botbox.Session import Session, read_transcript
 
 
@@ -57,6 +57,12 @@ def process(stdout: str = "", stderr: str = "", exit_code: int = 0) -> Mock:
     )
 
 
+@pytest.fixture(autouse=True)
+def run_result() -> Iterator[MagicMock]:
+    with patch("botbox.Session.RunResult", autospec=True) as m:
+        yield m
+
+
 @pytest.fixture
 def finish() -> Mock:
     return Mock(return_value=({"sessions/a.jsonl": "{}"}, "a proxy log"))
@@ -102,25 +108,29 @@ def describe_close() -> None:
         session_of(agent, proc, finish).close()
         assert proc.stdin.closed
 
-    def it_returns_what_the_session_left(agent: Mock, finish: Mock) -> None:
+    def it_returns_what_the_session_left(agent: Mock, finish: Mock, run_result: MagicMock) -> None:
         proc = process(lines({"type": "end"}, "trailing"), stderr="a warning\n", exit_code=3)
         session = session_of(agent, proc, finish)
         session.message("hi")
-        assert session.close() == RunResult(
-            stdout=lines({"type": "end"}, "trailing"),
-            stderr="a warning\n",
-            exit_code=3,
-            transcript={"sessions/a.jsonl": "{}"},
-            proxy="a proxy log",
-            container="a-container",
-            image="an-image:latest",
+        assert session.close() is run_result.return_value
+        run_result.assert_called_once_with(
+            lines({"type": "end"}, "trailing"),
+            "a warning\n",
+            3,
+            {"sessions/a.jsonl": "{}"},
+            "a proxy log",
+            "a-container",
+            "an-image:latest",
         )
 
-    def it_keeps_the_lines_that_were_not_events_in_stdout(agent: Mock, finish: Mock) -> None:
+    def it_keeps_the_lines_that_were_not_events_in_stdout(
+        agent: Mock, finish: Mock, run_result: MagicMock
+    ) -> None:
         proc = process(lines("noise", {"type": "end"}))
         session = session_of(agent, proc, finish)
         session.message("hi")
-        assert session.close().stdout == lines("noise", {"type": "end"})
+        session.close()
+        assert run_result.call_args.args[0] == lines("noise", {"type": "end"})
 
     def it_keeps_the_result(agent: Mock, finish: Mock) -> None:
         session = session_of(agent, process(), finish)
@@ -133,10 +143,13 @@ def describe_close() -> None:
         assert session.close() is first
         finish.assert_called_once_with()
 
-    def it_tolerates_a_cli_that_already_exited(agent: Mock, finish: Mock) -> None:
+    def it_tolerates_a_cli_that_already_exited(
+        agent: Mock, finish: Mock, run_result: MagicMock
+    ) -> None:
         proc = process(exit_code=1)
         proc.stdin = BrokenStdin()
-        assert session_of(agent, proc, finish).close().exit_code == 1
+        session_of(agent, proc, finish).close()
+        assert run_result.call_args.args[2] == 1
 
 
 def describe_with() -> None:

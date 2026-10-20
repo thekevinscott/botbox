@@ -1,5 +1,4 @@
 import re
-import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -372,11 +371,17 @@ def describe_with() -> None:
 
 
 @pytest.fixture
-def popen() -> Iterator[MagicMock]:
-    with patch("botbox.Botbox.subprocess.Popen", autospec=True) as m:
-        m.return_value = Mock(stdin=Mock(), stdout=iter(()), stderr=iter(()))
-        m.return_value.wait.return_value = 0
+def subprocess() -> Iterator[MagicMock]:
+    with patch("botbox.Botbox.subprocess", autospec=True) as m:
         yield m
+
+
+@pytest.fixture
+def popen(subprocess: MagicMock) -> MagicMock:
+    subprocess.Popen.return_value = Mock(stdin=Mock(), stdout=iter(()), stderr=iter(()))
+    subprocess.Popen.return_value.wait.return_value = 0
+    popen: MagicMock = subprocess.Popen
+    return popen
 
 
 @pytest.fixture
@@ -453,7 +458,9 @@ def describe_session() -> None:
         session_box.session()
         agent.stage_auth.assert_called_once_with(session_home_of(docker))
 
-    def it_attaches_to_the_container_with_pipes(session_box: Botbox, popen: MagicMock) -> None:
+    def it_attaches_to_the_container_with_pipes(
+        session_box: Botbox, popen: MagicMock, subprocess: MagicMock
+    ) -> None:
         session_box.session()
         assert popen.call_args == call(
             ["docker", "start", "--attach", "--interactive", "a-container"],
