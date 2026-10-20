@@ -40,6 +40,12 @@ Each run gets a fresh temporary home, mounted at the agent's home path. After th
 
 botbox reads no `.env` and no environment variables. The caller passes the key.
 
+### Known gap: subscription logins expire mid-run
+
+A copied login is a snapshot. Its access token expires, typically within hours, and renewing it needs a host outside the allowlist (`platform.claude.com` for Claude Code), so the agent can't renew it inside the box. A run that outlasts the token fails with a 401. Renewals on the host don't reach a running container.
+
+botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely rotates the login, which would sign out the host's own sessions. For runs that may outlast the token, pass `api_key`.
+
 ## Network
 
 The container joins a Docker `--internal` network. The only way out is a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); `allow` adds more.
