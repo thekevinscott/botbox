@@ -133,3 +133,21 @@ def describe_command() -> None:
             .command("hi")
             .endswith(" --config model_reasoning_effort=low hi")
         )
+
+
+def describe_session() -> None:
+    def it_has_no_session_command_and_points_at_pi() -> None:
+        with pytest.raises(
+            NotImplementedError,
+            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\. For a Codex model in a"
+            r" session, use PiAgent\('openrouter', 'openai/<model>'\)\.$",
+        ):
+            CodexAgent().session_command()
+
+    def it_encodes_nothing() -> None:
+        with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
+            CodexAgent().encode("hi")
+
+    def it_ends_no_turn() -> None:
+        with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
+            CodexAgent().turn_ended({"type": "turn/completed"})

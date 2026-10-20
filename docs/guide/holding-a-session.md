@@ -20,6 +20,6 @@ with Botbox(agent) as box:
 
 Closing the session ends the CLI's input, waits for it to exit, and returns a [`RunResult`](../reference/#runresult). Leaving the `with` block closes it; `session.result` holds the same `RunResult`.
 
-`ClaudeAgent` and `PiAgent` have a session mode. `session()` raises `TypeError` for `CodexAgent`.
+`ClaudeAgent` and `PiAgent` have a session mode. `CodexAgent` does not, and `session()` raises `NotImplementedError` for it. To hold a session with a Codex model, run it through pi on OpenRouter: `Botbox(PiAgent("openrouter", "openai/<model>"))`.
 
 Next: [Reading the result](./reading-the-result).
