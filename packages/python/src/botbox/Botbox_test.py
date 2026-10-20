@@ -1,4 +1,5 @@
 import re
+import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -368,3 +369,142 @@ def describe_with() -> None:
         docker.container.remove.side_effect = DockerException("daemon gone")
         with pytest.raises(DockerException, match="daemon gone"), run:
             run.run("true")
+
+
+@pytest.fixture
+def popen() -> Iterator[MagicMock]:
+    with patch("botbox.Botbox.subprocess.Popen", autospec=True) as m:
+        m.return_value = Mock(stdin=Mock(), stdout=iter(()), stderr=iter(()))
+        m.return_value.wait.return_value = 0
+        yield m
+
+
+@pytest.fixture
+def session_box(
+    agent: Mock,
+    docker: MagicMock,
+    lockdown: MagicMock,  # noqa: ARG001
+    bind_mounts: MagicMock,  # noqa: ARG001
+    popen: MagicMock,  # noqa: ARG001
+) -> Botbox:
+    # Set outright: the SessionAgent check looks attributes up statically, past Mock's magic.
+    for method in ("stage_auth", "command", "session_command", "encode", "turn_ended"):
+        setattr(agent, method, Mock())
+    agent.session_command.return_value = "an-agent --stream"
+    docker.container.create.return_value = "a-container"
+    return Botbox(agent, allow=["extra.example"])
+
+
+def session_home_of(docker: MagicMock) -> Path:
+    return Path(docker.container.create.call_args.kwargs["volumes"][0][0])
+
+
+def describe_session() -> None:
+    def it_takes_mounts_and_workdir_by_keyword_only(session_box: Botbox) -> None:
+        with pytest.raises(TypeError):
+            session_box.session([])  # type: ignore[call-arg]
+
+    def it_refuses_an_agent_with_no_session_mode(agent: Mock, docker: MagicMock) -> None:
+        with pytest.raises(TypeError, match="no session mode"):
+            Botbox(agent).session()
+        docker.build.assert_not_called()
+
+    def it_checks_the_mounts_and_workdir_against_the_agents_home(
+        session_box: Botbox, bind_mounts: MagicMock
+    ) -> None:
+        mounts = [(Path("/host/work"), "/work", "rw")]
+        session_box.session(mounts=mounts, workdir="/work")  # type: ignore[arg-type]
+        bind_mounts.assert_called_once_with(mounts, workdir="/work", home="/home/agent")
+
+    def it_creates_the_container_locked_down_with_stdin_open_under_init(
+        session_box: Botbox, docker: MagicMock, jail: Mock
+    ) -> None:
+        session_box.session()
+        assert docker.container.create.call_args == call(
+            "an-agent:latest",
+            ["sh", "-c", "an-agent --stream"],
+            interactive=True,
+            init=True,
+            envs=jail.envs,
+            volumes=[
+                (str(session_home_of(docker)), "/home/agent", "rw"),
+                ("/host/work", "/work", "rw"),
+            ],
+            workdir="/home/agent",
+            networks=["a-jail"],
+            user="user",
+            cap_drop=["ALL"],
+            security_options=["no-new-privileges"],
+        )
+
+    def it_starts_in_the_workdir_when_given(session_box: Botbox, docker: MagicMock) -> None:
+        session_box.session(workdir="/work")
+        assert docker.container.create.call_args.kwargs["workdir"] == "/work"
+
+    def it_locks_down_with_the_agents_hosts_and_the_callers(
+        session_box: Botbox, lockdown: MagicMock
+    ) -> None:
+        session_box.session()
+        assert lockdown.call_args.args[0] == ("api.example", "extra.example")
+
+    def it_stages_the_credentials_into_the_mounted_home(
+        session_box: Botbox, agent: Mock, docker: MagicMock
+    ) -> None:
+        session_box.session()
+        agent.stage_auth.assert_called_once_with(session_home_of(docker))
+
+    def it_attaches_to_the_container_with_pipes(session_box: Botbox, popen: MagicMock) -> None:
+        session_box.session()
+        assert popen.call_args == call(
+            ["docker", "start", "--attach", "--interactive", "a-container"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def it_returns_a_session_on_the_container_and_image(session_box: Botbox) -> None:
+        result = session_box.session().close()
+        assert (result.container, result.image) == ("a-container", "an-agent:latest")
+
+    def it_returns_the_proxy_log_on_close(session_box: Botbox) -> None:
+        assert session_box.session().close().proxy == "a log"
+
+    def it_reads_the_transcript_before_deleting_the_home(
+        session_box: Botbox, agent: Mock, docker: MagicMock
+    ) -> None:
+        agent.stage_auth.side_effect = lambda home: (
+            (home / "sessions" / "s").mkdir(parents=True),
+            (home / "sessions" / "s" / "t.jsonl").write_text("turn"),
+        )
+        session = session_box.session()
+        home = session_home_of(docker)
+        assert session.close().transcript == {"sessions/s/t.jsonl": "turn"}
+        assert not home.exists()
+
+    def it_keeps_the_home_while_the_session_is_open(session_box: Botbox, docker: MagicMock) -> None:
+        session = session_box.session()
+        assert session_home_of(docker).is_dir()
+        session.close()
+
+    def it_removes_the_container_with_the_box(session_box: Botbox, docker: MagicMock) -> None:
+        with session_box:
+            session_box.session()
+        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+
+    def it_tears_down_when_attaching_fails(
+        session_box: Botbox, docker: MagicMock, popen: MagicMock
+    ) -> None:
+        popen.side_effect = OSError("no docker")
+        with pytest.raises(OSError, match="no docker"):
+            session_box.session()
+        assert not session_home_of(docker).exists()
+
+    def it_raises_before_creating_a_container_when_staging_fails(
+        session_box: Botbox, agent: Mock, docker: MagicMock, lockdown: MagicMock
+    ) -> None:
+        agent.stage_auth.side_effect = FileNotFoundError("credentials")
+        with pytest.raises(FileNotFoundError):
+            session_box.session()
+        lockdown.assert_not_called()
+        docker.container.create.assert_not_called()

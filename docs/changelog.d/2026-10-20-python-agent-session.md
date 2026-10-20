@@ -1,0 +1,1 @@
+**Added**: `box.session()` holds an agent's CLI open across messages. `session.message(text)` returns that turn's events, and background processes survive between messages. `PiAgent` supports it through `pi --mode rpc`.

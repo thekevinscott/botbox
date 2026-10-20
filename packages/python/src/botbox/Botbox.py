@@ -1,20 +1,22 @@
 import hashlib
+import subprocess
 from collections.abc import Sequence
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
 
-from botbox.agents.agent import Agent
+from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.collect import collect
-from botbox.lockdown import lockdown
+from botbox.lockdown import Lockdown, lockdown
 from botbox.RunResult import RunResult
+from botbox.Session import Session, read_transcript
 
 
 class Botbox:
@@ -103,13 +105,7 @@ class Botbox:
                     image,
                     ["sh", "-c", command],
                     detach=True,
-                    envs=jail.envs,
-                    volumes=[(str(home), agent.home, "rw"), *volumes],
-                    workdir=agent.home if workdir is None else Path(workdir).as_posix(),
-                    networks=[jail.network],
-                    user="user",
-                    cap_drop=["ALL"],
-                    security_options=["no-new-privileges"],
+                    **self._lockdown_options(home, jail, volumes, workdir),
                 )
                 self._containers.append(str(container))
                 try:
@@ -118,9 +114,74 @@ class Botbox:
                     with suppress(DockerException):
                         docker.container.remove(container, force=True)
                     raise
-            transcript = {
-                path.relative_to(home).as_posix(): path.read_text()
-                for path in sorted(home.glob(agent.transcripts))
-                if path.is_file()
-            }
+            transcript = read_transcript(home, agent.transcripts)
         return RunResult(stdout, stderr, exit_code, transcript, jail.log, str(container), image)
+
+    def session(
+        self,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+    ) -> Session:
+        """Start the agent's CLI in its session mode in the locked-down container and hold it open.
+
+        Same lockdown, home and mounts as `run()`. The container runs under an init process, so
+        whatever the agent leaves running in the background is reaped when it exits. Raises
+        `TypeError` for an agent with no session mode. The session's container is removed with
+        the box's, when its `with` block exits.
+        """
+        agent = self.agent
+        if not isinstance(agent, SessionAgent):
+            raise TypeError(f"{type(agent).__name__} has no session mode")
+        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        image = self.build()
+        resources = ExitStack()
+        try:
+            scratch = Path(resources.enter_context(TemporaryDirectory(prefix="botbox-")))
+            home = scratch / "home"
+            home.mkdir()
+            agent.stage_auth(home)
+            jail = resources.enter_context(lockdown((*agent.allow, *self.allow), scratch))
+            container = docker.container.create(
+                image,
+                ["sh", "-c", agent.session_command()],
+                interactive=True,
+                init=True,
+                **self._lockdown_options(home, jail, volumes, workdir),
+            )
+            self._containers.append(str(container))
+            process = subprocess.Popen(
+                ["docker", "start", "--attach", "--interactive", str(container)],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except BaseException:
+            resources.close()
+            raise
+
+        def finish() -> tuple[dict[str, str], str]:
+            transcript = read_transcript(home, agent.transcripts)
+            resources.close()
+            return transcript, jail.log
+
+        return Session(agent, process, str(container), image, finish)
+
+    def _lockdown_options(
+        self,
+        home: Path,
+        jail: Lockdown,
+        volumes: list[tuple[str, str, str]],
+        workdir: str | Path | None,
+    ) -> dict[str, Any]:
+        agent = self.agent
+        return {
+            "envs": jail.envs,
+            "volumes": [(str(home), agent.home, "rw"), *volumes],
+            "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
+            "networks": [jail.network],
+            "user": "user",
+            "cap_drop": ["ALL"],
+            "security_options": ["no-new-privileges"],
+        }

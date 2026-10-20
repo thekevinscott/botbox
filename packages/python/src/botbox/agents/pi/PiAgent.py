@@ -3,6 +3,7 @@ import os
 import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
 
@@ -53,6 +54,18 @@ class PiAgent:
         if self.model is not None:
             command += f" --model {self.model}"
         return command
+
+    def session_command(self) -> str:
+        command = f"pi --mode rpc --provider {self.provider}"
+        if self.model is not None:
+            command += f" --model {self.model}"
+        return command
+
+    def encode(self, message: str) -> str:
+        return json.dumps({"type": "prompt", "message": message})
+
+    def turn_ended(self, event: dict[str, Any]) -> bool:
+        return bool(event.get("type") == "agent_end")
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".pi" / "agent"

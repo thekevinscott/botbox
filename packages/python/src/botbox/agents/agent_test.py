@@ -1,7 +1,9 @@
 from pathlib import Path
-from typing import get_type_hints
+from typing import Any, get_type_hints
 
-from botbox.agents.agent import Agent
+from botbox.agents.agent import Agent, SessionAgent
+from botbox.agents.claude import ClaudeAgent
+from botbox.agents.pi import PiAgent
 
 
 def describe_agent() -> None:
@@ -25,3 +27,26 @@ def describe_agent() -> None:
 
     def it_types_the_egress_allowlist_as_a_tuple_of_hosts() -> None:
         assert get_type_hints(Agent)["allow"] == tuple[str, ...]
+
+
+def describe_session_agent() -> None:
+    def it_is_an_agent() -> None:
+        assert Agent in SessionAgent.__mro__
+
+    def it_renders_a_session_command() -> None:
+        assert get_type_hints(SessionAgent.session_command) == {"return": str}
+
+    def it_encodes_a_message_as_a_line() -> None:
+        assert get_type_hints(SessionAgent.encode) == {"message": str, "return": str}
+
+    def it_says_whether_an_event_ends_the_turn() -> None:
+        assert get_type_hints(SessionAgent.turn_ended) == {
+            "event": dict[str, Any],
+            "return": bool,
+        }
+
+    def it_recognises_an_agent_with_a_session_mode() -> None:
+        assert isinstance(PiAgent("openrouter"), SessionAgent)
+
+    def it_recognises_an_agent_without_one() -> None:
+        assert not isinstance(ClaudeAgent(), SessionAgent)
