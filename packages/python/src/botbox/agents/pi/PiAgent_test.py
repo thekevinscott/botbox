@@ -164,6 +164,9 @@ def describe_command() -> None:
             "pi -p 'Fix the tests' --mode json --provider openrouter"
         )
 
+    def it_runs_against_the_local_provider(local_host: str) -> None:  # noqa: ARG001
+        assert PiAgent(provider="tower").command("hi") == "pi -p hi --mode json --provider tower"
+
     def it_shell_quotes_the_prompt() -> None:
         assert PiAgent(provider="openrouter").command("it's $HOME") == (
             "pi -p 'it'\"'\"'s $HOME' --mode json --provider openrouter"
