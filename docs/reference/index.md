@@ -70,6 +70,7 @@ Concurrent builds of one tag, from any process, take turns.
 | Agent       | Class         | Dockerfile                 | Status     |
 | ----------- | ------------- | -------------------------- | ---------- |
 | Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | supported  |
+| Codex       | `CodexAgent`  | `agents/codex/Dockerfile`  | supported  |
 | pi          | `PiAgent`     | `agents/pi/Dockerfile`     | supported  |
 
 Agent images contain the CLI, its runtime, `git`, and `ca-certificates`. The pi image adds `python3`, `ripgrep`, and `fd`.
@@ -78,6 +79,7 @@ Agent images contain the CLI, its runtime, `git`, and `ca-certificates`. The pi 
 
 ```python
 ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None)
+CodexAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None)
 PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 ```
 
@@ -86,6 +88,7 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 | Agent         | Credentials                                                         | Own hosts           |
 | ------------- | ------------------------------------------------------------------- | ------------------- |
 | `ClaudeAgent` | `~/.claude/.credentials.json`, or `api_key` through `apiKeyHelper` | `api.anthropic.com` |
+| `CodexAgent`  | `~/.codex/auth.json`, or `api_key` in a fresh `auth.json` | `chatgpt.com`; `api.openai.com` with `api_key` |
 | `PiAgent`     | `~/.pi/agent/auth.json` (and `models.json` if present), or `api_key` in a fresh `auth.json` | `openrouter.ai` for `openrouter`; `$PI_AGENT_HOST` for `tower` |
 
 ### `command()`
@@ -94,7 +97,7 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 agent.command(prompt: str) -> str
 ```
 
-Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
+Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. `CodexAgent` renders `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")

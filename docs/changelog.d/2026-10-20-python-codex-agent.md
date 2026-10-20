@@ -1,0 +1,1 @@
+**Added**: `CodexAgent` runs the OpenAI Codex CLI (`@openai/codex` 0.162.1) in a new `botbox-codex` image. Like `ClaudeAgent`, it uses the host's subscription login (`~/.codex/auth.json`, ChatGPT) and the proxy admits `chatgpt.com`, or `CodexAgent(api_key=...)` uses an OpenAI API key and admits `api.openai.com`.
