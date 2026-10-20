@@ -4,7 +4,7 @@ diataxis: reference
 
 # Reference
 
-The Python API: `Botbox`, `run()`, `RunResult`, `build()`, and the agents.
+The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session`, `build()`, and the agents.
 
 ## `Botbox`
 
@@ -54,6 +54,28 @@ Nothing parsed.
 | `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
 The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits. The agent's home (`/home/user`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
+
+## `session()`
+
+```python
+box.session(
+    *,
+    mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
+    workdir: str | Path | None = None,
+) -> Session
+```
+
+Starts the agent's CLI in its session mode and holds it open. `mounts` and `workdir` are as for [`run()`](#run), and so are the lockdown and the temporary home. The container runs under an init process, so background processes the agent starts are reaped when the CLI exits. Raises `TypeError` for an agent with no session mode; only `PiAgent` has one, `pi --mode rpc`. The container is removed when the box's `with` block exits.
+
+## `Session`
+
+| Member              | What it is                                                                 |
+| ------------------- | -------------------------------------------------------------------------- |
+| `message(text)`     | Sends `text`, blocks until the turn ends, and returns the turn's events: `list[dict]`, one per JSON line on the CLI's stdout. Lines that aren't JSON objects are skipped. If the CLI exits mid-turn, returns what arrived. |
+| `close()`           | Ends the CLI's input, waits for it to exit, and returns a [`RunResult`](#runresult). Safe to call twice. |
+| `result`            | The `RunResult` once closed, else `None`.                                  |
+
+`Session` is a context manager; leaving the block calls `close()`. The `RunResult`'s `stdout` holds every line the CLI wrote, events included. There is no timeout: a turn that never ends blocks `message()`.
 
 ## `build()`
 

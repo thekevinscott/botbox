@@ -179,3 +179,35 @@ def describe_command() -> None:
 
     def it_takes_the_model_by_keyword() -> None:
         assert PiAgent(provider="openrouter", model="m").command("hi").endswith(" --model m")
+
+
+def describe_session() -> None:
+    def it_runs_pi_in_rpc_mode_against_the_provider() -> None:
+        assert PiAgent("openrouter").session_command() == "pi --mode rpc --provider openrouter"
+
+    def it_passes_the_model_when_set() -> None:
+        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
+            "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
+        )
+
+    def it_encodes_a_message_as_a_prompt_command() -> None:
+        assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {
+            "type": "prompt",
+            "message": "it's\nhere",
+        }
+
+    def it_encodes_on_one_line() -> None:
+        assert "\n" not in PiAgent("openrouter").encode("two\nlines")
+
+    def it_ends_the_turn_when_the_agent_ends() -> None:
+        assert PiAgent("openrouter").turn_ended({"type": "agent_end", "messages": []}) is True
+
+    def it_compares_the_event_type_by_value() -> None:
+        parsed = "".join(["agent", "_end"])
+        assert PiAgent("openrouter").turn_ended({"type": parsed}) is True
+
+    def it_keeps_the_turn_open_until_then() -> None:
+        agent = PiAgent("openrouter")
+        assert agent.turn_ended({"type": "turn_end"}) is False
+        assert agent.turn_ended({"type": "response", "command": "prompt"}) is False
+        assert agent.turn_ended({}) is False
