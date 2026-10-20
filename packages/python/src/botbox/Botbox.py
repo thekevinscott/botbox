@@ -1,10 +1,12 @@
 import hashlib
+import signal
 import subprocess
+import threading
 from collections.abc import Sequence
 from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import TracebackType
+from types import FrameType, TracebackType
 from typing import Any, Self
 
 from python_on_whales import docker
@@ -22,7 +24,9 @@ from botbox.Session import Session, read_transcript
 class Botbox:
     """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
 
-    Used as a context manager, it removes every container its runs created on exit.
+    Used as a context manager, it removes every container its runs created on exit. Inside the
+    block, SIGTERM raises `SystemExit` so that removal runs; Python's default SIGTERM exits
+    without unwinding. A SIGTERM handler the program set itself is left alone.
     """
 
     def __init__(
@@ -36,8 +40,15 @@ class Botbox:
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         self.allow = tuple(allow)
         self._containers: list[str] = []
+        self._unwinds = False
 
     def __enter__(self) -> Self:
+        if (
+            threading.current_thread() is threading.main_thread()
+            and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        ):
+            signal.signal(signal.SIGTERM, _unwind)
+            self._unwinds = True
         return self
 
     def __exit__(
@@ -46,6 +57,9 @@ class Botbox:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        if self._unwinds:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            self._unwinds = False
         containers, self._containers = self._containers, []
         if not containers:
             return
@@ -186,3 +200,7 @@ class Botbox:
             "cap_drop": ["ALL"],
             "security_options": ["no-new-privileges"],
         }
+
+
+def _unwind(signum: int, _frame: FrameType | None) -> None:
+    raise SystemExit(128 + signum)

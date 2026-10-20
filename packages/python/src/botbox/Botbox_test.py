@@ -1,7 +1,11 @@
+import os
 import re
+import signal
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
+from types import FrameType
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -357,6 +361,54 @@ def describe_with() -> None:
             run.run("true")
             raise error
         docker.container.remove.assert_called_once_with(["a-container"], force=True)
+
+    def describe_sigterm() -> None:
+        @pytest.fixture(autouse=True)
+        def default_handler() -> Iterator[None]:
+            previous = signal.signal(signal.SIGTERM, signal.SIG_DFL)
+            yield
+            signal.signal(signal.SIGTERM, previous)
+
+        def it_removes_the_containers(run: Botbox, docker: MagicMock) -> None:
+            with pytest.raises(SystemExit) as raised, run:
+                run.run("true")
+                os.kill(os.getpid(), signal.SIGTERM)
+            assert raised.value.code == 143
+            docker.container.remove.assert_called_once_with(["a-container"], force=True)
+
+        def it_restores_the_default_handler_on_exit(run: Botbox) -> None:
+            with run:
+                assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
+            assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+        def it_keeps_unwinding_until_the_outer_box_exits(run: Botbox, agent: Mock) -> None:
+            with run:
+                with Botbox(agent):
+                    pass
+                with pytest.raises(SystemExit):
+                    os.kill(os.getpid(), signal.SIGTERM)
+            assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+        def it_leaves_a_programs_own_handler_alone(run: Botbox) -> None:
+            def handler(_signum: int, _frame: FrameType | None) -> None:
+                pass
+
+            signal.signal(signal.SIGTERM, handler)
+            with run:
+                assert signal.getsignal(signal.SIGTERM) is handler
+            assert signal.getsignal(signal.SIGTERM) is handler
+
+        def it_does_nothing_off_the_main_thread(run: Botbox) -> None:
+            seen = []
+
+            def hold() -> None:
+                with run:
+                    seen.append(signal.getsignal(signal.SIGTERM))
+
+            thread = threading.Thread(target=hold)
+            thread.start()
+            thread.join()
+            assert seen == [signal.SIG_DFL]
 
     def it_keeps_the_blocks_error_when_removal_also_fails(run: Botbox, docker: MagicMock) -> None:
         docker.container.remove.side_effect = DockerException("daemon gone")
