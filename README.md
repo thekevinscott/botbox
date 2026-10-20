@@ -162,7 +162,7 @@ command=f'claude --resume {session_id} -p "Continue"'
 
 ## Extending the image
 
-Agent images contain the CLI, its runtime, `git`, and `ca-certificates`. Everything else goes in your own Dockerfile, `FROM` the agent's image:
+Agent images contain the CLI, its runtime, `git`, and `ca-certificates`. The pi image adds `python3`, `ripgrep`, and `fd`. Everything else goes in your own Dockerfile, `FROM` the agent's image:
 
 ```dockerfile
 FROM botbox-claude:latest

@@ -1,7 +1,7 @@
 FROM node:24.20.0-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git ca-certificates ripgrep fd-find && \
+    apt-get install -y --no-install-recommends git ca-certificates python3 ripgrep fd-find && \
     rm -rf /var/lib/apt/lists/* && \
     ln -s /usr/bin/fdfind /usr/local/bin/fd
 

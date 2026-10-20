@@ -72,7 +72,7 @@ Concurrent builds of one tag, from any process, take turns.
 | Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | supported  |
 | pi          | `PiAgent`     | `agents/pi/Dockerfile`     | image only |
 
-Agent images contain the CLI, its runtime, `git`, and `ca-certificates`.
+Agent images contain the CLI, its runtime, `git`, and `ca-certificates`. The pi image adds `python3`, `ripgrep`, and `fd`.
 
 ### Constructors
 
