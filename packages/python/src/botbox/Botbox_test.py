@@ -414,6 +414,15 @@ def describe_session() -> None:
             Botbox(agent).session()
         docker.build.assert_not_called()
 
+    def it_asks_for_the_session_command_before_building(
+        session_box: Botbox, agent: Mock, docker: MagicMock
+    ) -> None:
+        agent.session_command.side_effect = NotImplementedError("no")
+        with pytest.raises(NotImplementedError):
+            session_box.session()
+        docker.build.assert_not_called()
+        agent.stage_auth.assert_not_called()
+
     def it_checks_the_mounts_and_workdir_against_the_agents_home(
         session_box: Botbox, bind_mounts: MagicMock
     ) -> None:

@@ -1,0 +1,1 @@
+**Changed**: `box.session()` with a `CodexAgent` raises `NotImplementedError` instead of `TypeError`, before building anything. For a Codex model in a session, use `PiAgent("openrouter", "openai/<model>")`.

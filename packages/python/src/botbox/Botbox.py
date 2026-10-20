@@ -133,6 +133,7 @@ class Botbox:
         agent = self.agent
         if not isinstance(agent, SessionAgent):
             raise TypeError(f"{type(agent).__name__} has no session mode")
+        command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         image = self.build()
         resources = ExitStack()
@@ -144,7 +145,7 @@ class Botbox:
             jail = resources.enter_context(lockdown((*agent.allow, *self.allow), scratch))
             container = docker.container.create(
                 image,
-                ["sh", "-c", agent.session_command()],
+                ["sh", "-c", command],
                 interactive=True,
                 init=True,
                 **self._lockdown_options(home, jail, volumes, workdir),

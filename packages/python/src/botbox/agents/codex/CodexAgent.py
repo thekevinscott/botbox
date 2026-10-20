@@ -2,8 +2,14 @@ import json
 import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 AUTH = "auth.json"
+
+NO_SESSION = (
+    "NOT IMPLEMENTED: CodexAgent has no session mode. For a Codex model in a session, use"
+    " PiAgent('openrouter', 'openai/<model>')."
+)
 
 
 class CodexAgent:
@@ -38,6 +44,15 @@ class CodexAgent:
         if self.effort is not None:
             command += f" --config model_reasoning_effort={self.effort}"
         return f"{command} {shlex.quote(prompt)}"
+
+    def session_command(self) -> str:
+        raise NotImplementedError(NO_SESSION)
+
+    def encode(self, message: str) -> str:
+        raise NotImplementedError(NO_SESSION)
+
+    def turn_ended(self, event: dict[str, Any]) -> bool:
+        raise NotImplementedError(NO_SESSION)
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".codex"
