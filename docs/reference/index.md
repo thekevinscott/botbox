@@ -97,7 +97,7 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 agent.command(prompt: str) -> str
 ```
 
-Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. `CodexAgent` renders `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
+Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. `CodexAgent` renders `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins --config analytics.enabled=false <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")

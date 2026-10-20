@@ -118,7 +118,7 @@ def describe_command() -> None:
     def it_runs_codex_exec_with_json_output_and_no_sandbox_of_its_own() -> None:
         assert CodexAgent().command("Fix the tests") == (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
-            " --disable plugins 'Fix the tests'"
+            " --disable plugins --config analytics.enabled=false 'Fix the tests'"
         )
 
     def it_shell_quotes_the_prompt() -> None:

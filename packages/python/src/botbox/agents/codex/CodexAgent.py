@@ -31,7 +31,7 @@ class CodexAgent:
     def command(self, prompt: str) -> str:
         command = (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
-            " --disable plugins"
+            " --disable plugins --config analytics.enabled=false"
         )
         if self.model is not None:
             command += f" --model {self.model}"
