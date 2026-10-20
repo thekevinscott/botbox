@@ -20,7 +20,7 @@ test-integration:
     cd packages/python && uv run pytest tests/integration
 
 test-e2e:
-    cd packages/python && uv run pytest tests/e2e
+    cd packages/python && uv run --env-file ../../.env pytest tests/e2e
 
 build:
     cd packages/python && uv build

@@ -25,7 +25,7 @@ def resolve_allow(provider: str) -> tuple[str, ...]:
 
 
 class PiAgent:
-    """pi. Image only: botbox builds it, but runs are not yet supported."""
+    """pi."""
 
     image = "botbox-pi:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
