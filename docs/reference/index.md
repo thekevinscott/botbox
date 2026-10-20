@@ -65,7 +65,7 @@ box.session(
 ) -> Session
 ```
 
-Starts the agent's CLI in its session mode and holds it open. `mounts` and `workdir` are as for [`run()`](#run), and so are the lockdown and the temporary home. The container runs under an init process, so background processes the agent starts are reaped when the CLI exits. Raises `TypeError` for an agent with no session mode; only `PiAgent` has one, `pi --mode rpc`. The container is removed when the box's `with` block exits.
+Starts the agent's CLI in its session mode and holds it open. `mounts` and `workdir` are as for [`run()`](#run), and so are the lockdown and the temporary home. The container runs under an init process, so background processes the agent starts are reaped when the CLI exits. Raises `TypeError` for an agent with no session mode. `ClaudeAgent` runs `claude -p --input-format stream-json --output-format stream-json --verbose`, and a turn ends at its `result` event. `PiAgent` runs `pi --mode rpc`, and a turn ends at `agent_end`. `CodexAgent` has no session mode yet. The container is removed when the box's `with` block exits.
 
 ## `Session`
 

@@ -163,3 +163,52 @@ def describe_command() -> None:
             "claude -p hi --output-format json --dangerously-skip-permissions --strict-mcp-config"
             " --model claude-opus-5 --effort high"
         )
+
+
+def describe_session() -> None:
+    def it_streams_json_both_ways_with_tools_permitted_and_no_mcp() -> None:
+        assert ClaudeAgent().session_command() == (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config"
+        )
+
+    def it_passes_the_model_and_effort_when_set() -> None:
+        assert ClaudeAgent("claude-opus-5", "high").session_command() == (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config"
+            " --model claude-opus-5 --effort high"
+        )
+
+    def it_passes_the_model_alone() -> None:
+        assert ClaudeAgent(model="claude-opus-5").session_command() == (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config --model claude-opus-5"
+        )
+
+    def it_passes_the_effort_alone() -> None:
+        assert ClaudeAgent(effort="high").session_command() == (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config --effort high"
+        )
+
+    def it_encodes_a_message_as_a_user_message() -> None:
+        assert json.loads(ClaudeAgent().encode("it's\nhere")) == {
+            "type": "user",
+            "message": {"role": "user", "content": "it's\nhere"},
+        }
+
+    def it_encodes_on_one_line() -> None:
+        assert "\n" not in ClaudeAgent().encode("two\nlines")
+
+    def it_ends_the_turn_at_the_result() -> None:
+        assert ClaudeAgent().turn_ended({"type": "result", "subtype": "success"}) is True
+
+    def it_compares_the_event_type_by_value() -> None:
+        parsed = "".join(["res", "ult"])
+        assert ClaudeAgent().turn_ended({"type": parsed}) is True
+
+    def it_keeps_the_turn_open_until_then() -> None:
+        agent = ClaudeAgent()
+        assert agent.turn_ended({"type": "assistant"}) is False
+        assert agent.turn_ended({"type": "system", "subtype": "init"}) is False
+        assert agent.turn_ended({}) is False
