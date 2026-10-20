@@ -2,6 +2,7 @@ import json
 import shlex
 import shutil
 from pathlib import Path
+from typing import Any
 
 CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
@@ -39,6 +40,23 @@ class ClaudeAgent:
         if self.effort is not None:
             command += f" --effort {self.effort}"
         return command
+
+    def session_command(self) -> str:
+        command = (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config"
+        )
+        if self.model is not None:
+            command += f" --model {self.model}"
+        if self.effort is not None:
+            command += f" --effort {self.effort}"
+        return command
+
+    def encode(self, message: str) -> str:
+        return json.dumps({"type": "user", "message": {"role": "user", "content": message}})
+
+    def turn_ended(self, event: dict[str, Any]) -> bool:
+        return bool(event.get("type") == "result")
 
     def stage_auth(self, home: Path) -> None:
         destination = home / ".claude"

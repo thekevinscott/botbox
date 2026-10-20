@@ -20,6 +20,6 @@ with Botbox(agent) as box:
 
 Closing the session ends the CLI's input, waits for it to exit, and returns a [`RunResult`](../reference/#runresult). Leaving the `with` block closes it; `session.result` holds the same `RunResult`.
 
-Only `PiAgent` has a session mode so far. `session()` raises `TypeError` for the others.
+`ClaudeAgent` and `PiAgent` have a session mode. `session()` raises `TypeError` for `CodexAgent`.
 
 Next: [Reading the result](./reading-the-result).
