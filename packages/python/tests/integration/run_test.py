@@ -9,6 +9,7 @@ import pytest
 from conftest import Daemon
 from python_on_whales.exceptions import DockerException
 
+import botbox
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
@@ -466,6 +467,13 @@ def describe_run() -> None:
             assert docker["network"].remove.call_count == 2
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
+
+        def it_raises_the_docker_exception_botbox_exports(
+            box: Botbox, docker: dict[str, MagicMock]
+        ) -> None:
+            docker["run"].side_effect = DockerException(["docker", "run"], 125)
+            with pytest.raises(botbox.DockerException):
+                box.run("true")
 
         def it_tears_down_and_reraises_on_keyboard_interrupt(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
