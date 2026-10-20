@@ -10,7 +10,7 @@ from conftest import Daemon
 from python_on_whales.exceptions import DockerException
 
 import botbox
-from botbox import Botbox, ClaudeAgent, PiAgent, RunResult
+from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent, RunResult
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered domain "github.com"\n'
@@ -225,6 +225,25 @@ def describe_run() -> None:
             assert files == {
                 ".claude/api_key": "sk-test",
                 ".claude/settings.json": '{"apiKeyHelper": "cat /home/user/.claude/api_key"}',
+            }
+
+        def it_keeps_the_key_out_of_the_container_create_call(
+            keyed: Botbox, daemon: Daemon
+        ) -> None:
+            keyed.run("true")
+            call = {k: v for k, v in daemon.agent.items() if k != "files"}
+            assert "sk-test" not in repr(call)
+            assert "sk-test" not in repr(daemon.proxy)
+
+    def describe_an_openai_api_key() -> None:
+        @pytest.fixture
+        def keyed(tmp_path: Path) -> Botbox:
+            return Botbox(CodexAgent(api_key="sk-test", host_home=tmp_path / "missing"))
+
+        def it_stages_only_the_key(keyed: Botbox, daemon: Daemon) -> None:
+            keyed.run("true")
+            assert daemon.agent["files"]["/home/user"] == {
+                ".codex/auth.json": '{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}',
             }
 
         def it_keeps_the_key_out_of_the_container_create_call(

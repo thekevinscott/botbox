@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from botbox import Botbox, ClaudeAgent, PiAgent
+from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent
 
 LAYER = "FROM botbox-claude:latest\nUSER root\nRUN npm install -g vitest@2.1.3\nUSER user\n"
 
@@ -49,6 +49,10 @@ def describe_build() -> None:
         def it_builds_the_pi_image_for_pi(builds: list[dict[str, Any]]) -> None:
             assert Botbox(PiAgent(provider="openrouter")).build() == "botbox-pi:latest"
             assert builds[0]["file"].parts[-2:] == ("pi", "Dockerfile")
+
+        def it_builds_the_codex_image_for_codex(builds: list[dict[str, Any]]) -> None:
+            assert Botbox(CodexAgent()).build() == "botbox-codex:latest"
+            assert builds[0]["file"].parts[-2:] == ("codex", "Dockerfile")
 
     def describe_with_a_dockerfile() -> None:
         def it_builds_the_agent_image_then_the_layer(
