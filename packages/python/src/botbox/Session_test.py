@@ -1,5 +1,6 @@
 import io
 import json
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,13 @@ def finish() -> Mock:
 
 def session_of(agent: Mock, proc: Mock, finish: Mock) -> Session:
     return Session(agent, proc, "a-container", "an-image:latest", finish)
+
+
+def describe_init() -> None:
+    def it_drains_stderr_on_a_thread_that_cant_hold_up_exit(agent: Mock, finish: Mock) -> None:
+        with patch("botbox.Session.threading.Thread", wraps=threading.Thread) as thread:
+            session_of(agent, process(), finish)
+        assert thread.call_args.kwargs["daemon"] is True
 
 
 def describe_message() -> None:

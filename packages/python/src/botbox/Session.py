@@ -69,7 +69,8 @@ class Session:
         CLI exits mid-turn, the events that arrived come back; `close()` has the exit code.
         """
         stdin, stdout = self._process.stdin, self._process.stdout
-        assert stdin is not None and stdout is not None
+        assert stdin is not None
+        assert stdout is not None
         stdin.write(self.agent.encode(text) + "\n")
         stdin.flush()
         events: list[dict[str, Any]] = []
@@ -91,7 +92,8 @@ class Session:
         if self.result is not None:
             return self.result
         stdin, stdout = self._process.stdin, self._process.stdout
-        assert stdin is not None and stdout is not None
+        assert stdin is not None
+        assert stdout is not None
         with suppress(BrokenPipeError):
             stdin.close()
         self._stdout.extend(stdout)

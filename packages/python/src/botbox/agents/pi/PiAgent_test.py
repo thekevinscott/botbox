@@ -202,6 +202,10 @@ def describe_session() -> None:
     def it_ends_the_turn_when_the_agent_ends() -> None:
         assert PiAgent("openrouter").turn_ended({"type": "agent_end", "messages": []}) is True
 
+    def it_compares_the_event_type_by_value() -> None:
+        parsed = "".join(["agent", "_end"])
+        assert PiAgent("openrouter").turn_ended({"type": parsed}) is True
+
     def it_keeps_the_turn_open_until_then() -> None:
         agent = PiAgent("openrouter")
         assert agent.turn_ended({"type": "turn_end"}) is False
