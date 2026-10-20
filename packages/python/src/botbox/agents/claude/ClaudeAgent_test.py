@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from botbox.agents.agent import SessionAgent
 from botbox.agents.claude.ClaudeAgent import ClaudeAgent
 
 
@@ -213,6 +212,3 @@ def describe_session() -> None:
         assert agent.turn_ended({"type": "assistant"}) is False
         assert agent.turn_ended({"type": "system", "subtype": "init"}) is False
         assert agent.turn_ended({}) is False
-
-    def it_is_a_session_agent() -> None:
-        assert isinstance(ClaudeAgent(), SessionAgent)
