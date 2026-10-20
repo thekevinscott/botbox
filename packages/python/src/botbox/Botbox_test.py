@@ -362,7 +362,7 @@ def describe_with() -> None:
         @pytest.fixture(autouse=True)
         def threads() -> Iterator[MagicMock]:
             with patch("botbox.Botbox.threading", autospec=True) as m:
-                m.get_ident.return_value = m.main_thread.return_value.ident
+                m.current_thread.return_value = m.main_thread.return_value
                 yield m
 
         @pytest.fixture(autouse=True)
@@ -410,7 +410,7 @@ def describe_with() -> None:
         def it_does_nothing_off_the_main_thread(
             run: Botbox, threads: MagicMock, signals: MagicMock
         ) -> None:
-            threads.get_ident.return_value = Mock()
+            threads.current_thread.return_value = Mock()
             with run:
                 pass
             signals.signal.assert_not_called()

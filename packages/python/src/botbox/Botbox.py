@@ -44,8 +44,8 @@ class Botbox:
 
     def __enter__(self) -> Self:
         if (
-            threading.get_ident() == threading.main_thread().ident
-            and signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+            threading.current_thread() is threading.main_thread()
+            and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
         ):
             signal.signal(signal.SIGTERM, _unwind)
             self._unwinds = True
