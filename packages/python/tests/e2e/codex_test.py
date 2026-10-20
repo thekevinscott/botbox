@@ -11,7 +11,7 @@ from botbox import Botbox, CodexAgent, RunResult
 
 @pytest.fixture(scope="module")
 def result() -> Iterator[RunResult]:
-    agent = CodexAgent("gpt-5.4-mini", "low")
+    agent = CodexAgent("gpt-5.6-luna", "low")
     yield from removed(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
