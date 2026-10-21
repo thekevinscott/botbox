@@ -7,14 +7,14 @@ This was written before the spikes (#80, #81, #82) reported. Anything marked *pr
 ## Timeline and pinning
 
 1. **Patches (0.0.x).** `AsyncBotbox` ships beside the sync `Botbox`: `build()` (#83), then `run()` (#84), then `session()` (#85). botbox is alpha: other breaking changes also ship as patches in this phase (#74, agent `--rm`). Read the migration fragments when you bump.
-2. **The switch (0.2.0, #86).** The sync API is removed. `AsyncBotbox` is renamed `Botbox`, with no `AsyncBotbox` alias left behind. python-on-whales is no longer a dependency.
+2. **The switch (0.1.0, #86).** The sync API is removed. `AsyncBotbox` is renamed `Botbox`, with no `AsyncBotbox` alias left behind. python-on-whales is no longer a dependency.
 
 What to do:
 
-- Pin `botbox>=0.0.25,<0.2` now. The upper bound keeps the switch from landing on you unannounced. It does not hold off breaking patches before it.
+- Pin `botbox>=0.0.25,<0.1` now. The upper bound keeps the switch from landing on you unannounced. It does not hold off breaking patches before it.
 - Move to `AsyncBotbox` during phase 1. Raise the floor to the first release that has every method you call.
-- At 0.2.0, change every `AsyncBotbox` to `Botbox` and move the pin to `>=0.2,<0.3`.
-- If your own code imports `python_on_whales`, declare it as your own dependency. botbox stops pulling it in at 0.2.0.
+- At 0.1.0, change every `AsyncBotbox` to `Botbox` and move the pin to `>=0.1,<0.2`.
+- If your own code imports `python_on_whales`, declare it as your own dependency. botbox stops pulling it in at 0.1.0.
 
 ## What stays the same
 
@@ -154,11 +154,11 @@ except* DockerException as group:
     ...
 ```
 
-*Provisional:* `DockerException`. Today `botbox.DockerException` is python_on_whales' class, with its constructor `DockerException(command, return_code)`. After 0.2.0 it will be botbox's own. Catch `botbox.DockerException`, never `python_on_whales.exceptions.DockerException`. Tests that construct one with the python_on_whales signature will need a change.
+*Provisional:* `DockerException`. Today `botbox.DockerException` is python_on_whales' class, with its constructor `DockerException(command, return_code)`. After 0.1.0 it will be botbox's own. Catch `botbox.DockerException`, never `python_on_whales.exceptions.DockerException`. Tests that construct one with the python_on_whales signature will need a change.
 
 ## Testing
 
-Integration tests that patch `python_on_whales.docker.*` to fake the daemon stop working at 0.2.0. botbox no longer calls those functions, so the patches miss and the tests try to reach a real daemon. Don't port them to patch aiodocker either. botbox's Docker boundary is internal, and the spikes may route builds and attaches through the `docker` CLI. Delete them.
+Integration tests that patch `python_on_whales.docker.*` to fake the daemon stop working at 0.1.0. botbox no longer calls those functions, so the patches miss and the tests try to reach a real daemon. Don't port them to patch aiodocker either. botbox's Docker boundary is internal, and the spikes may route builds and attaches through the `docker` CLI. Delete them.
 
 Replace them with two layers:
 
@@ -188,7 +188,7 @@ A vendored copy of botbox's lockdown in your own code keeps working, since it ca
 
 ## Checklist
 
-- [ ] Pin `botbox>=0.0.25,<0.2`.
+- [ ] Pin `botbox>=0.0.25,<0.1`.
 - [ ] Declare `python-on-whales` if you import it directly.
 - [ ] Remove imports of botbox internals.
 - [ ] Switch to `AsyncBotbox`; add `async`/`await` up to one `asyncio.run`.
@@ -196,4 +196,4 @@ A vendored copy of botbox's lockdown in your own code keeps working, since it ca
 - [ ] Replace `turn_ended` side effects with `live.stream()`.
 - [ ] Replace thread pools and sequential sample loops with a `TaskGroup`.
 - [ ] Delete tests that patch python_on_whales; patch `AsyncBotbox` at your module.
-- [ ] At 0.2.0: rename `AsyncBotbox` to `Botbox`, re-pin `<0.3`.
+- [ ] At 0.1.0: rename `AsyncBotbox` to `Botbox`, re-pin `>=0.1,<0.2`.
