@@ -1,0 +1,1 @@
+**Fixed**: `RunResult.transcript` no longer follows a symlink out of the agent's home. An agent could link a host file into its transcript folder and botbox would read it back on the host. Matches that resolve outside the home are now skipped.
