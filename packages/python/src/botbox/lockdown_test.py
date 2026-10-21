@@ -2,7 +2,7 @@ import argparse
 import os
 import re
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from typing import IO, Any
 from unittest.mock import ANY, MagicMock, Mock, patch
@@ -18,7 +18,6 @@ from botbox.lockdown import (
     Lockdown,
     lockdown,
 )
-from botbox.owner_only import HELD
 
 
 class DockerException(Exception):
@@ -76,6 +75,23 @@ def stop() -> Iterator[MagicMock]:
     with patch("botbox.lockdown.stop_attached", autospec=True) as m:
         m.side_effect = lambda _process, stdin, _timeout: stdin.close()
         yield m
+
+
+@pytest.fixture(autouse=True)
+def owned() -> Iterator[set[IO[bytes]]]:
+    """Stands in for owner_only: the pipes it holds, while it holds them."""
+    pipes: set[IO[bytes]] = set()
+
+    @contextmanager
+    def owner_only(pipe: IO[bytes]) -> Iterator[None]:
+        pipes.add(pipe)
+        try:
+            yield
+        finally:
+            pipes.discard(pipe)
+
+    with patch("botbox.lockdown.owner_only", owner_only):
+        yield pipes
 
 
 @pytest.fixture
@@ -249,10 +265,10 @@ def describe_lockdown() -> None:
         """The proxy's stdin: only this process may hold its write end, from start to close."""
 
         def it_holds_the_write_end_owner_only_before_the_proxy_starts(
-            jail: Jail, popen: MagicMock, proxy: Mock
+            jail: Jail, popen: MagicMock, proxy: Mock, owned: set[IO[bytes]]
         ) -> None:
             def start(_argv: list[str], *, stdin: int, **_options: object) -> Mock:
-                [held] = HELD
+                [held] = owned
                 held.write(b"x")
                 held.flush()
                 assert os.read(stdin, 1) == b"x"
@@ -263,31 +279,35 @@ def describe_lockdown() -> None:
                 pass
             popen.assert_called_once()
 
-        def it_keeps_holding_it_while_the_body_runs(jail: Jail) -> None:
+        def it_keeps_holding_it_while_the_body_runs(jail: Jail, owned: set[IO[bytes]]) -> None:
             with jail():
-                [held] = HELD
+                [held] = owned
                 assert not held.closed
 
-        def it_closes_it_before_letting_go(jail: Jail, stop: MagicMock) -> None:
+        def it_closes_it_before_letting_go(
+            jail: Jail, stop: MagicMock, owned: set[IO[bytes]]
+        ) -> None:
             def close(_process: Mock, stdin: IO[bytes], _timeout: float) -> None:
-                assert {stdin} == HELD
+                assert {stdin} == owned
                 stdin.close()
 
             stop.side_effect = close
             with jail():
                 pass
             stop.assert_called_once()
-            assert not HELD
+            assert not owned
 
         def it_closes_the_read_end_once_the_proxy_has_it(jail: Jail, popen: MagicMock) -> None:
             with jail(), pytest.raises(OSError):
                 os.fstat(popen.call_args.kwargs["stdin"])
 
-        def it_closes_both_ends_when_the_start_fails(jail: Jail, popen: MagicMock) -> None:
+        def it_closes_both_ends_when_the_start_fails(
+            jail: Jail, popen: MagicMock, owned: set[IO[bytes]]
+        ) -> None:
             pipes: list[tuple[int, IO[bytes]]] = []
 
             def start(_argv: list[str], *, stdin: int, **_options: object) -> Mock:
-                pipes.append((stdin, next(iter(HELD))))
+                pipes.append((stdin, next(iter(owned))))
                 raise OSError("no docker")
 
             popen.side_effect = start
@@ -297,7 +317,7 @@ def describe_lockdown() -> None:
             assert held.closed
             with pytest.raises(OSError):
                 os.fstat(read)
-            assert not HELD
+            assert not owned
 
     def describe_the_proxy_config() -> None:
         def it_is_the_shipped_one_baked_into_the_image(jail: Jail, popen: MagicMock) -> None:

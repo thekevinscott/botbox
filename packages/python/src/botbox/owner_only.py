@@ -1,16 +1,8 @@
-import os
 from collections.abc import Generator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from typing import IO
 
-HELD: set[IO[bytes]] = set()
-
-
-def close_held() -> None:
-    for pipe in HELD:
-        with suppress(OSError):
-            pipe.close()
-    HELD.clear()
+from botbox.close_held import HELD
 
 
 @contextmanager
@@ -24,6 +16,3 @@ def owner_only(pipe: IO[bytes]) -> Generator[None]:
         yield
     finally:
         HELD.discard(pipe)
-
-
-os.register_at_fork(after_in_child=close_held)
