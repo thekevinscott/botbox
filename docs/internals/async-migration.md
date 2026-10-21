@@ -1,19 +1,20 @@
 # Migrating a consumer to async botbox
 
-How code that calls botbox moves from the sync `Botbox` to the async API. The plan is epic #79.
+How code that calls botbox moves from the sync `Botbox` (0.0.x) to the async `Botbox` (0.1.0). The plan is epic #79.
 
 This was written before the spikes (#80, #81, #82) reported. Anything marked *provisional* may still change.
 
 ## Timeline and pinning
 
-1. **Patches (0.0.x).** `AsyncBotbox` ships beside the sync `Botbox`: `build()` (#83), then `run()` (#84), then `session()` (#85). botbox is alpha: other breaking changes also ship as patches in this phase (#74, agent `--rm`). Read the migration fragments when you bump.
-2. **The switch (0.1.0, #86).** The sync API is removed. `AsyncBotbox` is renamed `Botbox`, with no `AsyncBotbox` alias left behind. python-on-whales is no longer a dependency.
+- **Until 0.1.0:** 0.0.x patches, sync `Botbox` only. botbox is alpha, so these patches can still break things (#74, agent `--rm`). Read the migration fragments when you bump.
+- **0.1.0 (#86):** `Botbox` is async. The sync API is gone. python-on-whales is no longer a dependency.
+
+The async work lands on main while it's built, but nothing is released until the switch. You migrate once, from sync 0.0.x straight to async 0.1.0. There is no release where both APIs exist.
 
 What to do:
 
 - Pin `botbox>=0.0.25,<0.1` now. The upper bound keeps the switch from landing on you unannounced. It does not hold off breaking patches before it.
-- Move to `AsyncBotbox` during phase 1. Raise the floor to the first release that has every method you call.
-- At 0.1.0, change every `AsyncBotbox` to `Botbox` and move the pin to `>=0.1,<0.2`.
+- Migrate when you move to `>=0.1,<0.2`.
 - If your own code imports `python_on_whales`, declare it as your own dependency. botbox stops pulling it in at 0.1.0.
 
 ## What stays the same
@@ -28,11 +29,11 @@ What to do:
 ## build
 
 ```python
-# before
+# 0.0.x
 tag = Botbox(agent, dockerfile=DOCKERFILE).build()
 
-# after
-tag = await AsyncBotbox(agent, dockerfile=DOCKERFILE).build()
+# 0.1.0
+tag = await Botbox(agent, dockerfile=DOCKERFILE).build()
 ```
 
 Concurrent builds of one tag still take turns, across processes, without blocking the loop.
@@ -40,12 +41,12 @@ Concurrent builds of one tag still take turns, across processes, without blockin
 ## run
 
 ```python
-# before
+# 0.0.x
 with Botbox(agent, dockerfile=DOCKERFILE) as box:
     result = box.run(command, mounts=mounts, workdir="/target")
 
-# after
-async with AsyncBotbox(agent, dockerfile=DOCKERFILE) as box:
+# 0.1.0
+async with Botbox(agent, dockerfile=DOCKERFILE) as box:
     result = await box.run(command, mounts=mounts, workdir="/target")
 ```
 
@@ -54,14 +55,14 @@ A function that returned a `RunResult` becomes `async def` and every caller up t
 ## session
 
 ```python
-# before
+# 0.0.x
 with Botbox(agent) as box:
     with box.session(mounts=mounts, workdir="/solution") as live:
         events = live.message(text)
         result = live.close()
 
-# after
-async with AsyncBotbox(agent) as box:
+# 0.1.0
+async with Botbox(agent) as box:
     async with box.session(mounts=mounts, workdir="/solution") as live:
         events = await live.message(text)
     result = live.result
@@ -76,7 +77,7 @@ A session opened without `with` and closed in a `finally` (a session held open a
 ```python
 @asynccontextmanager
 async def open_session(config) -> AsyncIterator[Session]:
-    async with AsyncBotbox(agent, dockerfile=DOCKERFILE) as box:
+    async with Botbox(agent, dockerfile=DOCKERFILE) as box:
         async with box.session(mounts=mounts, workdir="/solutions") as live:
             yield live
         save_result(live.result, config)
@@ -167,7 +168,7 @@ Replace them with two layers:
   ```python
   @pytest.fixture
   def botbox():
-      with patch("my_pkg.runner.AsyncBotbox", autospec=True) as mock:
+      with patch("my_pkg.runner.Botbox", autospec=True) as mock:
           mock.return_value.__aenter__.return_value = mock.return_value
           yield mock
 
@@ -188,12 +189,9 @@ A vendored copy of botbox's lockdown in your own code keeps working, since it ca
 
 ## Checklist
 
-- [ ] Pin `botbox>=0.0.25,<0.1`.
-- [ ] Declare `python-on-whales` if you import it directly.
-- [ ] Remove imports of botbox internals.
-- [ ] Switch to `AsyncBotbox`; add `async`/`await` up to one `asyncio.run`.
+- [ ] Now: pin `botbox>=0.0.25,<0.1`, declare `python-on-whales` if you import it, and drop imports of botbox internals.
+- [ ] At 0.1.0: re-pin `>=0.1,<0.2`; add `async`/`await` up to one `asyncio.run`.
 - [ ] Move your own blocking work off the loop.
 - [ ] Replace `turn_ended` side effects with `live.stream()`.
 - [ ] Replace thread pools and sequential sample loops with a `TaskGroup`.
-- [ ] Delete tests that patch python_on_whales; patch `AsyncBotbox` at your module.
-- [ ] At 0.1.0: rename `AsyncBotbox` to `Botbox`, re-pin `>=0.1,<0.2`.
+- [ ] Delete tests that patch python_on_whales; patch `Botbox` at your module.
