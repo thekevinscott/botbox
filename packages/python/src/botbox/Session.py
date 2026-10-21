@@ -12,11 +12,17 @@ from botbox.RunResult import RunResult
 
 
 def read_transcript(home: Path, pattern: str) -> dict[str, str]:
-    """Each file under `home` matching `pattern`, by its path relative to `home`."""
+    """Each file under `home` matching `pattern`, by its path relative to `home`.
+
+    The agent writes `home`, so a match that resolves outside it is a link to a host file and
+    is skipped. The container has exited by the time this runs, so no link can change after
+    the check.
+    """
+    root = home.resolve()
     return {
         path.relative_to(home).as_posix(): path.read_text()
         for path in sorted(home.glob(pattern))
-        if path.is_file()
+        if path.is_file() and path.resolve().is_relative_to(root)
     }
 
 
