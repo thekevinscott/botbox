@@ -14,9 +14,17 @@ export default defineConfig({
     sidebar: [
       {
         items: [
-          { text: 'Motivation', link: '/motivation' },
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'How It Works', link: '/explanation/' },
+        ],
+      },
+      {
+        text: 'Harnesses',
+        items: [
+          { text: 'Overview', link: '/harnesses/' },
+          { text: 'Claude Code', link: '/harnesses/claude' },
+          { text: 'Codex', link: '/harnesses/codex' },
+          { text: 'pi', link: '/harnesses/pi' },
         ],
       },
       {

@@ -6,8 +6,8 @@ hero:
   tagline: Run a coding agent inside a locked-down Docker container.
   actions:
     - theme: brand
-      text: Motivation
-      link: /motivation
+      text: How It Works
+      link: /explanation/
     - theme: alt
       text: Get Started
       link: /getting-started
