@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 from collections.abc import Generator, Iterable
@@ -111,19 +112,28 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
         f"{sockets}:{SOCKET_DIR}:rw",
         PROXY_IMAGE,
     ]
+    # Created here, not by Popen, so the write end is owner-only before any fork can copy it.
+    read, write = os.pipe()
+    stdin = os.fdopen(write, "wb")
     process = None
     try:
-        with output.open("w") as out:
-            process = subprocess.Popen(
-                command, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT
-            )
-        assert process.stdin is not None
-        with owner_only(process.stdin):
-            wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
-            yield jail
+        with owner_only(stdin):
+            try:
+                try:
+                    with output.open("w") as out:
+                        process = subprocess.Popen(
+                            command, stdin=read, stdout=out, stderr=subprocess.STDOUT
+                        )
+                finally:
+                    os.close(read)
+                wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
+                yield jail
+            finally:
+                if process is None:
+                    stdin.close()
+                else:
+                    stop_attached(process, stdin, PROXY_EXIT_SECONDS)
     finally:
-        if process is not None:
-            stop_attached(process, PROXY_EXIT_SECONDS)
         # Never started, or wouldn't stop; otherwise it is already gone with --rm.
         with suppress(DockerException):
             docker.container.remove(name, force=True)
