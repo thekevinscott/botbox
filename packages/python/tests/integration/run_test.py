@@ -187,7 +187,7 @@ def describe_run() -> None:
             assert re.fullmatch(r"botbox-egress-[0-9a-f]{12}", egress)
             assert daemon.proxy["networks"] == [egress]
             docker["network"].connect.assert_called_once_with(
-                daemon.agent["networks"][0], "proxy-container"
+                daemon.agent["networks"][0], daemon.proxy["name"]
             )
 
         def it_uses_new_networks_each_run(box: Botbox, daemon: Daemon) -> None:
@@ -454,7 +454,7 @@ def describe_run() -> None:
         ) -> None:
             result = box.run("true")
             assert result.container == "agent-container"
-            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
+            docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
             [egress] = docker["network"].create.call_args.args
             assert [c.args[0] for c in docker["network"].remove.call_args_list] == [
                 daemon.agent["networks"][0],
@@ -466,7 +466,7 @@ def describe_run() -> None:
         ) -> None:
             daemon.exit_code = 1
             box.run("false")
-            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
+            docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
             assert docker["network"].remove.call_count == 2
 
         def it_tears_down_when_the_container_fails_to_start(
@@ -482,7 +482,7 @@ def describe_run() -> None:
             docker["run"].side_effect = refuse_the_agent
             with pytest.raises(DockerException):
                 box.run("true")
-            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
+            docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
             assert docker["network"].remove.call_count == 2
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
@@ -501,7 +501,7 @@ def describe_run() -> None:
             with pytest.raises(KeyboardInterrupt):
                 box.run("sleep 600")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
-            assert removed == ["agent-container", "proxy-container"]
+            assert removed == ["agent-container", daemon.proxy["name"]]
             assert docker["network"].remove.call_count == 2
             assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
@@ -573,10 +573,10 @@ def describe_run() -> None:
 
         @pytest.mark.usefixtures("dead")
         def it_still_tries_to_remove_the_sidecar_and_both_networks(
-            box: Botbox, docker: dict[str, MagicMock]
+            box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             box.run("true")
-            docker["container"].remove.assert_called_once_with("proxy-container", force=True)
+            docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
             assert docker["network"].remove.call_count == 2
 
         def it_keeps_the_exit_code_when_only_teardown_fails(
