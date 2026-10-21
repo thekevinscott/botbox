@@ -245,9 +245,8 @@ def describe_run() -> None:
             box.run("true")
             assert daemon.proxy["interactive"] is True
             assert daemon.proxy["remove"] is True
-            assert daemon.attached == [
-                ["docker", "start", "--attach", "--interactive", daemon.proxy["name"]]
-            ]
+            [argv] = daemon.attached
+            assert argv[:2] == ["docker", "run"]
 
     def describe_an_api_key() -> None:
         @pytest.fixture

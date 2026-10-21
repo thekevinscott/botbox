@@ -1,5 +1,6 @@
 """Integration tests: Docker mocked at the python_on_whales boundary."""
 
+import argparse
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,7 @@ class Daemon:
 
     `container` stands in for the agent's process: it gets the staged home and the proxy's
     log directory as host paths, and writes into them the way the CLI and tinyproxy would.
-    The proxy is created, then attached with `docker start`; `attached` holds each attach.
+    The proxy runs attached, through `docker run`; `attached` holds each such command.
     """
 
     def __init__(self) -> None:
@@ -62,6 +63,21 @@ class Daemon:
 
 
 PROXY_IMAGE = "botbox-proxy:latest"
+
+# The proxy's `docker run` flags, parsed back into python_on_whales' option names.
+RUN = argparse.ArgumentParser()
+RUN.add_argument("--interactive", action="store_true")
+RUN.add_argument("--rm", dest="remove", action="store_true")
+RUN.add_argument("--init", action="store_true")
+RUN.add_argument("--name")
+RUN.add_argument("--user")
+RUN.add_argument("--pids-limit", type=int)
+RUN.add_argument("--network", dest="networks", action="append", default=[])
+RUN.add_argument("--cap-drop", action="append", default=[])
+RUN.add_argument("--security-opt", dest="security_options", action="append", default=[])
+RUN.add_argument("--volume", dest="volumes", action="append", default=[])
+RUN.add_argument("image")
+RUN.add_argument("command", nargs="*")
 
 
 def snapshot(source: str) -> dict[str, str]:
@@ -103,12 +119,12 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
                 }
             )
 
-        def create_proxy(image: str, command: Sequence[str] = (), **options: Any) -> str:
-            record(image, command, **options)
-            return "proxy-container"
-
         def start_proxy(argv: list[str], **_options: Any) -> MagicMock:
             """The proxy comes up: its socket appears in the directory it was given."""
+            assert argv[:2] == ["docker", "run"]
+            options = vars(RUN.parse_args(argv[2:]))
+            options["volumes"] = [tuple(v.split(":")) for v in options["volumes"]]
+            record(**options)
             sockets = next(s for s, t, _ in daemon.proxy["volumes"] if t == "/run/botbox")
             (Path(sockets) / "proxy.sock").touch()
             daemon.attached.append(argv)
@@ -136,7 +152,6 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
                 raise DockerException(["docker", "container", "wait"], 1, stderr=b"EOF")
             return daemon.exit_code
 
-        container.create.side_effect = create_proxy
         popen.side_effect = start_proxy
         run.side_effect = record_run
         logs.side_effect = stream
