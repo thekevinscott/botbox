@@ -83,31 +83,39 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     log.chmod(0o666)
     output = scratch / "proxy.out"
 
+    # One attached `docker run`, not create then start: an owner dying in between would leave
+    # a created container that --rm never removes. An orphaned `docker run` still sees EOF.
+    command = [
+        "docker",
+        "run",
+        "--interactive",
+        "--rm",
+        "--init",
+        "--name",
+        name,
+        "--user",
+        PROXY_USER,
+        "--network",
+        "bridge",
+        "--pids-limit",
+        str(PROXY_PIDS),
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--volume",
+        f"{allowlist}:/etc/tinyproxy/filter:ro",
+        "--volume",
+        f"{log_dir}:{PROXY_LOG_DIR}:rw",
+        "--volume",
+        f"{sockets}:{SOCKET_DIR}:rw",
+        PROXY_IMAGE,
+    ]
     process = None
     try:
-        docker.container.create(
-            PROXY_IMAGE,
-            interactive=True,
-            remove=True,
-            init=True,
-            name=name,
-            user=PROXY_USER,
-            networks=["bridge"],
-            pids_limit=PROXY_PIDS,
-            volumes=[
-                (str(allowlist), "/etc/tinyproxy/filter", "ro"),
-                (str(log_dir), PROXY_LOG_DIR, "rw"),
-                (str(sockets), SOCKET_DIR, "rw"),
-            ],
-            cap_drop=["ALL"],
-            security_options=["no-new-privileges"],
-        )
         with output.open("w") as out:
             process = subprocess.Popen(
-                ["docker", "start", "--attach", "--interactive", name],
-                stdin=subprocess.PIPE,
-                stdout=out,
-                stderr=subprocess.STDOUT,
+                command, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT
             )
         assert process.stdin is not None
         with owner_only(process.stdin):
