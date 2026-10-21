@@ -39,6 +39,8 @@ class Botbox:
     ) -> None:
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
+        if isinstance(allow, str):
+            raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
         self._containers: list[str] = []
         self._unwinds = False
