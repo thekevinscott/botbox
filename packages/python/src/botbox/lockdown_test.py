@@ -125,11 +125,27 @@ def describe_lockdown() -> None:
             with jail() as net:
                 docker.network.inspect.assert_called_once_with(net.network)
 
+        def it_admits_the_first_subnet_of_a_dual_stack_jail(jail: Jail, docker: MagicMock) -> None:
+            docker.network.inspect.return_value.ipam.config = [
+                {"Subnet": "172.18.0.0/24"},
+                {"Subnet": "fd00::/64"},
+            ]
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "Allow 172.18.0.0/24" in conf
+            assert "fd00::/64" not in conf
+
         def it_carries_the_shipped_config(jail: Jail, docker: MagicMock) -> None:
             with jail():
                 source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
                 conf = source.read_text()
             assert "FilterDefaultDeny Yes" in conf
+
+        def it_is_readable_by_the_proxy_user(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                assert source.stat().st_mode & 0o777 == 0o644
 
     def describe_the_allowlist() -> None:
         def it_anchors_each_host(jail: Jail, docker: MagicMock) -> None:
