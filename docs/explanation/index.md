@@ -108,4 +108,4 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Hosts:** `openrouter.ai` for `openrouter`, `$PI_AGENT_HOST` for `tower`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.
 
-In every harness the prompt is shell-quoted before it goes into the command.
+In every harness the prompt, model and effort are shell-quoted before they go into the command.
