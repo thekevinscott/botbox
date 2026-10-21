@@ -34,7 +34,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 
 The container joins a Docker `--internal` network. The only way out is a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); `allow` adds more.
 
-Every connection, admitted or refused, is logged to `result.proxy`. Network and proxy are per run and removed afterwards, including on failure.
+Every connection, admitted or refused, is logged to `result.proxy`. Network and proxy are per run and removed afterwards, including on failure. The proxy's own way out is Docker's default bridge, so a run takes one network from the daemon's address pool. The proxy accepts clients only from its own jail subnet, so sharing the bridge does not let other containers use it.
 
 There is no network at run time beyond the allowlist, so installs happen in the image build.
 

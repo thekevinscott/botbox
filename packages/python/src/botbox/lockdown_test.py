@@ -30,6 +30,7 @@ def docker() -> Iterator[MagicMock]:
     with patch("botbox.lockdown.docker", autospec=True) as m:
         m.run.return_value = "proxy-container"
         m.network.docker_cmd = ["docker"]
+        m.network.inspect.return_value.ipam.config = [{"Subnet": "172.18.0.0/24"}]
         yield m
 
 
@@ -93,23 +94,58 @@ def describe_lockdown() -> None:
             [argv] = docker_cli.call_args.args
             assert argv == ["docker", "network", "create", "--internal", net.network]
 
-        def it_creates_a_separate_egress_network_for_the_proxy(
-            jail: Jail, docker: MagicMock
+        def it_creates_no_other_network(
+            jail: Jail, docker_cli: MagicMock, docker: MagicMock
         ) -> None:
             with jail():
-                [egress] = docker.network.create.call_args.args
-            assert egress.startswith("botbox-egress-")
+                pass
+            docker_cli.assert_called_once()
+            docker.network.create.assert_not_called()
 
-        def it_puts_the_proxy_on_both(jail: Jail, docker: MagicMock) -> None:
+        def it_puts_the_proxy_on_the_default_bridge_and_the_jail(
+            jail: Jail, docker: MagicMock
+        ) -> None:
             with jail() as net:
-                assert docker.run.call_args.kwargs["networks"] == [
-                    docker.network.create.call_args.args[0]
-                ]
+                assert docker.run.call_args.kwargs["networks"] == ["bridge"]
                 docker.network.connect.assert_called_once_with(net.network, proxy_name(docker))
 
         def it_runs_the_proxy_detached(jail: Jail, docker: MagicMock) -> None:
             with jail():
                 assert docker.run.call_args.kwargs["detach"] is True
+
+    def describe_the_client_restriction() -> None:
+        def it_admits_only_the_jail_subnet(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, mode = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "Allow 172.18.0.0/24" in conf
+            assert mode == "ro"
+
+        def it_reads_the_subnet_of_the_jail_it_created(jail: Jail, docker: MagicMock) -> None:
+            with jail() as net:
+                docker.network.inspect.assert_called_once_with(net.network)
+
+        def it_admits_the_first_subnet_of_a_dual_stack_jail(jail: Jail, docker: MagicMock) -> None:
+            docker.network.inspect.return_value.ipam.config = [
+                {"Subnet": "172.18.0.0/24"},
+                {"Subnet": "fd00::/64"},
+            ]
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "Allow 172.18.0.0/24" in conf
+            assert "fd00::/64" not in conf
+
+        def it_carries_the_shipped_config(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "FilterDefaultDeny Yes" in conf
+
+        def it_is_readable_by_the_proxy_user(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                assert source.stat().st_mode & 0o777 == 0o644
 
     def describe_the_allowlist() -> None:
         def it_anchors_each_host(jail: Jail, docker: MagicMock) -> None:
@@ -198,33 +234,29 @@ def describe_lockdown() -> None:
                 assert docker.run.call_args.kwargs["security_options"] == ["no-new-privileges"]
 
     def describe_teardown() -> None:
-        def it_removes_the_proxy_and_both_networks(jail: Jail, docker: MagicMock) -> None:
+        def it_removes_the_proxy_and_the_network(jail: Jail, docker: MagicMock) -> None:
             with jail() as net:
                 docker.container.remove.assert_not_called()
             docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
-            [egress] = docker.network.create.call_args.args
-            removed = [call.args[0] for call in docker.network.remove.call_args_list]
-            assert removed == [net.network, egress]
+            docker.network.remove.assert_called_once_with(net.network)
 
         def it_tears_down_when_the_body_raises(jail: Jail, docker: MagicMock) -> None:
             with pytest.raises(RuntimeError), jail():
                 raise RuntimeError("boom")
             docker.container.remove.assert_called_once()
-            assert docker.network.remove.call_count == 2
+            docker.network.remove.assert_called_once()
 
         def it_removes_no_proxy_it_never_tried_to_start(
             jail: Jail, docker_cli: MagicMock, docker: MagicMock
         ) -> None:
-            docker.network.create.side_effect = DockerException("gone")
+            docker_cli.side_effect = DockerException("gone")
             with pytest.raises(DockerException), jail():
                 pass
             docker.run.assert_not_called()
             docker.container.remove.assert_not_called()
             docker.network.disconnect.assert_not_called()
             internal = docker_cli.call_args.args[0][-1]
-            [egress] = docker.network.create.call_args.args
-            removed = [call.args[0] for call in docker.network.remove.call_args_list]
-            assert removed == [internal, egress]
+            docker.network.remove.assert_called_once_with(internal)
 
         def it_removes_a_network_whose_creation_was_interrupted(
             jail: Jail, docker_cli: MagicMock, docker: MagicMock
@@ -244,21 +276,19 @@ def describe_lockdown() -> None:
                 pass
             docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
 
-        def it_removes_both_networks_even_when_the_proxy_removal_fails(
+        def it_removes_the_network_even_when_the_proxy_removal_fails(
             jail: Jail, docker: MagicMock
         ) -> None:
             docker.container.remove.side_effect = DockerException("gone")
             with jail():
                 pass
-            assert docker.network.remove.call_count == 2
+            docker.network.remove.assert_called_once()
 
-        def it_removes_the_second_network_when_the_first_removal_fails(
-            jail: Jail, docker: MagicMock
-        ) -> None:
-            docker.network.remove.side_effect = [DockerException("gone"), None]
+        def it_swallows_a_failed_network_removal(jail: Jail, docker: MagicMock) -> None:
+            docker.network.remove.side_effect = DockerException("gone")
             with jail():
                 pass
-            assert docker.network.remove.call_count == 2
+            docker.network.remove.assert_called_once()
 
         def it_frees_a_network_whose_proxy_outlived_its_removal(
             jail: Jail, docker: MagicMock
@@ -267,7 +297,6 @@ def describe_lockdown() -> None:
             docker.container.remove.side_effect = DockerException("gone")
             with jail() as net:
                 pass
-            [egress] = docker.network.create.call_args.args
             steps = [
                 (name, args[0])
                 for name, args, _ in docker.mock_calls
@@ -276,19 +305,17 @@ def describe_lockdown() -> None:
             assert steps == [
                 ("network.disconnect", net.network),
                 ("network.remove", net.network),
-                ("network.disconnect", egress),
-                ("network.remove", egress),
             ]
             assert docker.network.disconnect.call_args.args[1] == proxy_name(docker)
             assert docker.network.disconnect.call_args.kwargs == {"force": True}
 
-        def it_keeps_detaching_when_a_disconnect_fails(jail: Jail, docker: MagicMock) -> None:
+        def it_removes_the_network_when_a_disconnect_fails(jail: Jail, docker: MagicMock) -> None:
             docker.container.remove.side_effect = DockerException("gone")
             docker.network.disconnect.side_effect = DockerException("gone")
             with jail():
                 pass
-            assert docker.network.disconnect.call_count == 2
-            assert docker.network.remove.call_count == 2
+            docker.network.disconnect.assert_called_once()
+            docker.network.remove.assert_called_once()
 
         def it_disconnects_nothing_when_the_proxy_was_removed(
             jail: Jail, docker: MagicMock
@@ -305,7 +332,7 @@ def describe_lockdown() -> None:
                 pass
             docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
             docker.network.disconnect.assert_not_called()
-            assert docker.network.remove.call_count == 2
+            docker.network.remove.assert_called_once()
 
         def it_propagates_the_body_error_over_a_teardown_error(
             jail: Jail, docker: MagicMock
@@ -313,4 +340,4 @@ def describe_lockdown() -> None:
             docker.container.remove.side_effect = DockerException("gone")
             with pytest.raises(ValueError, match="body boom"), jail():
                 raise ValueError("body boom")
-            assert docker.network.remove.call_count == 2
+            docker.network.remove.assert_called_once()
