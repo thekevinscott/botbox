@@ -1,6 +1,6 @@
 # Docs — agent contract
 
-The site is the home page (`index.md`), `motivation.md`, `getting-started.md`, `explanation/index.md`, `guide/` and `reference/index.md`.
+The site is the home page (`index.md`), `motivation.md`, `getting-started.md`, `explanation/index.md`, `harnesses/`, `guide/` and `reference/index.md`.
 Don't add pages unless asked.
 
 `internals/`, `changelog.d/`, `migrations.d/` and `AGENTS.md` are contributor

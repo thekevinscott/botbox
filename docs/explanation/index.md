@@ -12,23 +12,7 @@ A non-zero exit is a normal `RunResult`. API errors inside the container are the
 
 Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
 
-`ClaudeAgent` authenticates one of two ways, never both:
-
-- Default: `~/.claude/.credentials.json` is copied into the temporary home.
-- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
-
-`PiAgent` likewise, never both:
-
-- Default: `~/.pi/agent/auth.json` is copied into the temporary home, and `models.json` beside it if it exists.
-- `PiAgent(provider, api_key=key)`: a fresh `.pi/agent/auth.json` (mode 600) holds the key for `provider` and nothing else. No host files are read.
-
-botbox reads no `.env` and no environment variables. The caller passes the key.
-
-### Known gap: subscription logins expire mid-run
-
-A copied login is a snapshot. Its access token expires, typically within hours, and renewing it needs a host outside the allowlist (`platform.claude.com` for Claude Code), so the agent can't renew it inside the box. A run that outlasts the token fails with a 401. Renewals on the host don't reach a running container.
-
-botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely rotates the login, which would sign out the host's own sessions. For runs that may outlast the token, pass `api_key`.
+The harness's login is copied into that home, or a fresh credentials file holds the `api_key` you pass. botbox reads no `.env`. Which files, and where, is on each [harness page](../harnesses/).
 
 ## Network
 
@@ -37,9 +21,5 @@ The container joins a Docker `--internal` network. The only way out is a CONNECT
 Every connection, admitted or refused, is logged to `result.proxy`. Network and proxy are per run and removed afterwards, including on failure. The proxy's own way out is Docker's default bridge, so a run takes one network from the daemon's address pool. The proxy accepts clients only from its own jail subnet, so sharing the bridge does not let other containers use it.
 
 There is no network at run time beyond the allowlist, so installs happen in the image build.
-
-## No shared base image
-
-An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI. Each agent's image stands alone. To add an agent: one Dockerfile, one class, one row.
 
 Apply this: [Allowing hosts](../guide/allowing-hosts), [Reading the result](../guide/reading-the-result).
