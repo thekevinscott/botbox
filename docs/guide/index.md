@@ -1,8 +1,4 @@
----
-diataxis: how-to
----
-
-# How-to Guides
+# Guides
 
 Recipes for common tasks once you have a first run working.
 

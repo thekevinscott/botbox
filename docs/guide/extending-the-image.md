@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Extending the image
 
 There is no network at run time, so anything the agent needs beyond the CLI, its runtime, `git`, and `ca-certificates` is installed in your own Dockerfile.

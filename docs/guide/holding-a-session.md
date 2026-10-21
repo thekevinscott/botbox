@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Holding a session
 
 Keep one agent process alive across several messages with `session()`. Context carries over between messages, and anything the agent starts in the background keeps running until the session closes.

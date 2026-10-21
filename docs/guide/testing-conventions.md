@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Testing conventions
 
 > **Why read this:** every PR is gated on this rule — learn what it asks for (a colocated unit test per source file) and how to pass the check locally before CI runs it.
@@ -29,4 +25,4 @@ cargo install testing-conventions
 testing-conventions unit location --language python packages/python
 ```
 
-Next: [How-to Guides](./).
+Next: [Guides](./).

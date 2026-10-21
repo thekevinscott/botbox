@@ -11,49 +11,34 @@ export default defineConfig({
   // internals/ is contributor/agent-facing material, also excluded.
   srcExclude: ['**/AGENTS.md', 'changelog.d/**', 'migrations.d/**', 'internals/**'],
   themeConfig: {
-    // Top-level nav is the four Diataxis quadrants, mirroring the
-    // testing-conventions docs site. See docs/AGENTS.md.
-    nav: [
-      { text: 'Getting Started', link: '/getting-started' },
-      { text: 'How-to Guides', link: '/guide/' },
-      { text: 'Reference', link: '/reference/' },
-      { text: 'Explanation', link: '/explanation/' },
+    sidebar: [
+      {
+        items: [
+          { text: 'Motivation', link: '/motivation' },
+          { text: 'Getting Started', link: '/getting-started' },
+          { text: 'How It Works', link: '/explanation/' },
+        ],
+      },
+      {
+        text: 'Guides',
+        items: [
+          { text: 'Overview', link: '/guide/' },
+          { text: 'Extending the image', link: '/guide/extending-the-image' },
+          { text: 'Allowing hosts', link: '/guide/allowing-hosts' },
+          { text: 'Mounting directories', link: '/guide/mounting-directories' },
+          { text: 'Holding a session', link: '/guide/holding-a-session' },
+          { text: 'Reading the result', link: '/guide/reading-the-result' },
+          { text: 'Testing conventions', link: '/guide/testing-conventions' },
+        ],
+      },
+      {
+        text: 'API',
+        items: [
+          { text: 'Reference', link: '/reference/' },
+          { text: 'Migrations', link: '/migrations' },
+        ],
+      },
     ],
-    sidebar: {
-      '/': [
-        {
-          text: 'Tutorial',
-          items: [
-            { text: 'Getting Started', link: '/getting-started' },
-          ],
-        },
-        {
-          text: 'How-to Guides',
-          items: [
-            { text: 'Overview', link: '/guide/' },
-            { text: 'Extending the image', link: '/guide/extending-the-image' },
-            { text: 'Allowing hosts', link: '/guide/allowing-hosts' },
-            { text: 'Mounting directories', link: '/guide/mounting-directories' },
-            { text: 'Holding a session', link: '/guide/holding-a-session' },
-            { text: 'Reading the result', link: '/guide/reading-the-result' },
-            { text: 'Testing conventions', link: '/guide/testing-conventions' },
-          ],
-        },
-        {
-          text: 'Reference',
-          items: [
-            { text: 'API', link: '/reference/' },
-            { text: 'Migrations', link: '/migrations' },
-          ],
-        },
-        {
-          text: 'Explanation',
-          items: [
-            { text: 'Overview', link: '/explanation/' },
-          ],
-        },
-      ],
-    },
     socialLinks: [{ icon: 'github', link: 'https://github.com/thekevinscott/botbox' }],
     search: { provider: 'local' },
     outline: [2, 3],

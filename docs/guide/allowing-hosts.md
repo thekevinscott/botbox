@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Allowing hosts
 
 The proxy denies every host by default except the agent's own (`api.anthropic.com` for Claude Code). Add more with `allow`.

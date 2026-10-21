@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Reading the result
 
 `run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `container`, and `image`. Nothing is parsed.

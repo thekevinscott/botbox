@@ -1,22 +1,6 @@
----
-diataxis: explanation
----
-
-# Explanation
+# How It Works
 
 Why botbox is shaped the way it is.
-
-## Goals
-
-An experiment that puts an agent in a box needs five things:
-
-1. **A pre-configured agent CLI.** Claude Code or Pi pre-configured.
-2. **No capabilities, no privilege escalation.** `--cap-drop ALL`, `no-new-privileges`, no setuid binaries.
-3. **Network only to an allowlist.** No network access beyond the whitelist.
-4. **Mounted directories.** Read-only or read-write.
-5. **Logs available.** The agent's transcript and the proxy's log come back on the result.
-
-The Python SDK is the public API.
 
 ## The error model
 
