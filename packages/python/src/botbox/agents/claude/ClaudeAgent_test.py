@@ -164,6 +164,12 @@ def describe_command() -> None:
             " --model claude-opus-5 --effort high"
         )
 
+    def it_shell_quotes_the_model_and_effort() -> None:
+        assert ClaudeAgent("a b; id", "$(id)").command("hi") == (
+            "claude -p hi --output-format json --dangerously-skip-permissions --strict-mcp-config"
+            " --model 'a b; id' --effort '$(id)'"
+        )
+
 
 def describe_session() -> None:
     def it_streams_json_both_ways_with_tools_permitted_and_no_mcp() -> None:
@@ -177,6 +183,13 @@ def describe_session() -> None:
             "claude -p --input-format stream-json --output-format stream-json --verbose"
             " --dangerously-skip-permissions --strict-mcp-config"
             " --model claude-opus-5 --effort high"
+        )
+
+    def it_shell_quotes_the_model_and_effort() -> None:
+        assert ClaudeAgent("a b; id", "$(id)").session_command() == (
+            "claude -p --input-format stream-json --output-format stream-json --verbose"
+            " --dangerously-skip-permissions --strict-mcp-config"
+            " --model 'a b; id' --effort '$(id)'"
         )
 
     def it_passes_the_model_alone() -> None:
