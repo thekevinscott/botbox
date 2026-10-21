@@ -177,21 +177,49 @@ def collect() -> Iterator[MagicMock]:
 @pytest.fixture
 def run(
     agent: Mock,
-    docker: MagicMock,
+    docker: MagicMock,  # noqa: ARG001
     lockdown: MagicMock,  # noqa: ARG001
     bind_mounts: MagicMock,  # noqa: ARG001
     collect: MagicMock,  # noqa: ARG001
 ) -> Botbox:
-    docker.run.return_value = "a-container"
     return Botbox(agent, allow=["extra.example"])
 
 
-def home_of(docker: MagicMock) -> Path:
-    return Path(docker.run.call_args.kwargs["volumes"][0][0])
+def home_in(argv: list[str]) -> Path:
+    return Path(argv[argv.index("--volume") + 1].split(":")[0])
 
 
-def names_run(docker: MagicMock) -> list[str]:
-    return [c.kwargs["name"] for c in docker.run.call_args_list]
+def name_in(argv: list[str]) -> str:
+    return argv[argv.index("--name") + 1]
+
+
+def locked_down(home: Path, name: str) -> list[str]:
+    """The flags every agent container runs with, in `Botbox`'s order."""
+    return [
+        "--rm",
+        "--name",
+        name,
+        "--env",
+        "HTTPS_PROXY=http://127.0.0.1:41893",
+        "--volume",
+        f"{home}:/home/agent:rw",
+        "--volume",
+        "/scratch/sockets:/run/botbox:ro",
+        "--volume",
+        "/host/work:/work:rw",
+        "--workdir",
+        "/home/agent",
+        "--network",
+        "none",
+        "--pid",
+        "container:a-proxy",
+        "--user",
+        "user",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+    ]
 
 
 def describe_run() -> None:
@@ -215,49 +243,45 @@ def describe_run() -> None:
         docker.build.assert_not_called()
         lockdown.assert_not_called()
 
-    def it_runs_the_built_image_locked_down(run: Botbox, docker: MagicMock, jail: Mock) -> None:
+    def it_runs_the_built_image_locked_down_in_one_docker_run(
+        run: Botbox, collect: MagicMock
+    ) -> None:
         run.run("echo hi")
-        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", names_run(docker)[0])
-        assert docker.run.call_args == call(
+        [argv] = collect.call_args.args
+        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", name_in(argv))
+        assert argv == [
+            "docker",
+            "run",
+            *locked_down(home_in(argv), name_in(argv)),
             "an-agent:latest",
-            ["/usr/local/bin/botbox-relay", "sh", "-c", "echo hi"],
-            detach=True,
-            name=names_run(docker)[0],
-            envs=jail.envs,
-            volumes=[
-                (str(home_of(docker)), "/home/agent", "rw"),
-                ("/scratch/sockets", "/run/botbox", "ro"),
-                ("/host/work", "/work", "rw"),
-            ],
-            workdir="/home/agent",
-            networks=["none"],
-            pid="container:a-proxy",
-            user="user",
-            cap_drop=["ALL"],
-            security_options=["no-new-privileges"],
-        )
+            "/usr/local/bin/botbox-relay",
+            "sh",
+            "-c",
+            "echo hi",
+        ]
 
-    def it_builds_before_it_runs(run: Botbox, docker: MagicMock) -> None:
+    def it_builds_before_it_runs(run: Botbox, docker: MagicMock, collect: MagicMock) -> None:
+        collect.side_effect = lambda _argv: (docker.build.assert_called(), ("", "", 0))[1]
         run.run("true")
-        assert [c[0] for c in docker.mock_calls][:2] == ["build", "run"]
 
-    def it_starts_in_the_workdir_when_given(run: Botbox, docker: MagicMock) -> None:
+    def it_starts_in_the_workdir_when_given(run: Botbox, collect: MagicMock) -> None:
         run.run("true", workdir=Path("/work/pkg"))
-        assert docker.run.call_args.kwargs["workdir"] == "/work/pkg"
+        [argv] = collect.call_args.args
+        assert argv[argv.index("--workdir") + 1] == "/work/pkg"
 
     def it_locks_down_with_the_agents_hosts_and_the_callers(
-        run: Botbox, lockdown: MagicMock, docker: MagicMock
+        run: Botbox, lockdown: MagicMock, collect: MagicMock
     ) -> None:
         run.run("true")
         [(allow, scratch)] = [c.args for c in lockdown.call_args_list]
         assert allow == ("api.example", "extra.example")
-        assert home_of(docker) == scratch / "home"
+        assert home_in(collect.call_args.args[0]) == scratch / "home"
 
     def it_stages_the_credentials_into_the_mounted_home(
-        run: Botbox, agent: Mock, docker: MagicMock
+        run: Botbox, agent: Mock, collect: MagicMock
     ) -> None:
         run.run("true")
-        agent.stage_auth.assert_called_once_with(home_of(docker))
+        agent.stage_auth.assert_called_once_with(home_in(collect.call_args.args[0]))
 
     def it_raises_before_locking_down_when_staging_fails(
         run: Botbox, agent: Mock, lockdown: MagicMock
@@ -277,15 +301,9 @@ def describe_run() -> None:
             "a log",
         )
 
-    def it_collects_from_the_container_it_started(run: Botbox, collect: MagicMock) -> None:
-        run.run("true")
-        collect.assert_called_once_with("a-container")
-
-    def it_reads_the_transcript_files_relative_to_the_home(
-        run: Botbox, collect: MagicMock, docker: MagicMock
-    ) -> None:
-        def container_writes(_container: str) -> tuple[str, str, int]:
-            home = home_of(docker)
+    def it_reads_the_transcript_files_relative_to_the_home(run: Botbox, collect: MagicMock) -> None:
+        def container_writes(argv: list[str]) -> tuple[str, str, int]:
+            home = home_in(argv)
             (home / "sessions" / "a" / "b.jsonl").parent.mkdir(parents=True)
             (home / "sessions" / "a" / "b.jsonl").write_text("b")
             (home / "sessions" / "c.jsonl").write_text("c")
@@ -296,9 +314,6 @@ def describe_run() -> None:
 
         collect.side_effect = container_writes
         assert run.run("true").transcript == {"sessions/a/b.jsonl": "b", "sessions/c.jsonl": "c"}
-
-    def it_returns_the_container_it_ran(run: Botbox) -> None:
-        assert run.run("true").container == "a-container"
 
     def it_returns_the_image_it_ran(run: Botbox) -> None:
         assert run.run("true").image == "an-agent:latest"
@@ -311,41 +326,33 @@ def describe_run() -> None:
         box = Botbox(agent, dockerfile=layer)
         assert box.run("true").image == box.build()
 
-    def it_keeps_the_container(run: Botbox, docker: MagicMock) -> None:
+    def it_leaves_the_container_to_remove_itself(run: Botbox, docker: MagicMock) -> None:
         run.run("true")
         docker.container.remove.assert_not_called()
 
-    def it_removes_the_container_when_interrupted(
+    def it_removes_the_container_by_name_when_interrupted(
         run: Botbox, docker: MagicMock, collect: MagicMock
     ) -> None:
         collect.side_effect = KeyboardInterrupt
-        with pytest.raises(KeyboardInterrupt):
-            run.run("true")
-        docker.container.remove.assert_called_once_with(names_run(docker)[0], force=True)
-        assert not home_of(docker).parent.exists()
-
-    def it_removes_the_container_by_name_when_its_start_fails(
-        run: Botbox, docker: MagicMock
-    ) -> None:
-        docker.run.side_effect = DockerException("no such image")
-        with pytest.raises(DockerException):
-            run.run("true")
-        docker.container.remove.assert_called_once_with(names_run(docker)[0], force=True)
-
-    def it_removes_a_container_whose_start_was_interrupted(run: Botbox, docker: MagicMock) -> None:
-        docker.run.side_effect = KeyboardInterrupt
         with pytest.raises(KeyboardInterrupt), run:
             run.run("true")
-        [name] = names_run(docker)
-        assert docker.container.remove.call_args_list == [
-            call(name, force=True),
-            call([name], force=True),
-        ]
+        [argv] = collect.call_args.args
+        assert docker.container.remove.call_args_list == [call(name_in(argv), force=True)]
+        assert not home_in(argv).parent.exists()
 
-    def it_deletes_the_temporary_directory(run: Botbox, docker: MagicMock) -> None:
+    def it_keeps_the_error_when_the_client_cannot_start_and_removal_fails(
+        run: Botbox, docker: MagicMock, collect: MagicMock
+    ) -> None:
+        collect.side_effect = FileNotFoundError("docker")
+        docker.container.remove.side_effect = DockerException("daemon gone")
+        with pytest.raises(FileNotFoundError):
+            run.run("true")
+
+    def it_deletes_the_temporary_directory(run: Botbox, collect: MagicMock) -> None:
         run.run("true")
-        assert home_of(docker).parent.name.startswith("botbox-")
-        assert not home_of(docker).parent.exists()
+        home = home_in(collect.call_args.args[0])
+        assert home.parent.name.startswith("botbox-")
+        assert not home.parent.exists()
 
 
 def describe_with() -> None:
@@ -353,48 +360,16 @@ def describe_with() -> None:
         with run as box:
             assert box is run
 
-    def it_removes_every_container_its_runs_created(
-        run: Botbox,
-        docker: MagicMock,
-    ) -> None:
+    def it_removes_nothing_on_exit(run: Botbox, docker: MagicMock) -> None:
         with run:
             run.run("true")
             run.run("true")
-            docker.container.remove.assert_not_called()
-        docker.container.remove.assert_called_once_with(names_run(docker), force=True)
+        docker.container.remove.assert_not_called()
 
     def it_leaves_the_results_readable(run: Botbox) -> None:
         with run:
             result = run.run("true")
         assert (result.stdout, result.stderr, result.proxy) == ("out", "err", "a log")
-
-    def it_removes_nothing_when_nothing_ran(run: Botbox, docker: MagicMock) -> None:
-        with run:
-            pass
-        docker.container.remove.assert_not_called()
-
-    def it_removes_each_container_once(
-        run: Botbox,
-        docker: MagicMock,
-    ) -> None:
-        with run:
-            run.run("true")
-        with run:
-            run.run("true")
-        one, two = names_run(docker)
-        assert docker.container.remove.call_args_list == [
-            call([one], force=True),
-            call([two], force=True),
-        ]
-
-    @pytest.mark.parametrize("error", [ValueError("boom"), KeyboardInterrupt()])
-    def it_removes_the_containers_when_the_block_raises(
-        run: Botbox, docker: MagicMock, error: BaseException
-    ) -> None:
-        with pytest.raises(type(error)), run:
-            run.run("true")
-            raise error
-        docker.container.remove.assert_called_once_with(names_run(docker), force=True)
 
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
@@ -416,14 +391,6 @@ def describe_with() -> None:
                 with pytest.raises(SystemExit) as raised:
                     handler(15, None)
             assert raised.value.code == 143
-
-        def it_removes_the_containers_when_sigterm_unwinds(
-            run: Botbox, signals: MagicMock, docker: MagicMock
-        ) -> None:
-            with pytest.raises(SystemExit), run:
-                run.run("true")
-                signals.signal.call_args.args[1](15, None)
-            docker.container.remove.assert_called_once_with(names_run(docker), force=True)
 
         def it_restores_the_default_handler_on_exit(run: Botbox, signals: MagicMock) -> None:
             with run:
@@ -453,17 +420,6 @@ def describe_with() -> None:
                 pass
             signals.signal.assert_not_called()
 
-    def it_keeps_the_blocks_error_when_removal_also_fails(run: Botbox, docker: MagicMock) -> None:
-        docker.container.remove.side_effect = DockerException("daemon gone")
-        with pytest.raises(ValueError, match="boom"), run:
-            run.run("true")
-            raise ValueError("boom")
-
-    def it_raises_when_removal_fails_after_a_clean_block(run: Botbox, docker: MagicMock) -> None:
-        docker.container.remove.side_effect = DockerException("daemon gone")
-        with pytest.raises(DockerException, match="daemon gone"), run:
-            run.run("true")
-
 
 @pytest.fixture
 def subprocess() -> Iterator[MagicMock]:
@@ -482,7 +438,7 @@ def popen(subprocess: MagicMock) -> MagicMock:
 @pytest.fixture
 def session_box(
     agent: Mock,
-    docker: MagicMock,
+    docker: MagicMock,  # noqa: ARG001
     lockdown: MagicMock,  # noqa: ARG001
     bind_mounts: MagicMock,  # noqa: ARG001
     popen: MagicMock,  # noqa: ARG001
@@ -491,17 +447,15 @@ def session_box(
     for method in ("stage_auth", "command", "session_command", "encode", "turn_ended"):
         setattr(agent, method, Mock())
     agent.session_command.return_value = "an-agent --stream"
-    docker.container.create.return_value = "a-container"
     return Botbox(agent, allow=["extra.example"])
 
 
-def session_home_of(docker: MagicMock) -> Path:
-    return Path(docker.container.create.call_args.kwargs["volumes"][0][0])
+def session_home_of(popen: MagicMock) -> Path:
+    return home_in(popen.call_args.args[0])
 
 
-def session_name_of(docker: MagicMock) -> str:
-    name: str = docker.container.create.call_args.kwargs["name"]
-    return name
+def session_name_of(popen: MagicMock) -> str:
+    return name_in(popen.call_args.args[0])
 
 
 def describe_session() -> None:
@@ -530,33 +484,34 @@ def describe_session() -> None:
         session_box.session(mounts=mounts, workdir="/work")  # type: ignore[arg-type]
         bind_mounts.assert_called_once_with(mounts, workdir="/work", home="/home/agent")
 
-    def it_creates_the_container_locked_down_with_stdin_open_in_the_proxys_pids(
-        session_box: Botbox, docker: MagicMock, jail: Mock
+    def it_runs_the_container_locked_down_and_attached_with_pipes(
+        session_box: Botbox, popen: MagicMock, subprocess: MagicMock
     ) -> None:
         session_box.session()
-        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", session_name_of(docker))
-        assert docker.container.create.call_args == call(
-            "an-agent:latest",
-            ["/usr/local/bin/botbox-relay", "sh", "-c", "an-agent --stream"],
-            interactive=True,
-            name=session_name_of(docker),
-            envs=jail.envs,
-            volumes=[
-                (str(session_home_of(docker)), "/home/agent", "rw"),
-                ("/scratch/sockets", "/run/botbox", "ro"),
-                ("/host/work", "/work", "rw"),
+        name = session_name_of(popen)
+        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", name)
+        assert popen.call_args == call(
+            [
+                "docker",
+                "run",
+                "--interactive",
+                *locked_down(session_home_of(popen), name),
+                "an-agent:latest",
+                "/usr/local/bin/botbox-relay",
+                "sh",
+                "-c",
+                "an-agent --stream",
             ],
-            workdir="/home/agent",
-            networks=["none"],
-            pid="container:a-proxy",
-            user="user",
-            cap_drop=["ALL"],
-            security_options=["no-new-privileges"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
         )
 
-    def it_starts_in_the_workdir_when_given(session_box: Botbox, docker: MagicMock) -> None:
+    def it_starts_in_the_workdir_when_given(session_box: Botbox, popen: MagicMock) -> None:
         session_box.session(workdir="/work")
-        assert docker.container.create.call_args.kwargs["workdir"] == "/work"
+        [argv] = popen.call_args.args
+        assert argv[argv.index("--workdir") + 1] == "/work"
 
     def it_locks_down_with_the_agents_hosts_and_the_callers(
         session_box: Botbox, lockdown: MagicMock
@@ -565,65 +520,69 @@ def describe_session() -> None:
         assert lockdown.call_args.args[0] == ("api.example", "extra.example")
 
     def it_stages_the_credentials_into_the_mounted_home(
-        session_box: Botbox, agent: Mock, docker: MagicMock
+        session_box: Botbox, agent: Mock, popen: MagicMock
     ) -> None:
         session_box.session()
-        agent.stage_auth.assert_called_once_with(session_home_of(docker))
+        agent.stage_auth.assert_called_once_with(session_home_of(popen))
 
-    def it_attaches_to_the_container_with_pipes(
-        session_box: Botbox, popen: MagicMock, subprocess: MagicMock
-    ) -> None:
-        session_box.session()
-        assert popen.call_args == call(
-            ["docker", "start", "--attach", "--interactive", "a-container"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-
-    def it_returns_a_session_on_the_container_and_image(session_box: Botbox) -> None:
-        result = session_box.session().close()
-        assert (result.container, result.image) == ("a-container", "an-agent:latest")
+    def it_returns_a_session_on_the_image(session_box: Botbox) -> None:
+        assert session_box.session().close().image == "an-agent:latest"
 
     def it_returns_the_proxy_log_on_close(session_box: Botbox) -> None:
         assert session_box.session().close().proxy == "a log"
 
     def it_reads_the_transcript_before_deleting_the_home(
-        session_box: Botbox, agent: Mock, docker: MagicMock
+        session_box: Botbox, agent: Mock, popen: MagicMock
     ) -> None:
         agent.stage_auth.side_effect = lambda home: (
             (home / "sessions" / "s").mkdir(parents=True),
             (home / "sessions" / "s" / "t.jsonl").write_text("turn"),
         )
         session = session_box.session()
-        home = session_home_of(docker)
+        home = session_home_of(popen)
         assert session.close().transcript == {"sessions/s/t.jsonl": "turn"}
         assert not home.exists()
 
-    def it_keeps_the_home_while_the_session_is_open(session_box: Botbox, docker: MagicMock) -> None:
+    def it_keeps_the_home_while_the_session_is_open(session_box: Botbox, popen: MagicMock) -> None:
         session = session_box.session()
-        assert session_home_of(docker).is_dir()
+        assert session_home_of(popen).is_dir()
         session.close()
 
-    def it_removes_the_container_with_the_box(session_box: Botbox, docker: MagicMock) -> None:
+    def it_leaves_the_container_to_remove_itself(session_box: Botbox, docker: MagicMock) -> None:
         with session_box:
-            session_box.session()
-        docker.container.remove.assert_called_once_with([session_name_of(docker)], force=True)
+            session_box.session().close()
+        docker.container.remove.assert_not_called()
 
-    def it_tears_down_when_attaching_fails(
+    def it_tears_down_when_the_client_cannot_start(
         session_box: Botbox, docker: MagicMock, popen: MagicMock
     ) -> None:
         popen.side_effect = OSError("no docker")
         with pytest.raises(OSError, match="no docker"):
             session_box.session()
-        assert not session_home_of(docker).exists()
+        docker.container.remove.assert_called_once_with(session_name_of(popen), force=True)
+        assert not session_home_of(popen).exists()
 
-    def it_raises_before_creating_a_container_when_staging_fails(
-        session_box: Botbox, agent: Mock, docker: MagicMock, lockdown: MagicMock
+    def it_keeps_the_attach_error_when_removal_also_fails(
+        session_box: Botbox, docker: MagicMock, popen: MagicMock
+    ) -> None:
+        popen.side_effect = OSError("no docker")
+        docker.container.remove.side_effect = DockerException("daemon gone")
+        with pytest.raises(OSError, match="no docker"):
+            session_box.session()
+
+    def it_removes_nothing_when_creation_never_started(
+        session_box: Botbox, docker: MagicMock, lockdown: MagicMock
+    ) -> None:
+        lockdown.side_effect = RuntimeError("proxy did not start")
+        with pytest.raises(RuntimeError):
+            session_box.session()
+        docker.container.remove.assert_not_called()
+
+    def it_raises_before_running_a_container_when_staging_fails(
+        session_box: Botbox, agent: Mock, popen: MagicMock, lockdown: MagicMock
     ) -> None:
         agent.stage_auth.side_effect = FileNotFoundError("credentials")
         with pytest.raises(FileNotFoundError):
             session_box.session()
         lockdown.assert_not_called()
-        docker.container.create.assert_not_called()
+        popen.assert_not_called()

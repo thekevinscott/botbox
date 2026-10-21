@@ -2,12 +2,12 @@
 
 import json
 import subprocess
-from collections.abc import Iterator
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from conftest import API_KEY, removed
-from python_on_whales.exceptions import DockerException
+from conftest import API_KEY, docker_lines
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -18,20 +18,37 @@ def agent() -> ClaudeAgent:
 
 
 @pytest.fixture(scope="module")
-def result(agent: ClaudeAgent) -> Iterator[RunResult]:
-    yield from removed(Botbox(agent).run(agent.command("Reply with exactly: pong")))
+def result(agent: ClaudeAgent) -> RunResult:
+    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
 
 
 @pytest.fixture(scope="module")
-def listing(agent: ClaudeAgent) -> Iterator[RunResult]:
+def listing(agent: ClaudeAgent) -> RunResult:
     """The staged home and the key file's mode, before any CLI runs."""
-    yield from removed(Botbox(agent).run("find . -mindepth 1 | sort; stat -c %a .claude/api_key"))
+    return Botbox(agent).run("find . -mindepth 1 | sort; stat -c %a .claude/api_key")
 
 
-def inspect(container: str) -> str:
-    return subprocess.run(
-        ["docker", "inspect", container], check=True, capture_output=True, text=True
-    ).stdout
+@pytest.fixture(scope="module")
+def config(agent: ClaudeAgent) -> str:
+    """The agent container's `docker inspect`, taken mid-run: the container is gone after."""
+    before = set(docker_lines("ps", "-a", "--format", "{{.Names}}"))
+    with ThreadPoolExecutor(1) as pool:
+        run = pool.submit(Botbox(agent).run, "sleep 5")
+        deadline = time.monotonic() + 120
+        while not (started := agents() - before) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        (name,) = started
+        out = subprocess.run(
+            ["docker", "inspect", name], check=True, capture_output=True, text=True
+        ).stdout
+        run.result()
+    return out
+
+
+def agents() -> set[str]:
+    return {
+        n for n in docker_lines("ps", "--format", "{{.Names}}") if n.startswith("botbox-agent-")
+    }
 
 
 def describe_an_api_key_session() -> None:
@@ -52,15 +69,15 @@ def describe_an_api_key_session() -> None:
     def it_reports_no_error(result: RunResult) -> None:
         assert json.loads(result.stdout)["is_error"] is False
 
-    def it_keeps_the_key_out_of_the_container_config(listing: RunResult) -> None:
-        leaked = API_KEY in inspect(listing.container)
+    def it_keeps_the_key_out_of_the_container_config(config: str) -> None:
+        leaked = API_KEY in config
         assert not leaked
 
-    def it_keeps_the_key_out_of_a_failed_create(tmp_path: Path) -> None:
+    def it_keeps_the_key_out_of_a_refused_container(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=API_KEY)
-        with pytest.raises(DockerException) as failure:
-            Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")])
-        leaked = API_KEY in str(failure.value)
+        refused = Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")])
+        assert refused.exit_code == 125
+        leaked = API_KEY in refused.stderr
         assert not leaked
 
     def it_keeps_the_key_out_of_the_transcript(result: RunResult) -> None:

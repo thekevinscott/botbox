@@ -1,10 +1,8 @@
 """A real pi session on OpenRouter, billed. Needs OPENROUTER_API_KEY."""
 
 import os
-from collections.abc import Iterator
 
 import pytest
-from conftest import removed
 
 from botbox import Botbox, PiAgent, RunResult
 
@@ -15,9 +13,9 @@ if not OPENROUTER_API_KEY:
 
 
 @pytest.fixture(scope="module")
-def result() -> Iterator[RunResult]:
+def result() -> RunResult:
     agent = PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY)
-    yield from removed(Botbox(agent).run(agent.command("Reply with exactly: pong")))
+    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
 
 
 def describe_a_pi_session_on_openrouter() -> None:

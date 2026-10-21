@@ -1,18 +1,16 @@
 """A real Codex session, signed in with the host's ChatGPT login. Billed."""
 
 import json
-from collections.abc import Iterator
 
 import pytest
-from conftest import removed
 
 from botbox import Botbox, CodexAgent, RunResult
 
 
 @pytest.fixture(scope="module")
-def result() -> Iterator[RunResult]:
+def result() -> RunResult:
     agent = CodexAgent("gpt-5.6-luna", "low")
-    yield from removed(Botbox(agent).run(agent.command("Reply with exactly: pong")))
+    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
 
 
 def describe_a_codex_session() -> None:

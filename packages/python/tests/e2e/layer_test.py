@@ -3,11 +3,9 @@
 Either way the agent still reaches its proxy through the relay the agent image ships.
 """
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import removed
 from network_test import CONNECT, PROXY
 
 from botbox import Botbox, ClaudeAgent, RunResult
@@ -29,26 +27,26 @@ ENTRYPOINT ["/bin/sh", "-c", "echo wrapped >&2; exec \\"$@\\"", "--"]
 """
 
 
-def layered(tmp_path: Path, text: str) -> Iterator[RunResult]:
+def layered(tmp_path: Path, text: str) -> RunResult:
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text(text)
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
-    yield from removed(box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}"))
+    return box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}")
 
 
 @pytest.fixture
-def other_uid(tmp_path: Path) -> Iterator[RunResult]:
-    yield from layered(tmp_path, OTHER_UID)
+def other_uid(tmp_path: Path) -> RunResult:
+    return layered(tmp_path, OTHER_UID)
 
 
 @pytest.fixture
-def proxy_uid(tmp_path: Path) -> Iterator[RunResult]:
-    yield from layered(tmp_path, PROXY_UID)
+def proxy_uid(tmp_path: Path) -> RunResult:
+    return layered(tmp_path, PROXY_UID)
 
 
 @pytest.fixture
-def entrypoint(tmp_path: Path) -> Iterator[RunResult]:
-    yield from layered(tmp_path, ENTRYPOINT)
+def entrypoint(tmp_path: Path) -> RunResult:
+    return layered(tmp_path, ENTRYPOINT)
 
 
 def describe_an_agent_running_as_another_uid() -> None:

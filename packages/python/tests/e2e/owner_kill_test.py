@@ -79,9 +79,9 @@ def wait_for(condition: Callable[[], bool], timeout: float) -> bool:
 
 
 def settled(before: set[str], live_before: set[str]) -> bool:
-    """Nothing new is running and the proxy container is gone, not just stopped."""
-    proxies = (n for n in leftovers() - before if n.startswith("container botbox-proxy-"))
-    return not (running() - live_before) and next(proxies, None) is None
+    """Nothing new is running and every container the run started is gone, not just stopped."""
+    containers = (n for n in leftovers() - before if n.startswith("container "))
+    return not (running() - live_before) and next(containers, None) is None
 
 
 def sockets(temps: set[str]) -> list[Path]:
@@ -117,11 +117,7 @@ def describe_sigkill_of_the_owner() -> None:
             new = leftovers() - before
             temps = {n.removeprefix("temp ") for n in new if n.startswith("temp ")}
             assert sockets(temps) == []
-            assert not any(n.startswith(("network ", "container botbox-proxy-")) for n in new)
-            # Until agent containers are --rm, the kept agent container stays, exited.
-            assert {n for n in new if n.startswith("container ")} == {
-                n for n in new if n.startswith("container botbox-agent-")
-            }
+            assert not any(n.startswith(("network ", "container ")) for n in new), new
             assert elapsed < GRACE
         finally:
             with suppress(ProcessLookupError):

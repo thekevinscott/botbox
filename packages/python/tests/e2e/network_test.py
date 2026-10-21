@@ -155,7 +155,6 @@ def other_run() -> Iterator[str]:
 def describe_another_runs_proxy() -> None:
     def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str) -> None:
         result = box.run(f"{CONNECT} example.com {other_run}:8888")
-        subprocess.run(["docker", "rm", "-f", result.container], check=True, capture_output=True)
         assert result.stdout.strip() == "error ENETUNREACH", result.stdout
 
 

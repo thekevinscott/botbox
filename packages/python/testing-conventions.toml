@@ -1,5 +1,11 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["48-49"]
+lines = ["49-50"]
 reason = "is -> == is equivalent: the main thread and SIG_DFL are singletons"
+
+[[python.exempt]]
+path = "src/botbox/collect.py"
+rules = ["mutation"]
+lines = ["38"]
+reason = "== -> is is equivalent: CPython caches small ints, so 125 is always the same object"

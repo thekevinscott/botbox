@@ -70,7 +70,7 @@ def finish() -> Mock:
 
 
 def session_of(agent: Mock, proc: Mock, finish: Mock) -> Session:
-    return Session(agent, proc, "a-container", "an-image:latest", finish)
+    return Session(agent, proc, "an-image:latest", finish)
 
 
 def describe_init() -> None:
@@ -127,7 +127,6 @@ def describe_close() -> None:
             3,
             {"sessions/a.jsonl": "{}"},
             "a proxy log",
-            "a-container",
             "an-image:latest",
         )
 

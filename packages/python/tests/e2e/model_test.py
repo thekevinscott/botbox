@@ -1,18 +1,17 @@
 """claude-opus-5-5, which Claude Code before 2.1.280 cannot call. Billed; key via conftest."""
 
 import json
-from collections.abc import Iterator
 
 import pytest
-from conftest import API_KEY, removed
+from conftest import API_KEY
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
 
 @pytest.fixture(scope="module")
-def result() -> Iterator[RunResult]:
+def result() -> RunResult:
     agent = ClaudeAgent(model="claude-opus-5-5", api_key=API_KEY)
-    yield from removed(Botbox(agent).run(agent.command("say ok")))
+    return Botbox(agent).run(agent.command("say ok"))
 
 
 def describe_claude_opus_5_5() -> None:

@@ -14,7 +14,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 | `dockerfile` | Your layer on top of the agent's image. Build context is the Dockerfile's directory. Must end as `USER user` and leave the agent's home where it is. |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 
-`Botbox` is a context manager. On exit from `with Botbox(...) as box:`, every container its runs created is removed, whether the block finished, raised, or was interrupted. A removal failure raises after a clean block; after a failed one, the block's exception propagates instead.
+`Botbox` is a context manager. Inside `with Botbox(...) as box:`, SIGTERM unwinds a run or session in progress so it tears down. Agent containers remove themselves when they exit, so there is nothing left to remove on exit.
 
 ## `run()`
 
@@ -46,10 +46,9 @@ Nothing parsed.
 | `exit_code` | The command's exit code.                                             |
 | `transcript`| `dict[str, str]`: path relative to the agent's home → file contents. |
 | `proxy`     | `str`: the proxy log. Every connection, admitted or refused.         |
-| `container` | `str`: the id of the exited container. Yours to remove, or removed when the `with` block exits. |
 | `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits. `docker diff <id>` lists what the run wrote outside the mounts and the agent's home. A run that raises removes its container. If the Docker daemon dies mid-run, `run()` returns what arrived, with `exit_code` -1.
+The container removes itself when it exits; what it wrote outside the mounts and the agent's home goes with it. If the Docker daemon dies mid-run, `run()` returns what arrived, with `exit_code` -1 and the Docker client's error at the end of `stderr`. If the daemon refuses the container, `exit_code` is the client's 125, 126 or 127 and `stderr` holds the daemon's error.
 
 ## `session()`
 
@@ -61,7 +60,7 @@ box.session(
 ) -> Session
 ```
 
-Starts the agent's CLI in its session mode and holds it open. `mounts` and `workdir` are as for [`run()`](#run). Background processes the agent starts live until the session closes. Raises `TypeError` for an agent with no session mode; `CodexAgent` raises `NotImplementedError`. The container is removed when the box's `with` block exits.
+Starts the agent's CLI in its session mode and holds it open. `mounts` and `workdir` are as for [`run()`](#run). Background processes the agent starts live until the session closes. Raises `TypeError` for an agent with no session mode; `CodexAgent` raises `NotImplementedError`. The container removes itself when the CLI exits.
 
 ## `Session`
 

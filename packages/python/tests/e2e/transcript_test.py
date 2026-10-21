@@ -3,11 +3,9 @@
 The home is the agent's to write, and botbox reads the transcript from it on the host.
 """
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import removed
 
 from botbox import Botbox, RunResult
 
@@ -22,14 +20,12 @@ def secret(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def result(box: Botbox, secret: Path) -> Iterator[RunResult]:
+def result(box: Botbox, secret: Path) -> RunResult:
     projects = "/home/user/.claude/projects"
-    yield from removed(
-        box.run(
-            f"mkdir -p {projects}/linked"
-            f" && ln -s {secret} {projects}/linked/file.jsonl"
-            f" && ln -s {secret.parent} {projects}/dir"
-        )
+    return box.run(
+        f"mkdir -p {projects}/linked"
+        f" && ln -s {secret} {projects}/linked/file.jsonl"
+        f" && ln -s {secret.parent} {projects}/dir"
     )
 
 
@@ -42,15 +38,13 @@ def describe_a_transcript_link_out_of_the_home() -> None:
 
 
 @pytest.fixture(scope="module")
-def garbled(box: Botbox) -> Iterator[RunResult]:
+def garbled(box: Botbox) -> RunResult:
     projects = "/home/user/.claude/projects/garbled"
-    yield from removed(
-        box.run(
-            f"mkdir -p {projects}"
-            f" && printf 'ok \\377\\376' > {projects}/bytes.jsonl"
-            f" && echo locked > {projects}/locked.jsonl && chmod 0 {projects}/locked.jsonl"
-            " && echo done"
-        )
+    return box.run(
+        f"mkdir -p {projects}"
+        f" && printf 'ok \\377\\376' > {projects}/bytes.jsonl"
+        f" && echo locked > {projects}/locked.jsonl && chmod 0 {projects}/locked.jsonl"
+        " && echo done"
     )
 
 
