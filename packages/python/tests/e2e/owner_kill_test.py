@@ -5,6 +5,7 @@ see, the proxy included. It still dies, because it lives in the proxy's PID name
 namespace ends when the proxy's init does.
 """
 
+import os
 import shutil
 import signal
 import subprocess
@@ -42,6 +43,24 @@ with Botbox(Hostile()) as box, box.session() as live:
     live.message("never answered")
 """
 
+# A worker forked by the owner outlives it and inherits its descriptors.
+FORKED = f"""
+import os, sys, time
+from botbox import Botbox, ClaudeAgent
+
+class Hostile(ClaudeAgent):
+    def session_command(self):
+        return {HOSTILE!r}
+
+with Botbox(Hostile()) as box, box.session() as live:
+    child = os.fork()
+    if child == 0:
+        time.sleep(600)
+        os._exit(0)
+    open(sys.argv[1], "w").write(str(child))
+    live.message("never answered")
+"""
+
 GRACE = 5
 
 
@@ -70,10 +89,17 @@ def sockets(temps: set[str]) -> list[Path]:
 
 
 def describe_sigkill_of_the_owner() -> None:
-    @pytest.mark.parametrize("holder", [RUN, SESSION], ids=["run", "session"])
-    def it_ends_every_container_within_seconds(box: Botbox, holder: str) -> None:  # noqa: ARG001
+    @pytest.mark.parametrize(
+        "holder", [RUN, SESSION, FORKED], ids=["run", "session", "forked-child"]
+    )
+    def it_ends_every_container_within_seconds(
+        box: Botbox,  # noqa: ARG001
+        holder: str,
+        tmp_path: Path,
+    ) -> None:
         before, live_before = leftovers(), running()
-        owner = subprocess.Popen([sys.executable, "-c", holder])
+        child = tmp_path / "child"
+        owner = subprocess.Popen([sys.executable, "-c", holder, str(child)])
         try:
             assert wait_for(
                 lambda: any(n.startswith("botbox-agent-") for n in running() - live_before), 120
@@ -95,6 +121,8 @@ def describe_sigkill_of_the_owner() -> None:
             assert elapsed < GRACE
         finally:
             owner.kill()
+            if child.exists():
+                os.kill(int(child.read_text()), signal.SIGKILL)
             for name in leftovers() - before:
                 kind, _, rest = name.partition(" ")
                 if kind == "container":
