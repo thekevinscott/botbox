@@ -179,13 +179,12 @@ def describe_run() -> None:
             [argv] = docker["cli"].call_args.args
             assert argv == ["docker", "network", "create", "--internal", network]
 
-        def it_puts_the_proxy_on_an_egress_network_and_the_agents(
+        def it_puts_the_proxy_on_the_default_bridge_and_the_agents(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             box.run("true")
-            [egress] = docker["network"].create.call_args.args
-            assert re.fullmatch(r"botbox-egress-[0-9a-f]{12}", egress)
-            assert daemon.proxy["networks"] == [egress]
+            docker["network"].create.assert_not_called()
+            assert daemon.proxy["networks"] == ["bridge"]
             docker["network"].connect.assert_called_once_with(
                 daemon.agent["networks"][0], daemon.proxy["name"]
             )
@@ -449,17 +448,13 @@ def describe_run() -> None:
             assert home.parent == proxy_log.parent
 
     def describe_teardown() -> None:
-        def it_keeps_the_container_and_removes_the_sidecar_and_both_networks(
+        def it_keeps_the_container_and_removes_the_sidecar_and_the_network(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             result = box.run("true")
             assert result.container == "agent-container"
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            [egress] = docker["network"].create.call_args.args
-            assert [c.args[0] for c in docker["network"].remove.call_args_list] == [
-                daemon.agent["networks"][0],
-                egress,
-            ]
+            docker["network"].remove.assert_called_once_with(daemon.agent["networks"][0])
 
         def it_tears_down_after_a_non_zero_exit(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
@@ -467,7 +462,7 @@ def describe_run() -> None:
             daemon.exit_code = 1
             box.run("false")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            assert docker["network"].remove.call_count == 2
+            docker["network"].remove.assert_called_once()
 
         def it_tears_down_when_the_container_fails_to_start(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
@@ -484,7 +479,7 @@ def describe_run() -> None:
                 box.run("true")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
             assert removed == [docker["run"].call_args.kwargs["name"], daemon.proxy["name"]]
-            assert docker["network"].remove.call_count == 2
+            docker["network"].remove.assert_called_once()
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
 
@@ -503,7 +498,7 @@ def describe_run() -> None:
                 box.run("sleep 600")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
             assert removed == [daemon.agent["name"], daemon.proxy["name"]]
-            assert docker["network"].remove.call_count == 2
+            docker["network"].remove.assert_called_once()
             assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
         def it_force_removes_the_running_container(
@@ -514,15 +509,11 @@ def describe_run() -> None:
                 box.run("sleep 600")
             assert docker["container"].remove.call_args_list[0].kwargs == {"force": True}
 
-        def it_removes_both_networks_when_a_removal_fails(
+        def it_returns_a_result_when_the_network_removal_fails(
             box: Botbox, docker: dict[str, MagicMock]
         ) -> None:
-            docker["network"].remove.side_effect = [
-                DockerException(["docker", "network", "rm"], 1),
-                None,
-            ]
-            box.run("true")
-            assert docker["network"].remove.call_count == 2
+            docker["network"].remove.side_effect = DockerException(["docker", "network", "rm"], 1)
+            assert isinstance(box.run("true"), RunResult)
 
         def it_removes_the_container_when_the_with_block_exits(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
@@ -573,12 +564,12 @@ def describe_run() -> None:
             assert not Path(volume(daemon.agent, "/home/user")[0]).parent.exists()
 
         @pytest.mark.usefixtures("dead")
-        def it_still_tries_to_remove_the_sidecar_and_both_networks(
+        def it_still_tries_to_remove_the_sidecar_and_the_network(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             box.run("true")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            assert docker["network"].remove.call_count == 2
+            docker["network"].remove.assert_called_once()
 
         def it_keeps_the_exit_code_when_only_teardown_fails(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]

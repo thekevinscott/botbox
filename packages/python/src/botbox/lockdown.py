@@ -28,9 +28,9 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     """Yield the network and proxy env a locked-down container runs under.
 
     The container joins an `--internal` network: no gateway, no route out, no external DNS.
-    Its only way out is a CONNECT to the sidecar, which sits on a second network and refuses
-    anything outside `allow`. tinyproxy writes its log into `scratch` on the host as it runs,
-    so the log survives the daemon; it is read into `Lockdown.log` on the way out.
+    Its only way out is a CONNECT to the sidecar, which also sits on Docker's default bridge
+    and refuses anything outside `allow`. tinyproxy writes its log into `scratch` on the host
+    as it runs, so the log survives the daemon; it is read into `Lockdown.log` on the way out.
     """
     docker.build(PROXY_DIR, tags=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile", progress=False)
 
@@ -47,7 +47,6 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
             "NO_PROXY": "localhost,127.0.0.1",
         },
     )
-    egress = f"botbox-egress-{run_id}"
 
     allowlist = scratch / "filter"
     allowlist.write_text("".join(f"^{re.escape(host)}$\n" for host in allow))
@@ -60,23 +59,20 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     log.touch()
     log.chmod(0o666)
 
-    # Marked for teardown before each create: an interrupted create can still leave it behind.
+    # Teardown covers each resource from before its create: an interrupted create can leave it.
     proxy = None
-    networks = []
     try:
-        networks.append(jail.network)
         # python-on-whales' network.create wraps no --internal, and --internal is the point.
         docker_utils.run(
             [*docker.network.docker_cmd, "network", "create", "--internal", jail.network]
         )
-        networks.append(egress)
-        docker.network.create(egress)
         proxy = proxy_name
         docker.run(
             PROXY_IMAGE,
             detach=True,
             name=proxy_name,
-            networks=[egress],
+            # The default bridge takes no subnet from the daemon's pool, so a run costs one network.
+            networks=["bridge"],
             volumes=[
                 (str(allowlist), "/etc/tinyproxy/filter", "ro"),
                 (str(log_dir), PROXY_LOG_DIR, "rw"),
@@ -87,15 +83,13 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
         docker.network.connect(jail.network, proxy)
         yield jail
     finally:
-        gone = False
         if proxy is not None:
-            with suppress(DockerException):
+            try:
                 docker.container.remove(proxy, force=True)
-                gone = True
-        for network in networks:
-            if proxy is not None and not gone:
+            except DockerException:
+                # A live endpoint pins its network.
                 with suppress(DockerException):
-                    docker.network.disconnect(network, proxy, force=True)
-            with suppress(DockerException):
-                docker.network.remove(network)
+                    docker.network.disconnect(jail.network, proxy, force=True)
+        with suppress(DockerException):
+            docker.network.remove(jail.network)
         jail.log = log.read_text()

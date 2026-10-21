@@ -1,0 +1,1 @@
+**Changed**: A run creates one Docker network instead of two. The proxy reaches out through Docker's default bridge instead of a per-run `botbox-egress-<id>` network, so twice as many runs fit in the daemon's address pool.
