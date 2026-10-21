@@ -3,6 +3,7 @@ import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -183,12 +184,11 @@ def describe_lockdown() -> None:
                 assert popen.call_args.kwargs["stderr"] == subprocess.STDOUT
 
         def it_creates_before_it_attaches(jail: Jail, docker: MagicMock, popen: MagicMock) -> None:
-            steps: list[str] = []
-            docker.container.create.side_effect = lambda *_a, **_k: steps.append("create")
-            start = popen.side_effect
-            popen.side_effect = lambda *a, **k: (steps.append("start"), start(*a, **k))[1]
+            manager = Mock()
+            manager.attach_mock(docker.container.create, "create")
+            manager.attach_mock(popen, "start")
             with jail():
-                assert steps == ["create", "start"]
+                assert [c[0] for c in manager.mock_calls] == ["create", "start"]
 
         def it_yields_once_the_socket_is_up(jail: Jail, scratch: Path) -> None:
             with jail():
@@ -197,9 +197,8 @@ def describe_lockdown() -> None:
         def it_raises_with_the_proxys_output_when_it_exits_before_the_socket(
             jail: Jail, popen: MagicMock, proxy: Mock, scratch: Path
         ) -> None:
-            def start(_argv: list[str], **options: object) -> Mock:
+            def start(_argv: list[str], **options: Any) -> Mock:
                 stdout = options["stdout"]
-                assert hasattr(stdout, "write")
                 stdout.write("tinyproxy: bad config\n")
                 stdout.flush()
                 return proxy

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Serves the run's proxy socket on loopback, where HTTPS_PROXY points, then runs the command.
+# The subshell orphans socat, so the command's shell never waits on it.
+(socat TCP-LISTEN:41893,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/proxy.sock &)
+tries=0
+until grep -q ':A3A5 00000000:0000 0A' /proc/net/tcp; do
+    tries=$((tries + 1))
+    if [ "$tries" -gt 250 ]; then
+        echo "botbox-relay: nothing listening on 127.0.0.1:41893" >&2
+        exit 1
+    fi
+    sleep 0.02
+done
+exec "$@"

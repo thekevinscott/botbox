@@ -1,0 +1,13 @@
+#!/bin/sh
+# Serves tinyproxy, on loopback only, through the run's unix socket until stdin closes.
+set -eu
+tinyproxy -d -c /etc/tinyproxy/tinyproxy.conf &
+tinyproxy=$!
+until grep -q ':22B8 00000000:0000 0A' /proc/net/tcp; do
+    kill -0 "$tinyproxy"
+    sleep 0.05
+done
+socat UNIX-LISTEN:/run/botbox/proxy.sock,fork,max-children=100,mode=0666,unlink-early \
+    TCP:127.0.0.1:8888 &
+cat >/dev/null
+rm -f /run/botbox/proxy.sock
