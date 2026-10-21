@@ -24,7 +24,7 @@ def mid_run(new: set[str]) -> bool:
 
 
 def mid_setup(new: set[str]) -> bool:
-    return any(n.startswith("network botbox-jail-") for n in new)
+    return any(n.startswith("container botbox-proxy-") for n in new) and not mid_run(new)
 
 
 def wait_for(condition: Callable[[], bool], timeout: float = 60) -> None:

@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, call
 
 import pytest
-from conftest import PROXY_IMAGE, Daemon
+from conftest import Daemon
 from python_on_whales.exceptions import DockerException
 
 import botbox
@@ -105,6 +105,7 @@ def describe_run() -> None:
         def it_runs_the_command_through_sh(box: Botbox, daemon: Daemon) -> None:
             box.run('claude -p "Fix the tests" --output-format json')
             assert daemon.agent["command"] == [
+                "/usr/local/bin/botbox-relay",
                 "sh",
                 "-c",
                 'claude -p "Fix the tests" --output-format json',
@@ -152,8 +153,27 @@ def describe_run() -> None:
             with pytest.raises(RuntimeError, match="build failed"):
                 box.run("true")
             docker["run"].assert_not_called()
-            docker["cli"].assert_not_called()
-            docker["network"].create.assert_not_called()
+            docker["container"].create.assert_not_called()
+            docker["popen"].assert_not_called()
+
+        def it_ships_the_relay_into_the_agent_image(
+            box: Botbox, builds: list[dict[str, Any]]
+        ) -> None:
+            box.run("true")
+            agent = builds[0]
+            relay = Path(agent["contexts"]["botbox"])
+            assert (relay / "botbox-relay").is_file()
+            assert (
+                "COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay"
+                in (agent["text"])
+            )
+            assert "socat" in agent["text"]
+
+        @pytest.mark.parametrize("agent_class", [ClaudeAgent, CodexAgent, PiAgent])
+        def it_ships_the_relay_into_every_agent_image(agent_class: type) -> None:
+            text = agent_class.dockerfile.read_text()
+            assert "COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay" in text
+            assert "socat" in text
 
     def describe_lockdown() -> None:
         def it_drops_every_capability(box: Botbox, daemon: Daemon) -> None:
@@ -170,35 +190,47 @@ def describe_run() -> None:
             assert daemon.proxy["security_options"] == ["no-new-privileges"]
 
     def describe_the_network() -> None:
-        def it_puts_the_agent_on_a_fresh_internal_network(
+        def it_gives_the_agent_no_network(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             box.run("true")
-            [network] = daemon.agent["networks"]
-            assert re.fullmatch(r"botbox-jail-[0-9a-f]{12}", network)
-            [argv] = docker["cli"].call_args.args
-            assert argv == ["docker", "network", "create", "--internal", network]
+            assert daemon.agent["networks"] == ["none"]
+            assert docker["network"].mock_calls == []
+            docker["cli"].assert_not_called()
 
-        def it_puts_the_proxy_on_the_default_bridge_and_the_agents(
-            box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
-        ) -> None:
+        def it_puts_the_proxy_on_the_default_bridge(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            docker["network"].create.assert_not_called()
             assert daemon.proxy["networks"] == ["bridge"]
-            docker["network"].connect.assert_called_once_with(
-                daemon.agent["networks"][0], daemon.proxy["name"]
-            )
 
-        def it_uses_new_networks_each_run(box: Botbox, daemon: Daemon) -> None:
+        def it_runs_the_agent_in_the_proxys_pid_namespace(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            box.run("true")
-            assert daemon.runs[1]["networks"] != daemon.runs[3]["networks"]
+            assert re.fullmatch(r"botbox-proxy-[0-9a-f]{12}", daemon.proxy["name"])
+            assert daemon.agent["pid"] == f"container:{daemon.proxy['name']}"
 
-        def it_points_every_proxy_variable_at_the_sidecar(box: Botbox, daemon: Daemon) -> None:
+        def it_gives_the_proxy_a_real_init(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
-            name = daemon.proxy["name"]
-            assert re.fullmatch(r"botbox-proxy-[0-9a-f]{12}", name)
-            url = f"http://{name}:8888"
+            assert daemon.proxy["init"] is True
+
+        def it_shares_the_socket_directory_read_only_with_the_agent(
+            box: Botbox, daemon: Daemon
+        ) -> None:
+            box.run("true")
+            source, mode = volume(daemon.proxy, "/run/botbox")
+            assert mode == "rw"
+            assert volume(daemon.agent, "/run/botbox") == (source, "ro")
+
+        def it_uses_a_new_socket_directory_each_run(box: Botbox, daemon: Daemon) -> None:
+            box.run("true")
+            box.run("true")
+            assert volume(daemon.runs[1], "/run/botbox") != volume(daemon.runs[3], "/run/botbox")
+
+        def it_deletes_the_socket_directory_afterwards(box: Botbox, daemon: Daemon) -> None:
+            box.run("true")
+            assert not Path(volume(daemon.proxy, "/run/botbox")[0]).exists()
+
+        def it_points_every_proxy_variable_at_the_in_box_relay(box: Botbox, daemon: Daemon) -> None:
+            box.run("true")
+            url = "http://127.0.0.1:41893"
             assert daemon.agent["envs"] == {
                 "HTTP_PROXY": url,
                 "HTTPS_PROXY": url,
@@ -207,9 +239,15 @@ def describe_run() -> None:
                 "NO_PROXY": "localhost,127.0.0.1",
             }
 
-        def it_runs_the_proxy_detached(box: Botbox, daemon: Daemon) -> None:
+        def it_holds_the_proxys_stdin_so_it_ends_with_the_owner(
+            box: Botbox, daemon: Daemon
+        ) -> None:
             box.run("true")
-            assert daemon.proxy["detach"] is True
+            assert daemon.proxy["interactive"] is True
+            assert daemon.proxy["remove"] is True
+            assert daemon.attached == [
+                ["docker", "start", "--attach", "--interactive", daemon.proxy["name"]]
+            ]
 
     def describe_an_api_key() -> None:
         @pytest.fixture
@@ -334,7 +372,7 @@ def describe_run() -> None:
             with pytest.raises(FileNotFoundError, match=r"\.credentials\.json"):
                 box.run("true")
             docker["run"].assert_not_called()
-            docker["cli"].assert_not_called()
+            docker["container"].create.assert_not_called()
 
         def it_starts_the_command_in_the_home_by_default(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
@@ -378,7 +416,7 @@ def describe_run() -> None:
                 box.run("true", mounts=[(tmp_path / "gone", "/gone", "ro")])
             docker_build.assert_not_called()
             docker["run"].assert_not_called()
-            docker["cli"].assert_not_called()
+            docker["container"].create.assert_not_called()
 
     def describe_workdir() -> None:
         def it_starts_the_command_in_a_mounted_path(
@@ -407,7 +445,7 @@ def describe_run() -> None:
                 box.run("true", mounts=[(work, "/work", "rw")], workdir=workdir)
             docker_build.assert_not_called()
             docker["run"].assert_not_called()
-            docker["cli"].assert_not_called()
+            docker["container"].create.assert_not_called()
 
     def describe_logs() -> None:
         @pytest.mark.usefixtures("claude_writes_a_transcript")
@@ -448,13 +486,12 @@ def describe_run() -> None:
             assert home.parent == proxy_log.parent
 
     def describe_teardown() -> None:
-        def it_keeps_the_container_and_removes_the_sidecar_and_the_network(
+        def it_keeps_the_container_and_removes_the_sidecar(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             result = box.run("true")
             assert result.container == "agent-container"
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            docker["network"].remove.assert_called_once_with(daemon.agent["networks"][0])
 
         def it_tears_down_after_a_non_zero_exit(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
@@ -462,24 +499,15 @@ def describe_run() -> None:
             daemon.exit_code = 1
             box.run("false")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            docker["network"].remove.assert_called_once()
 
         def it_tears_down_when_the_container_fails_to_start(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            record = docker["run"].side_effect
-
-            def refuse_the_agent(image: str, command: Any = (), **options: Any) -> str:
-                if image != PROXY_IMAGE:
-                    raise DockerException(["docker", "run"], 125, stderr=b"no such image")
-                return str(record(image, command, **options))
-
-            docker["run"].side_effect = refuse_the_agent
+            docker["run"].side_effect = DockerException(["docker", "run"], 125, stderr=b"no image")
             with pytest.raises(DockerException):
                 box.run("true")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
             assert removed == [docker["run"].call_args.kwargs["name"], daemon.proxy["name"]]
-            docker["network"].remove.assert_called_once()
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
 
@@ -498,7 +526,6 @@ def describe_run() -> None:
                 box.run("sleep 600")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
             assert removed == [daemon.agent["name"], daemon.proxy["name"]]
-            docker["network"].remove.assert_called_once()
             assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
         def it_force_removes_the_running_container(
@@ -509,10 +536,10 @@ def describe_run() -> None:
                 box.run("sleep 600")
             assert docker["container"].remove.call_args_list[0].kwargs == {"force": True}
 
-        def it_returns_a_result_when_the_network_removal_fails(
+        def it_returns_a_result_when_the_sidecar_removal_fails(
             box: Botbox, docker: dict[str, MagicMock]
         ) -> None:
-            docker["network"].remove.side_effect = DockerException(["docker", "network", "rm"], 1)
+            docker["container"].remove.side_effect = DockerException(["docker", "rm"], 1)
             assert isinstance(box.run("true"), RunResult)
 
         def it_removes_the_container_when_the_with_block_exits(
@@ -532,8 +559,6 @@ def describe_run() -> None:
             daemon.logs = [("stdout", b"halfway\n"), ("stderr", b"warn\n")]
             gone = DockerException(["docker"], 1, stderr=b"Cannot connect to the Docker daemon")
             docker["container"].remove.side_effect = gone
-            docker["network"].remove.side_effect = gone
-            docker["network"].disconnect.side_effect = gone
 
         @pytest.mark.usefixtures("dead", "claude_writes_a_transcript")
         def it_still_returns_a_result(box: Botbox) -> None:
@@ -564,12 +589,11 @@ def describe_run() -> None:
             assert not Path(volume(daemon.agent, "/home/user")[0]).parent.exists()
 
         @pytest.mark.usefixtures("dead")
-        def it_still_tries_to_remove_the_sidecar_and_the_network(
+        def it_still_tries_to_remove_the_sidecar(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             box.run("true")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
-            docker["network"].remove.assert_called_once()
 
         def it_keeps_the_exit_code_when_only_teardown_fails(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]

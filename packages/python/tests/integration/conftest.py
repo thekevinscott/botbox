@@ -11,7 +11,7 @@ from python_on_whales.exceptions import DockerException
 
 @pytest.fixture
 def builds() -> list[dict[str, Any]]:
-    """Every `docker build` in order: context, tag, Dockerfile, and the Dockerfile's text."""
+    """Every `docker build` in order: context, tag, Dockerfile, its text, and named contexts."""
     return []
 
 
@@ -26,6 +26,7 @@ def docker_build(builds: list[dict[str, Any]]) -> Iterator[MagicMock]:
                     "tags": options["tags"],
                     "file": Path(options["file"]),
                     "text": Path(options["file"]).read_text(),
+                    "contexts": options.get("build_contexts", {}),
                 }
             )
 
@@ -38,10 +39,12 @@ class Daemon:
 
     `container` stands in for the agent's process: it gets the staged home and the proxy's
     log directory as host paths, and writes into them the way the CLI and tinyproxy would.
+    The proxy is created, then attached with `docker start`; `attached` holds each attach.
     """
 
     def __init__(self) -> None:
         self.runs: list[dict[str, Any]] = []
+        self.attached: list[list[str]] = []
         self.logs: list[tuple[str, bytes]] = []
         self.exit_code = 0
         self.dies_mid_run = False
@@ -84,10 +87,10 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
         patch("python_on_whales.docker.network", autospec=True) as network,
         patch("python_on_whales.docker.container", autospec=True) as container,
         patch("python_on_whales.utils.run", autospec=True) as cli,
+        patch("subprocess.Popen", autospec=True) as popen,
     ):
-        network.docker_cmd = ["docker"]
 
-        def record_run(image: str, command: Sequence[str] = (), **options: Any) -> str:
+        def record(image: str, command: Sequence[str] = (), **options: Any) -> None:
             volumes = [(str(s), str(t), m) for s, t, m in options.get("volumes", ())]
             daemon.runs.append(
                 {
@@ -99,9 +102,24 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
                     "modes": {target: Path(source).stat().st_mode for source, target, _ in volumes},
                 }
             )
-            if image == PROXY_IMAGE:
-                return "proxy-container"
-            home = next(Path(s) for s, t, _ in volumes if t == "/home/user")
+
+        def create_proxy(image: str, command: Sequence[str] = (), **options: Any) -> str:
+            record(image, command, **options)
+            return "proxy-container"
+
+        def start_proxy(argv: list[str], **_options: Any) -> MagicMock:
+            """The proxy comes up: its socket appears in the directory it was given."""
+            sockets = next(s for s, t, _ in daemon.proxy["volumes"] if t == "/run/botbox")
+            (Path(sockets) / "proxy.sock").touch()
+            daemon.attached.append(argv)
+            process = MagicMock()
+            process.poll.return_value = None
+            process.wait.return_value = 0
+            return process
+
+        def record_run(image: str, command: Sequence[str] = (), **options: Any) -> str:
+            record(image, command, **options)
+            home = next(Path(s) for s, t, _ in daemon.agent["volumes"] if t == "/home/user")
             proxy_log = next(
                 Path(s) for s, t, _ in daemon.proxy["volumes"] if t == "/var/log/tinyproxy"
             )
@@ -118,6 +136,8 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
                 raise DockerException(["docker", "container", "wait"], 1, stderr=b"EOF")
             return daemon.exit_code
 
+        container.create.side_effect = create_proxy
+        popen.side_effect = start_proxy
         run.side_effect = record_run
         logs.side_effect = stream
         wait.side_effect = exit_code
@@ -128,4 +148,5 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
             "network": network,
             "container": container,
             "cli": cli,
+            "popen": popen,
         }

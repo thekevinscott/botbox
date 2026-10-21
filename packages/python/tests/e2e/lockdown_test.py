@@ -16,6 +16,9 @@ PROBES = {
     "setgid": "find / -xdev -perm -2000 -type f 2>/dev/null | sort",
     "uid": "id -u",
     "user": "whoami",
+    "signal init": "kill -0 1 2>&1 || true",
+    "init uid": "awk '/^Uid:/ {print $2}' /proc/1/status",
+    "init environ": "cat /proc/1/environ 2>&1 >/dev/null || true",
 }
 
 
@@ -45,3 +48,16 @@ def describe_the_container() -> None:
 
     def it_runs_as_user(posture: dict[str, str]) -> None:
         assert posture["user"] == "user"
+
+
+def describe_the_shared_pid_namespace() -> None:
+    """The agent lives in the proxy's PID namespace, so it can see the proxy's processes."""
+
+    def it_has_the_proxys_init_as_pid_1(posture: dict[str, str]) -> None:
+        assert posture["init uid"] == "100"
+
+    def it_cannot_signal_it(posture: dict[str, str]) -> None:
+        assert "not permitted" in posture["signal init"]
+
+    def it_cannot_read_its_environment(posture: dict[str, str]) -> None:
+        assert "Permission denied" in posture["init environ"]
