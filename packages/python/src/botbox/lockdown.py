@@ -9,6 +9,7 @@ from python_on_whales import utils as docker_utils
 from python_on_whales.exceptions import DockerException
 
 PROXY_DIR = Path(__file__).with_name("proxy")
+PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
 PROXY_IMAGE = "botbox-proxy:latest"
 PROXY_PORT = 8888
 PROXY_LOG_DIR = "/var/log/tinyproxy"
@@ -29,8 +30,9 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
 
     The container joins an `--internal` network: no gateway, no route out, no external DNS.
     Its only way out is a CONNECT to the sidecar, which also sits on Docker's default bridge
-    and refuses anything outside `allow`. tinyproxy writes its log into `scratch` on the host
-    as it runs, so the log survives the daemon; it is read into `Lockdown.log` on the way out.
+    and refuses anything outside `allow`. The sidecar admits only the jail subnet as a client,
+    so sharing the bridge opens it to no one else. tinyproxy writes its log into `scratch` on
+    the host as it runs, so the log survives the daemon; it is read into `Lockdown.log` on exit.
     """
     docker.build(PROXY_DIR, tags=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile", progress=False)
 
@@ -66,6 +68,13 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
         docker_utils.run(
             [*docker.network.docker_cmd, "network", "create", "--internal", jail.network]
         )
+        # The proxy also sits on the default bridge, where any container can reach :8888.
+        # Admit only the jail's own subnet, so the proxy is an open forwarder for no one else.
+        config = docker.network.inspect(jail.network).ipam.config or []
+        subnet = config[0]["Subnet"]
+        conf = scratch / "tinyproxy.conf"
+        conf.write_text(f"{PROXY_CONF.read_text()}\nAllow 127.0.0.1\nAllow {subnet}\n")
+        conf.chmod(0o644)
         proxy = proxy_name
         docker.run(
             PROXY_IMAGE,
@@ -74,6 +83,7 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
             # The default bridge takes no subnet from the daemon's pool, so a run costs one network.
             networks=["bridge"],
             volumes=[
+                (str(conf), "/etc/tinyproxy/tinyproxy.conf", "ro"),
                 (str(allowlist), "/etc/tinyproxy/filter", "ro"),
                 (str(log_dir), PROXY_LOG_DIR, "rw"),
             ],

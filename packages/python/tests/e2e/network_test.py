@@ -6,8 +6,10 @@ The raw CONNECT probe reads the proxy's own answer. Two kinds of probe, because 
 admitted everything would still pass every direct one.
 """
 
+import subprocess
+
 import pytest
-from conftest import Probe
+from conftest import Probe, docker_lines
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -104,3 +106,44 @@ def describe_allow() -> None:
         result = box.run(f"{CONNECT} example.com {PROXY}")
         assert result.stdout.strip() == "200"
         assert 'Established connection to host "example.com"' in result.proxy
+
+
+OUTSIDER_CONNECT = (
+    "printf 'CONNECT example.com:443 HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n'"
+    ' | nc -w 5 "$0" 8888 | head -n 1'
+)
+
+
+def describe_a_container_outside_the_run() -> None:
+    def it_is_refused_by_the_proxy() -> None:
+        """The proxy also sits on the default bridge, where any container can reach it."""
+        before = set(docker_lines("ps", "--format", "{{.Names}}"))
+        with Botbox(ClaudeAgent(), allow=["example.com"]) as box, box.session() as live:
+            (proxy,) = {
+                n
+                for n in docker_lines("ps", "--format", "{{.Names}}")
+                if n.startswith("botbox-proxy-") and n not in before
+            }
+            (ip,) = docker_lines(
+                "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", proxy
+            )
+            answer = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--network",
+                    "bridge",
+                    "--entrypoint",
+                    "sh",
+                    "botbox-proxy:latest",
+                    "-c",
+                    OUTSIDER_CONNECT,
+                    ip,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            live.close()
+        assert " 200 " not in answer

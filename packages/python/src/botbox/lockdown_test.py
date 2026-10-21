@@ -30,6 +30,7 @@ def docker() -> Iterator[MagicMock]:
     with patch("botbox.lockdown.docker", autospec=True) as m:
         m.run.return_value = "proxy-container"
         m.network.docker_cmd = ["docker"]
+        m.network.inspect.return_value.ipam.config = [{"Subnet": "172.18.0.0/24"}]
         yield m
 
 
@@ -111,6 +112,24 @@ def describe_lockdown() -> None:
         def it_runs_the_proxy_detached(jail: Jail, docker: MagicMock) -> None:
             with jail():
                 assert docker.run.call_args.kwargs["detach"] is True
+
+    def describe_the_client_restriction() -> None:
+        def it_admits_only_the_jail_subnet(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, mode = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "Allow 172.18.0.0/24" in conf
+            assert mode == "ro"
+
+        def it_reads_the_subnet_of_the_jail_it_created(jail: Jail, docker: MagicMock) -> None:
+            with jail() as net:
+                docker.network.inspect.assert_called_once_with(net.network)
+
+        def it_carries_the_shipped_config(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                source, _ = volumes(docker)["/etc/tinyproxy/tinyproxy.conf"]
+                conf = source.read_text()
+            assert "FilterDefaultDeny Yes" in conf
 
     def describe_the_allowlist() -> None:
         def it_anchors_each_host(jail: Jail, docker: MagicMock) -> None:
