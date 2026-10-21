@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, call
 
 import pytest
-from conftest import Daemon
+from conftest import PROXY_IMAGE, Daemon
 from python_on_whales.exceptions import DockerException
 
 import botbox
@@ -475,14 +475,15 @@ def describe_run() -> None:
             record = docker["run"].side_effect
 
             def refuse_the_agent(image: str, command: Any = (), **options: Any) -> str:
-                if not options.get("name"):
+                if image != PROXY_IMAGE:
                     raise DockerException(["docker", "run"], 125, stderr=b"no such image")
                 return str(record(image, command, **options))
 
             docker["run"].side_effect = refuse_the_agent
             with pytest.raises(DockerException):
                 box.run("true")
-            docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
+            removed = [c.args[0] for c in docker["container"].remove.call_args_list]
+            assert removed == [docker["run"].call_args.kwargs["name"], daemon.proxy["name"]]
             assert docker["network"].remove.call_count == 2
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
@@ -501,7 +502,7 @@ def describe_run() -> None:
             with pytest.raises(KeyboardInterrupt):
                 box.run("sleep 600")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
-            assert removed == ["agent-container", daemon.proxy["name"]]
+            assert removed == [daemon.agent["name"], daemon.proxy["name"]]
             assert docker["network"].remove.call_count == 2
             assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
@@ -524,13 +525,13 @@ def describe_run() -> None:
             assert docker["network"].remove.call_count == 2
 
         def it_removes_the_container_when_the_with_block_exits(
-            box: Botbox, docker: dict[str, MagicMock]
+            box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             with box:
                 result = box.run("true")
             assert result.stdout == ""
             assert docker["container"].remove.call_args_list[-1] == call(
-                ["agent-container"], force=True
+                [daemon.agent["name"]], force=True
             )
 
     def describe_when_the_daemon_dies_mid_run() -> None:

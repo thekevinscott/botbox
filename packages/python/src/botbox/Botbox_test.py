@@ -169,6 +169,10 @@ def home_of(docker: MagicMock) -> Path:
     return Path(docker.run.call_args.kwargs["volumes"][0][0])
 
 
+def names_run(docker: MagicMock) -> list[str]:
+    return [c.kwargs["name"] for c in docker.run.call_args_list]
+
+
 def describe_run() -> None:
     def it_takes_mounts_and_workdir_by_keyword_only(run: Botbox) -> None:
         with pytest.raises(TypeError):
@@ -192,10 +196,12 @@ def describe_run() -> None:
 
     def it_runs_the_built_image_locked_down(run: Botbox, docker: MagicMock, jail: Mock) -> None:
         run.run("echo hi")
+        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", names_run(docker)[0])
         assert docker.run.call_args == call(
             "an-agent:latest",
             ["sh", "-c", "echo hi"],
             detach=True,
+            name=names_run(docker)[0],
             envs=jail.envs,
             volumes=[(str(home_of(docker)), "/home/agent", "rw"), ("/host/work", "/work", "rw")],
             workdir="/home/agent",
@@ -289,14 +295,26 @@ def describe_run() -> None:
         collect.side_effect = KeyboardInterrupt
         with pytest.raises(KeyboardInterrupt):
             run.run("true")
-        docker.container.remove.assert_called_once_with("a-container", force=True)
+        docker.container.remove.assert_called_once_with(names_run(docker)[0], force=True)
         assert not home_of(docker).parent.exists()
 
-    def it_removes_nothing_when_the_container_never_started(run: Botbox, docker: MagicMock) -> None:
+    def it_removes_the_container_by_name_when_its_start_fails(
+        run: Botbox, docker: MagicMock
+    ) -> None:
         docker.run.side_effect = DockerException("no such image")
         with pytest.raises(DockerException):
             run.run("true")
-        docker.container.remove.assert_not_called()
+        docker.container.remove.assert_called_once_with(names_run(docker)[0], force=True)
+
+    def it_removes_a_container_whose_start_was_interrupted(run: Botbox, docker: MagicMock) -> None:
+        docker.run.side_effect = KeyboardInterrupt
+        with pytest.raises(KeyboardInterrupt), run:
+            run.run("true")
+        [name] = names_run(docker)
+        assert docker.container.remove.call_args_list == [
+            call(name, force=True),
+            call([name], force=True),
+        ]
 
     def it_deletes_the_temporary_directory(run: Botbox, docker: MagicMock) -> None:
         run.run("true")
@@ -305,11 +323,6 @@ def describe_run() -> None:
 
 
 def describe_with() -> None:
-    @pytest.fixture
-    def containers(docker: MagicMock) -> Iterator[None]:
-        docker.run.side_effect = ["one", "two"]
-        yield
-
     def it_is_the_box(run: Botbox) -> None:
         with run as box:
             assert box is run
@@ -317,13 +330,12 @@ def describe_with() -> None:
     def it_removes_every_container_its_runs_created(
         run: Botbox,
         docker: MagicMock,
-        containers: None,  # noqa: ARG001
     ) -> None:
         with run:
             run.run("true")
             run.run("true")
             docker.container.remove.assert_not_called()
-        docker.container.remove.assert_called_once_with(["one", "two"], force=True)
+        docker.container.remove.assert_called_once_with(names_run(docker), force=True)
 
     def it_leaves_the_results_readable(run: Botbox) -> None:
         with run:
@@ -338,15 +350,15 @@ def describe_with() -> None:
     def it_removes_each_container_once(
         run: Botbox,
         docker: MagicMock,
-        containers: None,  # noqa: ARG001
     ) -> None:
         with run:
             run.run("true")
         with run:
             run.run("true")
+        one, two = names_run(docker)
         assert docker.container.remove.call_args_list == [
-            call(["one"], force=True),
-            call(["two"], force=True),
+            call([one], force=True),
+            call([two], force=True),
         ]
 
     @pytest.mark.parametrize("error", [ValueError("boom"), KeyboardInterrupt()])
@@ -356,7 +368,7 @@ def describe_with() -> None:
         with pytest.raises(type(error)), run:
             run.run("true")
             raise error
-        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+        docker.container.remove.assert_called_once_with(names_run(docker), force=True)
 
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
@@ -385,7 +397,7 @@ def describe_with() -> None:
             with pytest.raises(SystemExit), run:
                 run.run("true")
                 signals.signal.call_args.args[1](15, None)
-            docker.container.remove.assert_called_once_with(["a-container"], force=True)
+            docker.container.remove.assert_called_once_with(names_run(docker), force=True)
 
         def it_restores_the_default_handler_on_exit(run: Botbox, signals: MagicMock) -> None:
             with run:
@@ -461,6 +473,11 @@ def session_home_of(docker: MagicMock) -> Path:
     return Path(docker.container.create.call_args.kwargs["volumes"][0][0])
 
 
+def session_name_of(docker: MagicMock) -> str:
+    name: str = docker.container.create.call_args.kwargs["name"]
+    return name
+
+
 def describe_session() -> None:
     def it_takes_mounts_and_workdir_by_keyword_only(session_box: Botbox) -> None:
         with pytest.raises(TypeError):
@@ -491,11 +508,13 @@ def describe_session() -> None:
         session_box: Botbox, docker: MagicMock, jail: Mock
     ) -> None:
         session_box.session()
+        assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", session_name_of(docker))
         assert docker.container.create.call_args == call(
             "an-agent:latest",
             ["sh", "-c", "an-agent --stream"],
             interactive=True,
             init=True,
+            name=session_name_of(docker),
             envs=jail.envs,
             volumes=[
                 (str(session_home_of(docker)), "/home/agent", "rw"),
@@ -563,7 +582,7 @@ def describe_session() -> None:
     def it_removes_the_container_with_the_box(session_box: Botbox, docker: MagicMock) -> None:
         with session_box:
             session_box.session()
-        docker.container.remove.assert_called_once_with(["a-container"], force=True)
+        docker.container.remove.assert_called_once_with([session_name_of(docker)], force=True)
 
     def it_tears_down_when_attaching_fails(
         session_box: Botbox, docker: MagicMock, popen: MagicMock
