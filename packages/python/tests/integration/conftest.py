@@ -1,6 +1,7 @@
 """Integration tests: Docker mocked at the python_on_whales boundary."""
 
 import argparse
+import io
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -40,13 +41,16 @@ class Daemon:
 
     `container` stands in for the agent's process: it gets the staged home and the proxy's
     log directory as host paths, and writes into them the way the CLI and tinyproxy would.
-    The proxy runs attached, through `docker run`; `attached` holds each such command.
+    Both containers run attached, through `docker run`; `attached` holds each such command.
+    `dies_mid_run` cuts the agent's client the way a lost daemon does: exit 125 and
+    `docker version` failing.
     """
 
     def __init__(self) -> None:
         self.runs: list[dict[str, Any]] = []
         self.attached: list[list[str]] = []
-        self.logs: list[tuple[str, bytes]] = []
+        self.stdout = b""
+        self.stderr = b""
         self.exit_code = 0
         self.dies_mid_run = False
         self.container: Callable[[Path, Path], None] = lambda _home, _proxy_log: None
@@ -64,20 +68,31 @@ class Daemon:
 
 PROXY_IMAGE = "botbox-proxy:latest"
 
-# The proxy's `docker run` flags, parsed back into python_on_whales' option names.
+# `docker run` flags, parsed back into python_on_whales' option names.
 RUN = argparse.ArgumentParser()
 RUN.add_argument("--interactive", action="store_true")
 RUN.add_argument("--rm", dest="remove", action="store_true")
 RUN.add_argument("--init", action="store_true")
 RUN.add_argument("--name")
 RUN.add_argument("--user")
+RUN.add_argument("--workdir")
+RUN.add_argument("--pid")
 RUN.add_argument("--pids-limit", type=int)
+RUN.add_argument("--env", dest="envs", action="append", default=[])
 RUN.add_argument("--network", dest="networks", action="append", default=[])
 RUN.add_argument("--cap-drop", action="append", default=[])
 RUN.add_argument("--security-opt", dest="security_options", action="append", default=[])
 RUN.add_argument("--volume", dest="volumes", action="append", default=[])
 RUN.add_argument("image")
-RUN.add_argument("command", nargs="*")
+RUN.add_argument("command", nargs=argparse.REMAINDER)
+
+
+def parse_run(argv: list[str]) -> dict[str, Any]:
+    assert argv[:2] == ["docker", "run"]
+    options = vars(RUN.parse_args(argv[2:]))
+    options["envs"] = dict(e.split("=", 1) for e in options["envs"])
+    options["volumes"] = [tuple(v.split(":")) for v in options["volumes"]]
+    return options
 
 
 def snapshot(source: str) -> dict[str, str]:
@@ -98,8 +113,7 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
     """Every daemon-facing call `run()` makes, patched where python_on_whales defines it."""
     with (
         patch("python_on_whales.docker.run", autospec=True) as run,
-        patch("python_on_whales.docker.logs", autospec=True) as logs,
-        patch("python_on_whales.docker.wait", autospec=True) as wait,
+        patch("python_on_whales.docker.version", autospec=True) as version,
         patch("python_on_whales.docker.network", autospec=True) as network,
         patch("python_on_whales.docker.container", autospec=True) as container,
         patch("python_on_whales.utils.run", autospec=True) as cli,
@@ -119,47 +133,42 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
                 }
             )
 
-        def start_proxy(argv: list[str], **_options: Any) -> MagicMock:
+        def start_proxy() -> MagicMock:
             """The proxy comes up: its socket appears in the directory it was given."""
-            assert argv[:2] == ["docker", "run"]
-            options = vars(RUN.parse_args(argv[2:]))
-            options["volumes"] = [tuple(v.split(":")) for v in options["volumes"]]
-            record(**options)
             sockets = next(s for s, t, _ in daemon.proxy["volumes"] if t == "/run/botbox")
             (Path(sockets) / "proxy.sock").touch()
-            daemon.attached.append(argv)
             process = MagicMock()
             process.poll.return_value = None
             process.wait.return_value = 0
             return process
 
-        def record_run(image: str, command: Sequence[str] = (), **options: Any) -> str:
-            record(image, command, **options)
+        def start_agent() -> MagicMock:
+            """The agent runs to its exit while attached: home and proxy log written, output out."""
             home = next(Path(s) for s, t, _ in daemon.agent["volumes"] if t == "/home/user")
             proxy_log = next(
                 Path(s) for s, t, _ in daemon.proxy["volumes"] if t == "/var/log/tinyproxy"
             )
             daemon.container(home, proxy_log / "tinyproxy.log")
-            return "agent-container"
+            process = MagicMock()
+            process.stdout = io.BytesIO(daemon.stdout)
+            process.stderr = io.BytesIO(daemon.stderr)
+            process.wait.return_value = 125 if daemon.dies_mid_run else daemon.exit_code
+            return process
 
-        def stream(_container: str, **_options: Any) -> Iterator[tuple[str, bytes]]:
-            yield from daemon.logs
+        def start(argv: list[str], **_options: Any) -> MagicMock:
+            daemon.attached.append(argv)
+            record(**parse_run(argv))
+            return start_proxy() if daemon.runs[-1]["image"] == PROXY_IMAGE else start_agent()
+
+        def answer() -> None:
             if daemon.dies_mid_run:
-                raise DockerException(["docker", "container", "logs"], 1, stderr=b"EOF")
+                raise DockerException(["docker", "version"], 1, stderr=b"Cannot connect")
 
-        def exit_code(_container: str) -> int:
-            if daemon.dies_mid_run:
-                raise DockerException(["docker", "container", "wait"], 1, stderr=b"EOF")
-            return daemon.exit_code
-
-        popen.side_effect = start_proxy
-        run.side_effect = record_run
-        logs.side_effect = stream
-        wait.side_effect = exit_code
+        popen.side_effect = start
+        version.side_effect = answer
         yield {
             "run": run,
-            "logs": logs,
-            "wait": wait,
+            "version": version,
             "network": network,
             "container": container,
             "cli": cli,

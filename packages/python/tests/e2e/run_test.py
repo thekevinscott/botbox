@@ -4,17 +4,14 @@ It still goes through everything `run()` sets up: the image, the temp home, the 
 the proxy sidecar.
 """
 
-from collections.abc import Iterator
-
 import pytest
-from conftest import removed
 
 from botbox import Botbox, RunResult
 
 
 @pytest.fixture(scope="module")
-def result(box: Botbox) -> Iterator[RunResult]:
-    yield from removed(box.run("echo hi; echo err >&2; exit 3"))
+def result(box: Botbox) -> RunResult:
+    return box.run("echo hi; echo err >&2; exit 3")
 
 
 def describe_a_shell_command() -> None:
@@ -36,3 +33,6 @@ def describe_a_shell_command() -> None:
 
     def it_returns_no_transcript_when_no_agent_ran(result: RunResult) -> None:
         assert result.transcript == {}
+
+    def it_names_the_image_that_ran(box: Botbox, result: RunResult) -> None:
+        assert result.image == box.build()

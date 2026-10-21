@@ -9,7 +9,6 @@ import pytest
 from conftest import Daemon
 from python_on_whales.exceptions import DockerException
 
-import botbox
 from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent, RunResult
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
@@ -68,6 +67,23 @@ def claude_writes_a_transcript(daemon: Daemon) -> None:
     daemon.container = container
 
 
+def refuse_the_agent(docker: dict[str, MagicMock], error: OSError) -> None:
+    """Fail to start the agent's `docker run` client; the proxy still starts."""
+    start = docker["popen"].side_effect
+
+    def refuse(argv: list[str], **options: Any) -> MagicMock:
+        process: MagicMock = start(argv, **options)
+        if "botbox-proxy:latest" not in argv:
+            raise error
+        return process
+
+    docker["popen"].side_effect = refuse
+
+
+def interrupt(_home: Path, _proxy_log: Path) -> None:
+    raise KeyboardInterrupt
+
+
 def volume(call: dict[str, Any], target: str) -> tuple[str, str]:
     [(source, mode)] = [(s, m) for s, t, m in call["volumes"] if t == target]
     return source, mode
@@ -79,7 +95,7 @@ def describe_run() -> None:
             assert isinstance(box.run("true"), RunResult)
 
         def it_separates_stdout_from_stderr(box: Botbox, daemon: Daemon) -> None:
-            daemon.logs = [("stdout", b"one\n"), ("stderr", b"warn\n"), ("stdout", b"two\n")]
+            daemon.stdout, daemon.stderr = b"one\ntwo\n", b"warn\n"
             result = box.run("true")
             assert (result.stdout, result.stderr) == ("one\ntwo\n", "warn\n")
 
@@ -87,7 +103,7 @@ def describe_run() -> None:
             assert box.run("true").exit_code == 0
 
         def it_returns_a_non_zero_exit_as_a_normal_result(box: Botbox, daemon: Daemon) -> None:
-            daemon.logs = [("stderr", b"API error\n")]
+            daemon.stderr = b"API error\n"
             daemon.exit_code = 3
             result = box.run("false")
             assert (result.exit_code, result.stderr) == (3, "API error\n")
@@ -153,7 +169,6 @@ def describe_run() -> None:
             with pytest.raises(RuntimeError, match="build failed"):
                 box.run("true")
             docker["run"].assert_not_called()
-            docker["container"].create.assert_not_called()
             docker["popen"].assert_not_called()
 
         def it_ships_the_relay_into_the_agent_image(
@@ -245,8 +260,16 @@ def describe_run() -> None:
             box.run("true")
             assert daemon.proxy["interactive"] is True
             assert daemon.proxy["remove"] is True
-            [argv] = daemon.attached
-            assert argv[:2] == ["docker", "run"]
+            assert daemon.attached[0][:2] == ["docker", "run"]
+
+        def it_runs_the_agent_attached_in_one_docker_run_that_removes_it(
+            box: Botbox, daemon: Daemon
+        ) -> None:
+            box.run("true")
+            assert daemon.attached[1][:2] == ["docker", "run"]
+            assert daemon.agent["remove"] is True
+            assert daemon.agent["interactive"] is False
+            assert daemon.agent["command"] == ["/usr/local/bin/botbox-relay", "sh", "-c", "true"]
 
     def describe_an_api_key() -> None:
         @pytest.fixture
@@ -263,13 +286,12 @@ def describe_run() -> None:
                 ".claude/settings.json": '{"apiKeyHelper": "cat /home/user/.claude/api_key"}',
             }
 
-        def it_keeps_the_key_out_of_the_container_create_call(
-            keyed: Botbox, daemon: Daemon
-        ) -> None:
+        def it_keeps_the_key_out_of_the_docker_run_command(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
             call = {k: v for k, v in daemon.agent.items() if k != "files"}
             assert "sk-test" not in repr(call)
             assert "sk-test" not in repr(daemon.proxy)
+            assert "sk-test" not in repr(daemon.attached)
 
     def describe_an_openai_api_key() -> None:
         @pytest.fixture
@@ -282,13 +304,12 @@ def describe_run() -> None:
                 ".codex/auth.json": '{"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}',
             }
 
-        def it_keeps_the_key_out_of_the_container_create_call(
-            keyed: Botbox, daemon: Daemon
-        ) -> None:
+        def it_keeps_the_key_out_of_the_docker_run_command(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
             call = {k: v for k, v in daemon.agent.items() if k != "files"}
             assert "sk-test" not in repr(call)
             assert "sk-test" not in repr(daemon.proxy)
+            assert "sk-test" not in repr(daemon.attached)
 
     def describe_a_pi_api_key() -> None:
         @pytest.fixture
@@ -303,13 +324,12 @@ def describe_run() -> None:
                 ".pi/agent/auth.json": '{"openrouter": {"type": "api_key", "key": "sk-or-test"}}',
             }
 
-        def it_keeps_the_key_out_of_the_container_create_call(
-            keyed: Botbox, daemon: Daemon
-        ) -> None:
+        def it_keeps_the_key_out_of_the_docker_run_command(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
             call = {k: v for k, v in daemon.agent.items() if k != "files"}
             assert "sk-or-test" not in repr(call)
             assert "sk-or-test" not in repr(daemon.proxy)
+            assert "sk-or-test" not in repr(daemon.attached)
 
         def it_deletes_the_key_afterwards(keyed: Botbox, daemon: Daemon) -> None:
             keyed.run("true")
@@ -371,7 +391,7 @@ def describe_run() -> None:
             with pytest.raises(FileNotFoundError, match=r"\.credentials\.json"):
                 box.run("true")
             docker["run"].assert_not_called()
-            docker["container"].create.assert_not_called()
+            docker["popen"].assert_not_called()
 
         def it_starts_the_command_in_the_home_by_default(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
@@ -415,7 +435,7 @@ def describe_run() -> None:
                 box.run("true", mounts=[(tmp_path / "gone", "/gone", "ro")])
             docker_build.assert_not_called()
             docker["run"].assert_not_called()
-            docker["container"].create.assert_not_called()
+            docker["popen"].assert_not_called()
 
     def describe_workdir() -> None:
         def it_starts_the_command_in_a_mounted_path(
@@ -444,7 +464,7 @@ def describe_run() -> None:
                 box.run("true", mounts=[(work, "/work", "rw")], workdir=workdir)
             docker_build.assert_not_called()
             docker["run"].assert_not_called()
-            docker["container"].create.assert_not_called()
+            docker["popen"].assert_not_called()
 
     def describe_logs() -> None:
         @pytest.mark.usefixtures("claude_writes_a_transcript")
@@ -485,11 +505,10 @@ def describe_run() -> None:
             assert home.parent == proxy_log.parent
 
     def describe_teardown() -> None:
-        def it_keeps_the_container_and_removes_the_sidecar(
+        def it_removes_only_the_sidecar(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            result = box.run("true")
-            assert result.container == "agent-container"
+            box.run("true")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
 
         def it_tears_down_after_a_non_zero_exit(
@@ -499,28 +518,27 @@ def describe_run() -> None:
             box.run("false")
             docker["container"].remove.assert_called_once_with(daemon.proxy["name"], force=True)
 
-        def it_tears_down_when_the_container_fails_to_start(
+        def it_tears_down_when_the_agents_client_cannot_start(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            docker["run"].side_effect = DockerException(["docker", "run"], 125, stderr=b"no image")
-            with pytest.raises(DockerException):
+            refuse_the_agent(docker, FileNotFoundError("docker"))
+            with pytest.raises(FileNotFoundError):
                 box.run("true")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
-            assert removed == [docker["run"].call_args.kwargs["name"], daemon.proxy["name"]]
+            assert removed == [daemon.agent["name"], daemon.proxy["name"]]
             scratch = Path(volume(daemon.proxy, "/var/log/tinyproxy")[0]).parent
             assert not scratch.exists()
 
-        def it_raises_the_docker_exception_botbox_exports(
-            box: Botbox, docker: dict[str, MagicMock]
-        ) -> None:
-            docker["run"].side_effect = DockerException(["docker", "run"], 125)
-            with pytest.raises(botbox.DockerException):
-                box.run("true")
+        def it_returns_the_daemons_refusal_as_a_result(box: Botbox, daemon: Daemon) -> None:
+            daemon.exit_code = 125
+            daemon.stderr = b"docker: Error response from daemon: No such image\n"
+            result = box.run("true")
+            assert (result.exit_code, result.stderr) == (125, daemon.stderr.decode())
 
         def it_tears_down_and_reraises_on_keyboard_interrupt(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            docker["logs"].side_effect = KeyboardInterrupt
+            daemon.container = interrupt
             with pytest.raises(KeyboardInterrupt):
                 box.run("sleep 600")
             removed = [c.args[0] for c in docker["container"].remove.call_args_list]
@@ -528,9 +546,9 @@ def describe_run() -> None:
             assert not Path(volume(daemon.agent, "/home/user")[0]).exists()
 
         def it_force_removes_the_running_container(
-            box: Botbox, docker: dict[str, MagicMock]
+            box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
-            docker["logs"].side_effect = KeyboardInterrupt
+            daemon.container = interrupt
             with pytest.raises(KeyboardInterrupt):
                 box.run("sleep 600")
             assert docker["container"].remove.call_args_list[0].kwargs == {"force": True}
@@ -541,21 +559,21 @@ def describe_run() -> None:
             docker["container"].remove.side_effect = DockerException(["docker", "rm"], 1)
             assert isinstance(box.run("true"), RunResult)
 
-        def it_removes_the_container_when_the_with_block_exits(
+        def it_removes_nothing_more_when_the_with_block_exits(
             box: Botbox, daemon: Daemon, docker: dict[str, MagicMock]
         ) -> None:
             with box:
                 result = box.run("true")
             assert result.stdout == ""
-            assert docker["container"].remove.call_args_list[-1] == call(
-                [daemon.agent["name"]], force=True
-            )
+            assert docker["container"].remove.call_args_list == [
+                call(daemon.proxy["name"], force=True)
+            ]
 
     def describe_when_the_daemon_dies_mid_run() -> None:
         @pytest.fixture
         def dead(daemon: Daemon, docker: dict[str, MagicMock]) -> None:
             daemon.dies_mid_run = True
-            daemon.logs = [("stdout", b"halfway\n"), ("stderr", b"warn\n")]
+            daemon.stdout, daemon.stderr = b"halfway\n", b"warn\n"
             gone = DockerException(["docker"], 1, stderr=b"Cannot connect to the Docker daemon")
             docker["container"].remove.side_effect = gone
 

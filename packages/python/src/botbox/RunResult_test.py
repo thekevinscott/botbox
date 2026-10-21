@@ -7,9 +7,7 @@ from botbox.RunResult import RunResult
 
 @pytest.fixture
 def result() -> RunResult:
-    return RunResult(
-        "out", "err", 0, {".claude/projects/p/s.jsonl": "{}"}, "log", "a-container", "an-image"
-    )
+    return RunResult("out", "err", 0, {".claude/projects/p/s.jsonl": "{}"}, "log", "an-image")
 
 
 def describe_run_result() -> None:
@@ -20,7 +18,6 @@ def describe_run_result() -> None:
             0,
             {".claude/projects/p/s.jsonl": "{}"},
             "log",
-            "a-container",
             "an-image",
         )
 
@@ -31,7 +28,6 @@ def describe_run_result() -> None:
             "exit_code",
             "transcript",
             "proxy",
-            "container",
             "image",
         ]
 
@@ -41,5 +37,5 @@ def describe_run_result() -> None:
 
     def it_compares_by_value(result: RunResult) -> None:
         assert result == RunResult(
-            "out", "err", 0, {".claude/projects/p/s.jsonl": "{}"}, "log", "a-container", "an-image"
+            "out", "err", 0, {".claude/projects/p/s.jsonl": "{}"}, "log", "an-image"
         )
