@@ -28,7 +28,6 @@ export default defineConfig({
           { text: 'Mounting directories', link: '/guide/mounting-directories' },
           { text: 'Holding a session', link: '/guide/holding-a-session' },
           { text: 'Reading the result', link: '/guide/reading-the-result' },
-          { text: 'Testing conventions', link: '/guide/testing-conventions' },
         ],
       },
       {
