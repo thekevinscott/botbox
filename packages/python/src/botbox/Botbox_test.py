@@ -7,7 +7,8 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import Botbox
-from botbox.lockdown import RELAY_DIR
+
+RELAY_DIR = Path(__file__).with_name("relay")
 
 
 class DockerException(Exception):

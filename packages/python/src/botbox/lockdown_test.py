@@ -1,10 +1,8 @@
 import re
-import subprocess
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -50,22 +48,28 @@ def proxy() -> Mock:
     return process
 
 
-def serve(docker: MagicMock) -> None:
-    """What the proxy does once started: put its socket in the directory it was given."""
-    [sockets] = [
-        s for s, t, _ in docker.container.create.call_args.kwargs["volumes"] if t == SOCKET_DIR
-    ]
-    (Path(sockets) / "proxy.sock").touch()
+@pytest.fixture
+def subprocess(proxy: Mock) -> Iterator[MagicMock]:
+    with patch("botbox.lockdown.subprocess") as m:
+        m.Popen.return_value = proxy
+        yield m
 
 
 @pytest.fixture
-def popen(docker: MagicMock, proxy: Mock) -> Iterator[MagicMock]:
-    def start(_argv: list[str], **_options: object) -> Mock:
-        serve(docker)
-        return proxy
+def popen(subprocess: MagicMock) -> MagicMock:
+    popen: MagicMock = subprocess.Popen
+    return popen
 
-    with patch("botbox.lockdown.subprocess.Popen", autospec=True) as m:
-        m.side_effect = start
+
+@pytest.fixture
+def wait() -> Iterator[MagicMock]:
+    with patch("botbox.lockdown.wait_for_socket", autospec=True) as m:
+        yield m
+
+
+@pytest.fixture
+def stop() -> Iterator[MagicMock]:
+    with patch("botbox.lockdown.stop_attached", autospec=True) as m:
         yield m
 
 
@@ -75,7 +79,13 @@ def scratch(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def jail(docker: MagicMock, popen: MagicMock, scratch: Path) -> Jail:  # noqa: ARG001
+def jail(
+    docker: MagicMock,  # noqa: ARG001
+    popen: MagicMock,  # noqa: ARG001
+    wait: MagicMock,  # noqa: ARG001
+    stop: MagicMock,  # noqa: ARG001
+    scratch: Path,
+) -> Jail:
     def call(allow: tuple[str, ...] = ALLOW) -> AbstractContextManager[Lockdown]:
         return lockdown(allow, scratch)
 
@@ -120,6 +130,7 @@ def describe_lockdown() -> None:
             assert 1024 < RELAY_PORT < 49152
 
     @pytest.mark.usefixtures("popen")
+    @pytest.mark.usefixtures("docker", "popen", "wait", "stop")
     def it_names_resources_per_run(tmp_path: Path) -> None:
         (tmp_path / "a").mkdir()
         (tmp_path / "b").mkdir()
@@ -179,13 +190,19 @@ def describe_lockdown() -> None:
                 assert created(docker)["pids_limit"] == 256
 
         def it_attaches_with_the_owner_holding_its_stdin(
-            jail: Jail, docker: MagicMock, popen: MagicMock
+            jail: Jail, docker: MagicMock, subprocess: MagicMock
         ) -> None:
             with jail():
-                [argv] = popen.call_args.args
+                [argv] = subprocess.Popen.call_args.args
                 assert argv == ["docker", "start", "--attach", "--interactive", proxy_name(docker)]
-                assert popen.call_args.kwargs["stdin"] == subprocess.PIPE
-                assert popen.call_args.kwargs["stderr"] == subprocess.STDOUT
+                assert subprocess.Popen.call_args.kwargs["stdin"] is subprocess.PIPE
+                assert subprocess.Popen.call_args.kwargs["stderr"] is subprocess.STDOUT
+
+        def it_sends_the_proxys_output_to_the_scratch_directory(
+            jail: Jail, popen: MagicMock, scratch: Path
+        ) -> None:
+            with jail():
+                assert popen.call_args.kwargs["stdout"].name == str(scratch / "proxy.out")
 
         def it_creates_before_it_attaches(jail: Jail, docker: MagicMock, popen: MagicMock) -> None:
             manager = Mock()
@@ -194,37 +211,22 @@ def describe_lockdown() -> None:
             with jail():
                 assert [c[0] for c in manager.mock_calls] == ["create", "start"]
 
-        def it_yields_once_the_socket_is_up(jail: Jail, scratch: Path) -> None:
+        def it_waits_for_the_socket_before_yielding(
+            jail: Jail, wait: MagicMock, proxy: Mock, scratch: Path
+        ) -> None:
             with jail():
-                assert (scratch / "sockets" / "proxy.sock").exists()
+                wait.assert_called_once_with(
+                    scratch / "sockets" / "proxy.sock", proxy, scratch / "proxy.out", 30
+                )
 
-        def it_raises_with_the_proxys_output_when_it_exits_before_the_socket(
-            jail: Jail, popen: MagicMock, proxy: Mock, scratch: Path
+        def it_stops_and_removes_a_proxy_that_never_came_up(
+            jail: Jail, docker: MagicMock, wait: MagicMock, stop: MagicMock, proxy: Mock
         ) -> None:
-            def start(_argv: list[str], **options: Any) -> Mock:
-                stdout = options["stdout"]
-                stdout.write("tinyproxy: bad config\n")
-                stdout.flush()
-                return proxy
-
-            popen.side_effect = start
-            proxy.poll.return_value = 1
-            with pytest.raises(RuntimeError, match="tinyproxy: bad config"), jail():
+            wait.side_effect = RuntimeError("botbox proxy did not start")
+            with pytest.raises(RuntimeError, match="did not start"), jail():
                 pass
-            assert not (scratch / "sockets" / "proxy.sock").exists()
-
-        def it_raises_when_the_socket_never_appears(
-            jail: Jail, popen: MagicMock, proxy: Mock
-        ) -> None:
-            popen.side_effect = lambda *_a, **_k: proxy
-            clock = iter(range(0, 1000, 10))
-            with (
-                patch("botbox.lockdown.time.monotonic", side_effect=lambda: next(clock)),
-                patch("botbox.lockdown.time.sleep"),
-                pytest.raises(RuntimeError, match="proxy"),
-                jail(),
-            ):
-                pass
+            stop.assert_called_once_with(proxy, 10)
+            docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
 
     def describe_the_proxy_config() -> None:
         def it_is_the_shipped_one_baked_into_the_image(jail: Jail, docker: MagicMock) -> None:
@@ -345,38 +347,32 @@ def describe_lockdown() -> None:
                 assert created(docker)["security_options"] == ["no-new-privileges"]
 
     def describe_teardown() -> None:
-        def it_ends_the_proxys_stdin_and_waits_for_it(jail: Jail, proxy: Mock) -> None:
+        def it_stops_the_proxy_on_the_way_out(jail: Jail, stop: MagicMock, proxy: Mock) -> None:
             with jail():
-                proxy.stdin.close.assert_not_called()
-            proxy.stdin.close.assert_called_once_with()
-            proxy.wait.assert_called_once()
+                stop.assert_not_called()
+            stop.assert_called_once_with(proxy, 10)
 
         def it_removes_the_proxy_by_name(jail: Jail, docker: MagicMock) -> None:
             with jail():
                 docker.container.remove.assert_not_called()
             docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
 
-        def it_removes_after_the_proxy_exits(jail: Jail, docker: MagicMock, proxy: Mock) -> None:
+        def it_removes_after_the_proxy_stops(
+            jail: Jail, docker: MagicMock, stop: MagicMock
+        ) -> None:
             manager = Mock()
-            manager.attach_mock(proxy.wait, "wait")
+            manager.attach_mock(stop, "stop")
             manager.attach_mock(docker.container.remove, "remove")
             with jail():
                 pass
-            assert [c[0] for c in manager.mock_calls] == ["wait", "remove"]
+            assert [c[0] for c in manager.mock_calls] == ["stop", "remove"]
 
-        def it_kills_the_attach_when_the_proxy_wont_exit(
-            jail: Jail, docker: MagicMock, proxy: Mock
+        def it_tears_down_when_the_body_raises(
+            jail: Jail, docker: MagicMock, stop: MagicMock, proxy: Mock
         ) -> None:
-            proxy.wait.side_effect = [subprocess.TimeoutExpired("docker", 10), 0]
-            with jail():
-                pass
-            proxy.kill.assert_called_once_with()
-            docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
-
-        def it_tears_down_when_the_body_raises(jail: Jail, docker: MagicMock, proxy: Mock) -> None:
             with pytest.raises(RuntimeError, match="boom"), jail():
                 raise RuntimeError("boom")
-            proxy.stdin.close.assert_called_once_with()
+            stop.assert_called_once_with(proxy, 10)
             docker.container.remove.assert_called_once()
 
         def it_removes_a_proxy_whose_create_was_interrupted(
@@ -401,20 +397,9 @@ def describe_lockdown() -> None:
             with jail():
                 pass
 
-        def it_swallows_a_closed_pipe(jail: Jail, proxy: Mock) -> None:
-            proxy.stdin.close.side_effect = BrokenPipeError
-            with jail():
-                pass
-            proxy.wait.assert_called_once()
-
         def it_propagates_the_body_error_over_a_teardown_error(
             jail: Jail, docker: MagicMock
         ) -> None:
             docker.container.remove.side_effect = DockerException("gone")
             with pytest.raises(ValueError, match="body boom"), jail():
                 raise ValueError("body boom")
-
-        def it_waits_with_a_bound(jail: Jail, proxy: Mock) -> None:
-            with jail():
-                pass
-            assert proxy.wait.call_args_list == [call(timeout=10)]

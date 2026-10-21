@@ -1,6 +1,5 @@
 import re
 import subprocess
-import time
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -8,6 +7,9 @@ from uuid import uuid4
 
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
+
+from botbox.stop_attached import stop_attached
+from botbox.wait_for_socket import wait_for_socket
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
@@ -106,31 +108,12 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
                 stdout=out,
                 stderr=subprocess.STDOUT,
             )
-        _wait_for(sockets / "proxy.sock", process, output)
+        wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
         yield jail
     finally:
         if process is not None:
-            _stop(process)
+            stop_attached(process, PROXY_EXIT_SECONDS)
         # Never started, or wouldn't stop; otherwise it is already gone with --rm.
         with suppress(DockerException):
             docker.container.remove(name, force=True)
         jail.log = log.read_text()
-
-
-def _wait_for(socket: Path, process: subprocess.Popen[bytes], output: Path) -> None:
-    deadline = time.monotonic() + PROXY_READY_SECONDS
-    while not socket.exists():
-        if process.poll() is not None or time.monotonic() > deadline:
-            raise RuntimeError(f"botbox proxy did not start:\n{output.read_text()}")
-        time.sleep(0.05)
-
-
-def _stop(process: subprocess.Popen[bytes]) -> None:
-    assert process.stdin is not None
-    with suppress(OSError):
-        process.stdin.close()
-    try:
-        process.wait(timeout=PROXY_EXIT_SECONDS)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.wait()
