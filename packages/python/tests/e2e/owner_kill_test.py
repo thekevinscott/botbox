@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -99,7 +100,8 @@ def describe_sigkill_of_the_owner() -> None:
     ) -> None:
         before, live_before = leftovers(), running()
         child = tmp_path / "child"
-        owner = subprocess.Popen([sys.executable, "-c", holder, str(child)])
+        # Its own process group, so the forked child dies with it even before its pid is known.
+        owner = subprocess.Popen([sys.executable, "-c", holder, str(child)], start_new_session=True)
         try:
             assert wait_for(
                 lambda: any(n.startswith("botbox-agent-") for n in running() - live_before), 120
@@ -110,6 +112,8 @@ def describe_sigkill_of_the_owner() -> None:
             started = time.monotonic()
             assert wait_for(lambda: settled(before, live_before), GRACE), leftovers() - before
             elapsed = time.monotonic() - started
+            if holder == FORKED:
+                os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             new = leftovers() - before
             temps = {n.removeprefix("temp ") for n in new if n.startswith("temp ")}
             assert sockets(temps) == []
@@ -120,9 +124,9 @@ def describe_sigkill_of_the_owner() -> None:
             }
             assert elapsed < GRACE
         finally:
-            owner.kill()
-            if child.exists():
-                os.kill(int(child.read_text()), signal.SIGKILL)
+            with suppress(ProcessLookupError):
+                os.killpg(owner.pid, signal.SIGKILL)
+            owner.wait()
             for name in leftovers() - before:
                 kind, _, rest = name.partition(" ")
                 if kind == "container":
