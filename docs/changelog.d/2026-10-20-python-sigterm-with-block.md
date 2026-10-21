@@ -1,0 +1,1 @@
+**Fixed**: SIGTERM to a process inside a box's `with` block now removes the box's containers, the same as an exception does. Inside the block, SIGTERM raises `SystemExit`, so the process exits 143 rather than dying by signal (-15). A SIGTERM handler the program installed itself is left alone. Teardown for a box interrupted mid-setup is still tracked in #52.

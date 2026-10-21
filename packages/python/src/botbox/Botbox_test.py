@@ -358,6 +358,63 @@ def describe_with() -> None:
             raise error
         docker.container.remove.assert_called_once_with(["a-container"], force=True)
 
+    def describe_sigterm() -> None:
+        @pytest.fixture(autouse=True)
+        def threads() -> Iterator[MagicMock]:
+            with patch("botbox.Botbox.threading", autospec=True) as m:
+                m.current_thread.return_value = m.main_thread.return_value
+                yield m
+
+        @pytest.fixture(autouse=True)
+        def signals() -> Iterator[MagicMock]:
+            with patch("botbox.Botbox.signal", autospec=True) as m:
+                m.getsignal.return_value = m.SIG_DFL
+                yield m
+
+        def it_makes_sigterm_unwind_inside_the_block(run: Botbox, signals: MagicMock) -> None:
+            with run:
+                [(signum, handler)] = [c.args for c in signals.signal.call_args_list]
+                assert signum == signals.SIGTERM
+                with pytest.raises(SystemExit) as raised:
+                    handler(15, None)
+            assert raised.value.code == 143
+
+        def it_removes_the_containers_when_sigterm_unwinds(
+            run: Botbox, signals: MagicMock, docker: MagicMock
+        ) -> None:
+            with pytest.raises(SystemExit), run:
+                run.run("true")
+                signals.signal.call_args.args[1](15, None)
+            docker.container.remove.assert_called_once_with(["a-container"], force=True)
+
+        def it_restores_the_default_handler_on_exit(run: Botbox, signals: MagicMock) -> None:
+            with run:
+                pass
+            assert signals.signal.call_args == call(signals.SIGTERM, signals.SIG_DFL)
+
+        def it_leaves_a_programs_own_handler_alone(run: Botbox, signals: MagicMock) -> None:
+            signals.getsignal.return_value = Mock()
+            with run:
+                pass
+            signals.signal.assert_not_called()
+
+        def it_restores_only_what_it_installed(run: Botbox, signals: MagicMock) -> None:
+            with run:
+                pass
+            signals.getsignal.return_value = Mock()
+            signals.signal.reset_mock()
+            with run:
+                pass
+            signals.signal.assert_not_called()
+
+        def it_does_nothing_off_the_main_thread(
+            run: Botbox, threads: MagicMock, signals: MagicMock
+        ) -> None:
+            threads.current_thread.return_value = Mock()
+            with run:
+                pass
+            signals.signal.assert_not_called()
+
     def it_keeps_the_blocks_error_when_removal_also_fails(run: Botbox, docker: MagicMock) -> None:
         docker.container.remove.side_effect = DockerException("daemon gone")
         with pytest.raises(ValueError, match="boom"), run:
