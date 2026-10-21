@@ -1,7 +1,3 @@
----
-diataxis: tutorial
----
-
 # Getting Started
 
 Run Claude Code against a directory of failing tests, inside a locked-down container, and read back what it did.
@@ -47,4 +43,4 @@ print(result.proxy)
 - [Allowing hosts](./guide/allowing-hosts) — let the agent reach more than its API.
 - [Reading the result](./guide/reading-the-result) — transcript, proxy log, exit code.
 - [Reference](./reference/) — the full API.
-- [Explanation](./explanation/) — why botbox works this way.
+- [How It Works](./explanation/) — why botbox works this way.

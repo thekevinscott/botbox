@@ -1,7 +1,3 @@
----
-diataxis: reference
----
-
 # Migrations
 
 Migration records live in

@@ -1,7 +1,3 @@
----
-diataxis: how-to
----
-
 # Mounting directories
 
 Give the agent directories to read or write by passing bind mounts to `run()`.

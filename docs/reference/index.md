@@ -1,7 +1,3 @@
----
-diataxis: reference
----
-
 # Reference
 
 The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session`, `build()`, and the agents.
@@ -126,4 +122,4 @@ agent = ClaudeAgent(model="claude-opus-5", effort="high")
 box.run(agent.command("Fix the tests"))
 ```
 
-See also: [How-to Guides](../guide/), [Explanation](../explanation/).
+See also: [Guides](../guide/), [How It Works](../explanation/).
