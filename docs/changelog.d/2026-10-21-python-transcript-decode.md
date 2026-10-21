@@ -1,0 +1,1 @@
+**Fixed**: A transcript file the agent wrote with bytes that are not UTF-8, or left unreadable, no longer makes `run()` or a session raise and lose the result. Bad bytes are replaced with U+FFFD, and a file that won't open is left out of `RunResult.transcript`.

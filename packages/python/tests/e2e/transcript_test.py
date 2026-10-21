@@ -39,3 +39,27 @@ def describe_a_transcript_link_out_of_the_home() -> None:
 
     def it_keeps_the_host_file_out_of_the_transcript(result: RunResult) -> None:
         assert not any(SECRET in text for text in result.transcript.values())
+
+
+@pytest.fixture(scope="module")
+def garbled(box: Botbox) -> Iterator[RunResult]:
+    projects = "/home/user/.claude/projects/garbled"
+    yield from removed(
+        box.run(
+            f"mkdir -p {projects}"
+            f" && printf 'ok \\377\\376' > {projects}/bytes.jsonl"
+            f" && echo locked > {projects}/locked.jsonl && chmod 0 {projects}/locked.jsonl"
+            " && echo done"
+        )
+    )
+
+
+def describe_a_transcript_the_host_cannot_decode_or_open() -> None:
+    def it_still_returns_the_run(garbled: RunResult) -> None:
+        assert (garbled.exit_code, garbled.stdout) == (0, "done\n")
+
+    def it_replaces_the_bad_bytes(garbled: RunResult) -> None:
+        assert garbled.transcript[".claude/projects/garbled/bytes.jsonl"] == "ok ��"
+
+    def it_skips_the_file_it_cannot_open(garbled: RunResult) -> None:
+        assert ".claude/projects/garbled/locked.jsonl" not in garbled.transcript
