@@ -1,6 +1,6 @@
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `container`, and `image`. Nothing is parsed.
+`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, and `image`. Nothing is parsed.
 
 ## Check the exit code
 
@@ -28,24 +28,12 @@ for path, contents in result.transcript.items():
 print(result.proxy)
 ```
 
-## Inspect the container
+## Keep what the run wrote
 
-The exited container is kept. `result.container` is its id; `docker diff` lists what the run wrote outside the mounts.
-
-Open the box with `with` and every container its runs created is removed when the block exits, including on an exception or Ctrl-C. Inspect inside the block. The rest of the result is plain data and stays readable after.
+The container removes itself when it exits, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
 
 ```python
-with Botbox(agent) as box:
-    result = box.run(agent.command("Fix the tests"))
-    subprocess.run(["docker", "diff", result.container])
-print(result.stdout)
-```
-
-To keep a container for debugging, use the box without `with` and remove it yourself when done.
-
-```python
-result = box.run(agent.command("Fix the tests"))
-subprocess.run(["docker", "rm", result.container])
+box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
 ```
 
 Next: the [Reference](../reference/#runresult) for every field, or [how a run works](../explanation/#a-run).

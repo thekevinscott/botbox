@@ -89,18 +89,17 @@ box.run(
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `container`, `image`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
 | `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
 | `proxy`      | `str`: the proxy log.                                                           |
-| `container`  | `str`: the id of the exited container. Yours to remove, or removed when the `with` block exits. |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container is kept, exited, until you remove it with `docker rm <id>` or the box's `with` block exits (`with Botbox(agent) as box:`), which removes every container its runs created. The agent's home (`/home/user`) was a temporary mount and is gone, so the container holds only writes outside the mounts; `docker diff <id>` lists them. A run that raises removes its container.
+The container removes itself when it exits (`--rm`). Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted. Docker failures raise `botbox.DockerException`.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted. Docker failures in setup raise `botbox.DockerException`. If the daemon refuses the agent's container itself, the result carries the Docker client's exit code (125, 126 or 127) and the daemon's error in `stderr`.
 
 ### `build()`
 

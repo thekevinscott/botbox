@@ -20,14 +20,16 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Starts the container with the command as `sh -c`, streams its stdout and stderr to the host, and waits for it to exit.
+5. Runs the container with the command as `sh -c`, in one attached `docker run --rm`. Its stdout and stderr stream to the host, and the client waits for it to exit and be removed.
 6. Reads the transcript and the proxy log out of the temporary directory, stops the proxy, and deletes the directory.
 
-The container is named before it starts, so an interrupted `docker run` can still be found and removed. A run that raises removes its container. A run that returns leaves it in place, exited, so `docker diff` can show what it wrote outside the mounts.
+The client attaches before the container starts, so no output is missed. It also waits for the removal itself and reports the exit code it saw, so `--rm` can't race the result. There is no separate create step, so no container is left created but never started. Killing the client doesn't stop the container, so a run that raises removes it by name.
 
-If the Docker daemon dies mid-run, the output that already streamed out is kept, `exit_code` is -1, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+If the daemon refuses the container, say for a missing image or a mount it can't make, the client exits 125, 126 or 127 with the daemon's error on stderr, and that comes back as the result.
 
-`with Botbox(...)` tracks every container its runs created and removes them on exit. Inside the block, SIGTERM raises `SystemExit`, so the removal runs. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
+If the Docker daemon dies mid-run, the client exits 125 with its error on stderr. botbox then checks the daemon, and if it doesn't answer, `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+
+Inside `with Botbox(...)`, SIGTERM raises `SystemExit`, so a run in progress unwinds and tears down. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
 
 ## The Container
 
@@ -56,7 +58,7 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-After SIGKILL of the owner, the agent container is kept, exited, like any finished run's. The host temporary directory stays too.
+Both containers run with `--rm`, so after SIGKILL of the owner no container is left. The host temporary directory stays.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
@@ -71,7 +73,7 @@ After the container exits, every file matching the harness's transcript pattern 
 
 ## Sessions
 
-`session()` sets up the same way as `run()`, then creates the container with stdin open and attaches to it with `docker start --attach --interactive`. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
+`session()` sets up the same way as `run()`, then runs the container attached with stdin open, in one `docker run --interactive --rm`. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
 `message()` writes one line to the CLI's stdin in the harness's input format, then reads stdout line by line, parsing each as JSON, until the harness's end-of-turn event. stderr is drained on a separate thread, so a chatty stderr can't fill its pipe and stall the CLI. `close()` ends stdin, waits for the CLI to exit, then reads the transcript and tears down as `run()` does.
 
