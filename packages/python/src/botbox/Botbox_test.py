@@ -64,6 +64,10 @@ def describe_botbox() -> None:
     def it_holds_the_extra_hosts_as_a_tuple(agent: Mock) -> None:
         assert Botbox(agent, allow=["registry.npmjs.org"]).allow == ("registry.npmjs.org",)
 
+    def it_refuses_a_bare_string_that_would_split_into_characters(agent: Mock) -> None:
+        with pytest.raises(TypeError, match=r"allow=\('github\.com',\)"):
+            Botbox(agent, allow="github.com")
+
 
 @pytest.fixture
 def steps(docker: MagicMock) -> Iterator[list[str]]:
