@@ -7,7 +7,7 @@ from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import FrameType, TracebackType
-from typing import Any, Self
+from typing import Self
 from uuid import uuid4
 
 from python_on_whales import docker
@@ -25,9 +25,9 @@ from botbox.Session import Session, read_transcript
 class Botbox:
     """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
 
-    Used as a context manager, it removes every container its runs created on exit. Inside the
-    block, SIGTERM raises `SystemExit` so that removal runs; Python's default SIGTERM exits
-    without unwinding. A SIGTERM handler the program set itself is left alone.
+    Used as a context manager, SIGTERM inside the block raises `SystemExit`, so a run or session
+    in progress unwinds and tears down; Python's default SIGTERM exits without unwinding. A
+    SIGTERM handler the program set itself is left alone.
     """
 
     def __init__(
@@ -42,7 +42,6 @@ class Botbox:
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
-        self._containers: list[str] = []
         self._unwinds = False
 
     def __enter__(self) -> Self:
@@ -63,14 +62,6 @@ class Botbox:
         if self._unwinds:
             signal.signal(signal.SIGTERM, signal.SIG_DFL)
             self._unwinds = False
-        containers, self._containers = self._containers, []
-        if not containers:
-            return
-        try:
-            docker.container.remove(containers, force=True)
-        except DockerException:
-            if exc is None:
-                raise
 
     def build(self) -> str:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
@@ -111,8 +102,7 @@ class Botbox:
         -1 and whatever output, transcript and proxy log made it to the host. Raises only when
         setup fails or the run is interrupted, after tearing down what was started.
 
-        A returned result leaves its container in place, exited; the caller removes it, or the
-        `with` block this box opened does on exit. A run that raises removes its container.
+        The container removes itself when it exits; a raising run removes it by name.
         """
         agent = self.agent
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -122,24 +112,27 @@ class Botbox:
             home.mkdir()
             agent.stage_auth(home)
             with lockdown((*agent.allow, *self.allow), Path(scratch)) as jail:
-                # Named up front: an interrupted `docker run` can still leave the container.
+                # Named up front: killing the client leaves its container running.
                 name = _container_name()
-                self._containers.append(name)
                 try:
-                    container = docker.run(
-                        image,
-                        [RELAY, "sh", "-c", command],
-                        detach=True,
-                        name=name,
-                        **self._lockdown_options(home, jail, volumes, workdir),
+                    stdout, stderr, exit_code = collect(
+                        [
+                            "docker",
+                            "run",
+                            *self._lockdown_flags(name, home, jail, volumes, workdir),
+                            image,
+                            RELAY,
+                            "sh",
+                            "-c",
+                            command,
+                        ]
                     )
-                    stdout, stderr, exit_code = collect(container)
                 except BaseException:
                     with suppress(DockerException):
                         docker.container.remove(name, force=True)
                     raise
             transcript = read_transcript(home, agent.transcripts)
-        return RunResult(stdout, stderr, exit_code, transcript, jail.log, str(container), image)
+        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
 
     def session(
         self,
@@ -151,9 +144,8 @@ class Botbox:
 
         Same lockdown, home and mounts as `run()`. The container joins the proxy's PID
         namespace, whose init (the proxy's, not the agent's) reaps whatever the agent leaves
-        running in the background. Raises
-        `TypeError` for an agent with no session mode. The session's container is removed with
-        the box's, when its `with` block exits.
+        running in the background. The container removes itself when the CLI exits. Raises
+        `TypeError` for an agent with no session mode.
         """
         agent = self.agent
         if not isinstance(agent, SessionAgent):
@@ -162,6 +154,7 @@ class Botbox:
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         image = self.build()
         resources = ExitStack()
+        name = None
         try:
             scratch = Path(resources.enter_context(TemporaryDirectory(prefix="botbox-")))
             home = scratch / "home"
@@ -169,22 +162,27 @@ class Botbox:
             agent.stage_auth(home)
             jail = resources.enter_context(lockdown((*agent.allow, *self.allow), scratch))
             name = _container_name()
-            self._containers.append(name)
-            container = docker.container.create(
-                image,
-                [RELAY, "sh", "-c", command],
-                interactive=True,
-                name=name,
-                **self._lockdown_options(home, jail, volumes, workdir),
-            )
             process = subprocess.Popen(
-                ["docker", "start", "--attach", "--interactive", str(container)],
+                [
+                    "docker",
+                    "run",
+                    "--interactive",
+                    *self._lockdown_flags(name, home, jail, volumes, workdir),
+                    image,
+                    RELAY,
+                    "sh",
+                    "-c",
+                    command,
+                ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
         except BaseException:
+            if name is not None:
+                with suppress(DockerException):
+                    docker.container.remove(name, force=True)
             resources.close()
             raise
 
@@ -193,30 +191,42 @@ class Botbox:
             resources.close()
             return transcript, jail.log
 
-        return Session(agent, process, str(container), image, finish)
+        return Session(agent, process, image, finish)
 
-    def _lockdown_options(
+    def _lockdown_flags(
         self,
+        name: str,
         home: Path,
         jail: Lockdown,
         volumes: list[tuple[str, str, str]],
         workdir: str | Path | None,
-    ) -> dict[str, Any]:
+    ) -> list[str]:
+        """`docker run` flags for an agent container that removes itself when it exits.
+
+        One attached `docker run`, not create then start: an owner dying in between would leave
+        a created container that --rm never removes.
+        """
         agent = self.agent
-        return {
-            "envs": jail.envs,
-            "volumes": [
-                (str(home), agent.home, "rw"),
-                (str(jail.sockets), SOCKET_DIR, "ro"),
-                *volumes,
-            ],
-            "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
-            "networks": ["none"],
-            "pid": f"container:{jail.proxy}",
-            "user": "user",
-            "cap_drop": ["ALL"],
-            "security_options": ["no-new-privileges"],
-        }
+        mounts = [(str(home), agent.home, "rw"), (str(jail.sockets), SOCKET_DIR, "ro"), *volumes]
+        return [
+            "--rm",
+            "--name",
+            name,
+            *[flag for k, v in jail.envs.items() for flag in ("--env", f"{k}={v}")],
+            *[flag for m in mounts for flag in ("--volume", ":".join(m))],
+            "--workdir",
+            agent.home if workdir is None else Path(workdir).as_posix(),
+            "--network",
+            "none",
+            "--pid",
+            f"container:{jail.proxy}",
+            "--user",
+            "user",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+        ]
 
 
 def _container_name() -> str:

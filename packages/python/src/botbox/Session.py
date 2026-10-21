@@ -43,14 +43,12 @@ class Session:
         self,
         agent: SessionAgent,
         process: subprocess.Popen[str],
-        container: str,
         image: str,
         finish: Callable[[], tuple[dict[str, str], str]],
     ) -> None:
         self.agent = agent
         self.result: RunResult | None = None
         self._process = process
-        self._container = container
         self._image = image
         self._finish = finish
         self._stdout: list[str] = []
@@ -116,7 +114,6 @@ class Session:
             exit_code,
             transcript,
             proxy,
-            self._container,
             self._image,
         )
         return self.result
