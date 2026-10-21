@@ -19,9 +19,9 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 1. Checks the mounts and `workdir`. A missing host path or a `workdir` outside every mount raises here, before anything is built: Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
-4. Creates a private network and a proxy for this run (see [Network](#network)).
+4. Starts a proxy for this run (see [Network](#network)).
 5. Starts the container with the command as `sh -c`, streams its stdout and stderr to the host, and waits for it to exit.
-6. Reads the transcript and the proxy log out of the temporary directory, removes the proxy and the network, and deletes the directory.
+6. Reads the transcript and the proxy log out of the temporary directory, stops the proxy, and deletes the directory.
 
 The container is named before it starts, so an interrupted `docker run` can still be found and removed. A run that raises removes its container. A run that returns leaves it in place, exited, so `docker diff` can show what it wrote outside the mounts.
 
@@ -35,20 +35,28 @@ Every agent container runs with:
 
 - `--cap-drop ALL` and `--security-opt no-new-privileges`.
 - `--user user`. The harness images strip setuid bits, so nothing in the image can become root.
-- The private network only, with the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms) pointing at the run's proxy.
+- `--network none` and the proxy's PID namespace, with the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms) pointing at the run's proxy.
 - The temporary home mounted read-write at the harness's home, plus your mounts.
 
-Your command runs as `sh -c <command>`.
+Your command runs as `botbox-relay sh -c <command>`. The relay is a script in each harness image; it starts a forwarder from the proxy port on the container's loopback to the proxy's socket, then runs your command.
 
 ## Network
 
-The container joins a Docker network made with `--internal`: no gateway, no route out, no outside DNS. Its only way out is the proxy, a tinyproxy container that sits on both that network and Docker's default bridge.
+The container runs with `--network none`: a loopback interface and nothing else. No route out, no DNS. Its only way out is a unix socket, mounted read-only at `/run/botbox`. A tinyproxy container on Docker's default bridge serves that socket. The proxy variables point at `127.0.0.1:41893` inside the container, where the relay forwards to the socket. Nothing in the run creates a Docker network.
 
 The proxy denies by default. Its filter holds one exact-match pattern per allowed host: the harness's own hosts plus your `allow`. It tunnels CONNECT only to port 443.
 
-Because the proxy is on the default bridge, any container there could reach it. So it accepts clients only from the run's own subnet. Using the default bridge for the way out means a run takes one network from the daemon's address pool, not two.
+tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities and as its own user. It writes its log into the host temporary directory as it goes, and that log becomes `result.proxy`. Network and proxy are made per run and removed afterwards, including on failure.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. It writes its log into the host temporary directory as it goes, and that log becomes `result.proxy`.
+
+### Lifetime
+
+The owning Python process starts the proxy with one attached `docker run --interactive --rm` and holds its stdin. There is no separate create step, so an owner that dies mid-start leaves no container behind. The proxy runs under an init (`--init`). When stdin closes, the proxy exits and its init with it. The agent container joins the proxy's PID namespace (`--pid container:<proxy>`), and when a namespace's init exits the kernel kills every process in it. So the agent dies with the proxy, however the owner dies: a normal return, an exception, or SIGKILL. The agent can't prevent it by ignoring signals.
+
+Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
+
+After SIGKILL of the owner, the agent container is kept, exited, like any finished run's. The host temporary directory stays too.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
@@ -63,7 +71,7 @@ After the container exits, every file matching the harness's transcript pattern 
 
 ## Sessions
 
-`session()` sets up the same way as `run()`, then creates the container with stdin open and an init process, and attaches to it with `docker start --attach --interactive`. The init process reaps whatever the agent leaves running in the background when the CLI exits.
+`session()` sets up the same way as `run()`, then creates the container with stdin open and attaches to it with `docker start --attach --interactive`. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
 `message()` writes one line to the CLI's stdin in the harness's input format, then reads stdout line by line, parsing each as JSON, until the harness's end-of-turn event. stderr is drained on a separate thread, so a chatty stderr can't fill its pipe and stall the CLI. `close()` ends stdin, waits for the CLI to exit, then reads the transcript and tears down as `run()` does.
 
@@ -77,7 +85,7 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 
 ## Claude Code
 
-- **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates` and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
+- **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
 - **Command:** `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set.
 - **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
 - **Credentials:** `.credentials.json` is copied into `.claude/`. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
@@ -92,7 +100,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 
 ## Codex
 
-- **Image:** `agents/codex/Dockerfile`. Node, `git`, `ca-certificates` and a pinned `@openai/codex`.
+- **Image:** `agents/codex/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@openai/codex`.
 - **Command:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins --config analytics.enabled=false <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. Codex's own sandbox is off because the container is the sandbox.
 - **Session:** none. Codex's only long-running mode, `codex app-server`, needs a per-session handshake.
 - **Credentials:** `auth.json` is copied into `.codex/`. With `api_key`, a fresh `.codex/auth.json` holds the key in API-key mode.
@@ -101,7 +109,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 
 ## pi
 
-- **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
+- **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
 - **Command:** `pi -p <prompt> --mode json --provider <provider>`, plus `--model` when set.
 - **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
 - **Credentials:** `auth.json`, and `models.json` if present, are copied into `.pi/agent/`. With `api_key`, a fresh `.pi/agent/auth.json` holds the key for `provider` and nothing else.

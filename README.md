@@ -56,7 +56,7 @@ print(result.proxy)
 ```
 
 
-`run()` builds the image, creates a private network and a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, tears the network down, and returns.
+`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, stops the proxy, and returns.
 
 ## Usage
 
@@ -143,13 +143,13 @@ botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ### Network
 
-The container joins a Docker `--internal` network. The only way out is a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); add more with `allow`:
+The container runs with `--network none`. The only way out is a unix socket to a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); add more with `allow`:
 
 ```python
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `result.proxy`. Network and proxy are per run and removed afterwards, including on failure.
+Every connection, admitted or refused, is logged to `result.proxy`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 

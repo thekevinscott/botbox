@@ -1,46 +1,69 @@
+import os
 import re
+import subprocess
 from collections.abc import Generator, Iterable
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from uuid import uuid4
 
 from python_on_whales import docker
-from python_on_whales import utils as docker_utils
 from python_on_whales.exceptions import DockerException
+
+from botbox.owner_only import owner_only
+from botbox.stop_attached import stop_attached
+from botbox.wait_for_socket import wait_for_socket
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
 PROXY_IMAGE = "botbox-proxy:latest"
-PROXY_PORT = 8888
 PROXY_LOG_DIR = "/var/log/tinyproxy"
+# tinyproxy's uid in the image, pinned so a rebuilt image can't drift onto the agent's.
+PROXY_USER = "100:101"
+# tinyproxy's threads and socat's per-connection children, at MaxClients/max-children 100 each.
+PROXY_PIDS = 256
+PROXY_READY_SECONDS = 30
+PROXY_EXIT_SECONDS = 10
+SOCKET_DIR = "/run/botbox"
+RELAY_DIR = Path(__file__).with_name("relay")
+RELAY = "/usr/local/bin/botbox-relay"
+# Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
+RELAY_PORT = 41893
 
 
 class Lockdown:
-    """The network a locked-down container joins, the proxy env it runs under, and the proxy log."""
+    """The proxy a locked-down container shares a PID namespace with, its socket, and its log."""
 
-    def __init__(self, network: str, envs: dict[str, str]) -> None:
-        self.network = network
+    def __init__(self, proxy: str, sockets: Path, envs: dict[str, str]) -> None:
+        self.proxy = proxy
+        self.sockets = sockets
         self.envs = envs
         self.log = ""
 
 
 @contextmanager
 def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
-    """Yield the network and proxy env a locked-down container runs under.
+    """Start the run's proxy and yield what a locked-down container needs to reach it.
 
-    The container joins an `--internal` network: no gateway, no route out, no external DNS.
-    Its only way out is a CONNECT to the sidecar, which also sits on Docker's default bridge
-    and refuses anything outside `allow`. The sidecar admits only the jail subnet as a client,
-    so sharing the bridge opens it to no one else. tinyproxy writes its log into `scratch` on
-    the host as it runs, so the log survives the daemon; it is read into `Lockdown.log` on exit.
+    The container gets no network. Its only way out is a unix socket in `scratch`, served by
+    a tinyproxy sidecar on Docker's default bridge that refuses anything outside `allow`.
+    tinyproxy listens on the sidecar's loopback only, so nothing else on the bridge reaches it.
+
+    The sidecar runs under an init and lives while this process holds its stdin, which children
+    forked meanwhile close. If this process dies however it dies, stdin closes, the init exits,
+    and the kernel kills every process in the sidecar's PID namespace, which the agent joins.
+    tinyproxy writes its log into `scratch` as it runs; it is read into `Lockdown.log` on exit.
     """
     docker.build(PROXY_DIR, tags=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile", progress=False)
 
-    run_id = uuid4().hex[:12]
-    proxy_name = f"botbox-proxy-{run_id}"
-    url = f"http://{proxy_name}:{PROXY_PORT}"
+    name = f"botbox-proxy-{uuid4().hex[:12]}"
+    url = f"http://127.0.0.1:{RELAY_PORT}"
+    sockets = scratch / "sockets"
+    sockets.mkdir()
+    # The proxy runs as its own user and creates the socket here.
+    sockets.chmod(0o777)
     jail = Lockdown(
-        network=f"botbox-jail-{run_id}",
+        proxy=name,
+        sockets=sockets,
         envs={
             "HTTP_PROXY": url,
             "HTTPS_PROXY": url,
@@ -53,53 +76,65 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     allowlist = scratch / "filter"
     allowlist.write_text("".join(f"^{re.escape(host)}$\n" for host in allow))
     allowlist.chmod(0o644)
-    # The proxy runs as its own user with no capabilities: it needs the bits to write here.
     log_dir = scratch / "proxy"
     log_dir.mkdir()
     log_dir.chmod(0o755)
     log = log_dir / "tinyproxy.log"
     log.touch()
     log.chmod(0o666)
+    output = scratch / "proxy.out"
 
-    # Teardown covers each resource from before its create: an interrupted create can leave it.
-    proxy = None
+    # One attached `docker run`, not create then start: an owner dying in between would leave
+    # a created container that --rm never removes. An orphaned `docker run` still sees EOF.
+    command = [
+        "docker",
+        "run",
+        "--interactive",
+        "--rm",
+        "--init",
+        "--name",
+        name,
+        "--user",
+        PROXY_USER,
+        "--network",
+        "bridge",
+        "--pids-limit",
+        str(PROXY_PIDS),
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--volume",
+        f"{allowlist}:/etc/tinyproxy/filter:ro",
+        "--volume",
+        f"{log_dir}:{PROXY_LOG_DIR}:rw",
+        "--volume",
+        f"{sockets}:{SOCKET_DIR}:rw",
+        PROXY_IMAGE,
+    ]
+    # Created here, not by Popen, so the write end is owner-only before any fork can copy it.
+    read, write = os.pipe()
+    stdin = os.fdopen(write, "wb")
+    process = None
     try:
-        # python-on-whales' network.create wraps no --internal, and --internal is the point.
-        docker_utils.run(
-            [*docker.network.docker_cmd, "network", "create", "--internal", jail.network]
-        )
-        # The proxy also sits on the default bridge, where any container can reach :8888.
-        # Admit only the jail's own subnet, so the proxy is an open forwarder for no one else.
-        config = docker.network.inspect(jail.network).ipam.config or []
-        subnet = config[0]["Subnet"]
-        conf = scratch / "tinyproxy.conf"
-        conf.write_text(f"{PROXY_CONF.read_text()}\nAllow 127.0.0.1\nAllow {subnet}\n")
-        conf.chmod(0o644)
-        proxy = proxy_name
-        docker.run(
-            PROXY_IMAGE,
-            detach=True,
-            name=proxy_name,
-            # The default bridge takes no subnet from the daemon's pool, so a run costs one network.
-            networks=["bridge"],
-            volumes=[
-                (str(conf), "/etc/tinyproxy/tinyproxy.conf", "ro"),
-                (str(allowlist), "/etc/tinyproxy/filter", "ro"),
-                (str(log_dir), PROXY_LOG_DIR, "rw"),
-            ],
-            cap_drop=["ALL"],
-            security_options=["no-new-privileges"],
-        )
-        docker.network.connect(jail.network, proxy)
-        yield jail
-    finally:
-        if proxy is not None:
+        with owner_only(stdin):
             try:
-                docker.container.remove(proxy, force=True)
-            except DockerException:
-                # A live endpoint pins its network.
-                with suppress(DockerException):
-                    docker.network.disconnect(jail.network, proxy, force=True)
+                try:
+                    with output.open("w") as out:
+                        process = subprocess.Popen(
+                            command, stdin=read, stdout=out, stderr=subprocess.STDOUT
+                        )
+                finally:
+                    os.close(read)
+                wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
+                yield jail
+            finally:
+                if process is None:
+                    stdin.close()
+                else:
+                    stop_attached(process, stdin, PROXY_EXIT_SECONDS)
+    finally:
+        # Never started, or wouldn't stop; otherwise it is already gone with --rm.
         with suppress(DockerException):
-            docker.network.remove(jail.network)
+            docker.container.remove(name, force=True)
         jail.log = log.read_text()

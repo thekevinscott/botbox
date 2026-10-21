@@ -17,7 +17,7 @@ from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.collect import collect
-from botbox.lockdown import Lockdown, lockdown
+from botbox.lockdown import RELAY, RELAY_DIR, SOCKET_DIR, Lockdown, lockdown
 from botbox.RunResult import RunResult
 from botbox.Session import Session, read_transcript
 
@@ -81,7 +81,11 @@ class Botbox:
         agent = self.agent
         with build_lock(agent.image):
             docker.build(
-                agent.dockerfile.parent, tags=agent.image, file=agent.dockerfile, progress=False
+                agent.dockerfile.parent,
+                tags=agent.image,
+                file=agent.dockerfile,
+                build_contexts={"botbox": RELAY_DIR},
+                progress=False,
             )
         if self.dockerfile is None:
             return agent.image
@@ -124,7 +128,7 @@ class Botbox:
                 try:
                     container = docker.run(
                         image,
-                        ["sh", "-c", command],
+                        [RELAY, "sh", "-c", command],
                         detach=True,
                         name=name,
                         **self._lockdown_options(home, jail, volumes, workdir),
@@ -145,8 +149,9 @@ class Botbox:
     ) -> Session:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
-        Same lockdown, home and mounts as `run()`. The container runs under an init process, so
-        whatever the agent leaves running in the background is reaped when it exits. Raises
+        Same lockdown, home and mounts as `run()`. The container joins the proxy's PID
+        namespace, whose init (the proxy's, not the agent's) reaps whatever the agent leaves
+        running in the background. Raises
         `TypeError` for an agent with no session mode. The session's container is removed with
         the box's, when its `with` block exits.
         """
@@ -167,9 +172,8 @@ class Botbox:
             self._containers.append(name)
             container = docker.container.create(
                 image,
-                ["sh", "-c", command],
+                [RELAY, "sh", "-c", command],
                 interactive=True,
-                init=True,
                 name=name,
                 **self._lockdown_options(home, jail, volumes, workdir),
             )
@@ -201,9 +205,14 @@ class Botbox:
         agent = self.agent
         return {
             "envs": jail.envs,
-            "volumes": [(str(home), agent.home, "rw"), *volumes],
+            "volumes": [
+                (str(home), agent.home, "rw"),
+                (str(jail.sockets), SOCKET_DIR, "ro"),
+                *volumes,
+            ],
             "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
-            "networks": [jail.network],
+            "networks": ["none"],
+            "pid": f"container:{jail.proxy}",
             "user": "user",
             "cap_drop": ["ALL"],
             "security_options": ["no-new-privileges"],

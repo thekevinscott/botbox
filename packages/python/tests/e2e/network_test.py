@@ -7,6 +7,7 @@ admitted everything would still pass every direct one.
 """
 
 import subprocess
+from collections.abc import Iterator
 
 import pytest
 from conftest import Probe, docker_lines
@@ -39,6 +40,8 @@ PROXY = '"${HTTPS_PROXY#http://}"'
 
 IP_LITERAL = "140.82.121.4"
 
+METADATA = "169.254.169.254"
+
 PROBES = {
     "proxied anthropic": f"NODE_USE_ENV_PROXY=1 {FETCH} https://api.anthropic.com",
     "proxied example": f"NODE_USE_ENV_PROXY=1 {FETCH} https://example.com",
@@ -48,6 +51,12 @@ PROBES = {
     "connect example": f"{CONNECT} example.com {PROXY}",
     "connect ip": f"{CONNECT} {IP_LITERAL} {PROXY}",
     "resolve": f"{RESOLVE} example.com",
+    "direct metadata": f"{FETCH} http://{METADATA}/latest/meta-data/",
+    "proxied metadata": f"NODE_USE_ENV_PROXY=1 {FETCH} http://{METADATA}/latest/meta-data/",
+    "connect metadata": f"{CONNECT} {METADATA} {PROXY}",
+    "interfaces": "tail -n +3 /proc/net/dev | cut -d: -f1 | tr -d ' '",
+    "sockets": "ls -A /run/botbox",
+    "write sockets": "touch /run/botbox/planted 2>&1 || true",
 }
 
 
@@ -83,6 +92,10 @@ def describe_a_request_through_the_proxy() -> None:
     def it_gets_a_403_connect_for_an_ip_literal(report: dict[str, str]) -> None:
         assert report["connect ip"] == "403"
 
+    def it_refuses_the_metadata_address(report: dict[str, str]) -> None:
+        assert report["proxied metadata"] in {"403", "failed"}
+        assert report["connect metadata"] == "403"
+
 
 def describe_a_direct_request() -> None:
     def it_reaches_nothing(report: dict[str, str]) -> None:
@@ -90,6 +103,20 @@ def describe_a_direct_request() -> None:
 
     def it_cannot_resolve_an_external_name(report: dict[str, str]) -> None:
         assert report["resolve"] == "unresolvable"
+
+    def it_cannot_reach_the_metadata_address(report: dict[str, str]) -> None:
+        assert report["direct metadata"] == "failed"
+
+    def it_has_only_loopback(report: dict[str, str]) -> None:
+        assert report["interfaces"] == "lo"
+
+
+def describe_the_socket_directory() -> None:
+    def it_holds_only_the_proxys_socket(report: dict[str, str]) -> None:
+        assert report["sockets"] == "proxy.sock"
+
+    def it_is_read_only_to_the_agent(report: dict[str, str]) -> None:
+        assert "Read-only file system" in report["write sockets"]
 
 
 def describe_the_proxy_log() -> None:
@@ -102,48 +129,42 @@ def describe_the_proxy_log() -> None:
 
 def describe_allow() -> None:
     def it_admits_an_extra_host() -> None:
-        box = Botbox(ClaudeAgent(), allow=["example.com"])
-        result = box.run(f"{CONNECT} example.com {PROXY}")
+        with Botbox(ClaudeAgent(), allow=["example.com"]) as box:
+            result = box.run(f"{CONNECT} example.com {PROXY}")
         assert result.stdout.strip() == "200"
         assert 'Established connection to host "example.com"' in result.proxy
 
 
-OUTSIDER_CONNECT = (
-    "printf 'CONNECT example.com:443 HTTP/1.1\\r\\nHost: example.com:443\\r\\n\\r\\n'"
-    ' | nc -w 5 "$0" 8888 | head -n 1'
-)
+@pytest.fixture(scope="module")
+def other_run() -> Iterator[str]:
+    """Another run's proxy, live, admitting example.com: its address on the default bridge."""
+    before = set(docker_lines("ps", "--format", "{{.Names}}"))
+    with Botbox(ClaudeAgent(), allow=["example.com"]) as box, box.session() as live:
+        (proxy,) = {
+            n
+            for n in docker_lines("ps", "--format", "{{.Names}}")
+            if n.startswith("botbox-proxy-") and n not in before
+        }
+        (ip,) = docker_lines(
+            "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", proxy
+        )
+        yield ip
+        live.close()
+
+
+def describe_another_runs_proxy() -> None:
+    def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str) -> None:
+        result = box.run(f"{CONNECT} example.com {other_run}:8888")
+        subprocess.run(["docker", "rm", "-f", result.container], check=True, capture_output=True)
+        assert result.stdout.strip() == "error ENETUNREACH", result.stdout
 
 
 def describe_a_container_outside_the_run() -> None:
-    def it_is_refused_by_the_proxy() -> None:
-        """The proxy also sits on the default bridge, where any container can reach it."""
-        before = set(docker_lines("ps", "--format", "{{.Names}}"))
-        with Botbox(ClaudeAgent(), allow=["example.com"]) as box, box.session() as live:
-            (proxy,) = {
-                n
-                for n in docker_lines("ps", "--format", "{{.Names}}")
-                if n.startswith("botbox-proxy-") and n not in before
-            }
-            (ip,) = docker_lines(
-                "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", proxy
-            )
-            answer = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "--network",
-                    "bridge",
-                    "--entrypoint",
-                    "sh",
-                    "botbox-proxy:latest",
-                    "-c",
-                    OUTSIDER_CONNECT,
-                    ip,
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-            live.close()
-        assert " 200 " not in answer
+    def it_is_refused_by_the_proxy(other_run: str) -> None:
+        """The proxy sits on the default bridge, where any container can reach its address."""
+        outsider = [
+            *("docker", "run", "--rm", "--network", "bridge", "--entrypoint", "sh"),
+            *("botbox-claude:latest", "-c", f"{CONNECT} example.com $0:8888", other_run),
+        ]
+        answer = subprocess.run(outsider, check=True, capture_output=True, text=True).stdout
+        assert answer.strip() == "error ECONNREFUSED"

@@ -8,6 +8,8 @@ import pytest
 
 from botbox.Botbox import Botbox
 
+RELAY_DIR = Path(__file__).with_name("relay")
+
 
 class DockerException(Exception):
     """Stands in for python_on_whales' DockerException."""
@@ -95,7 +97,13 @@ def describe_build() -> None:
         ) -> None:
             Botbox(agent).build()
             assert docker.build.call_args_list == [
-                call(Path("/agents"), tags="an-agent:latest", file=AGENT_DOCKERFILE, progress=False)
+                call(
+                    Path("/agents"),
+                    tags="an-agent:latest",
+                    file=AGENT_DOCKERFILE,
+                    build_contexts={"botbox": RELAY_DIR},
+                    progress=False,
+                )
             ]
 
     def describe_with_a_dockerfile() -> None:
@@ -112,7 +120,11 @@ def describe_build() -> None:
             tag = Botbox(agent, dockerfile=layer).build()
             assert docker.build.call_args_list == [
                 call(
-                    Path("/agents"), tags="an-agent:latest", file=AGENT_DOCKERFILE, progress=False
+                    Path("/agents"),
+                    tags="an-agent:latest",
+                    file=AGENT_DOCKERFILE,
+                    build_contexts={"botbox": RELAY_DIR},
+                    progress=False,
                 ),
                 call(layer.parent, tags=tag, file=layer, progress=False),
             ]
@@ -133,7 +145,12 @@ def describe_build() -> None:
 
 @pytest.fixture
 def jail() -> Mock:
-    return Mock(network="a-jail", envs={"HTTPS_PROXY": "http://a-proxy:8888"}, log="a log")
+    return Mock(
+        proxy="a-proxy",
+        sockets=Path("/scratch/sockets"),
+        envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
+        log="a log",
+    )
 
 
 @pytest.fixture
@@ -203,13 +220,18 @@ def describe_run() -> None:
         assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", names_run(docker)[0])
         assert docker.run.call_args == call(
             "an-agent:latest",
-            ["sh", "-c", "echo hi"],
+            ["/usr/local/bin/botbox-relay", "sh", "-c", "echo hi"],
             detach=True,
             name=names_run(docker)[0],
             envs=jail.envs,
-            volumes=[(str(home_of(docker)), "/home/agent", "rw"), ("/host/work", "/work", "rw")],
+            volumes=[
+                (str(home_of(docker)), "/home/agent", "rw"),
+                ("/scratch/sockets", "/run/botbox", "ro"),
+                ("/host/work", "/work", "rw"),
+            ],
             workdir="/home/agent",
-            networks=["a-jail"],
+            networks=["none"],
+            pid="container:a-proxy",
             user="user",
             cap_drop=["ALL"],
             security_options=["no-new-privileges"],
@@ -508,24 +530,25 @@ def describe_session() -> None:
         session_box.session(mounts=mounts, workdir="/work")  # type: ignore[arg-type]
         bind_mounts.assert_called_once_with(mounts, workdir="/work", home="/home/agent")
 
-    def it_creates_the_container_locked_down_with_stdin_open_under_init(
+    def it_creates_the_container_locked_down_with_stdin_open_in_the_proxys_pids(
         session_box: Botbox, docker: MagicMock, jail: Mock
     ) -> None:
         session_box.session()
         assert re.fullmatch(r"botbox-agent-[0-9a-f]{12}", session_name_of(docker))
         assert docker.container.create.call_args == call(
             "an-agent:latest",
-            ["sh", "-c", "an-agent --stream"],
+            ["/usr/local/bin/botbox-relay", "sh", "-c", "an-agent --stream"],
             interactive=True,
-            init=True,
             name=session_name_of(docker),
             envs=jail.envs,
             volumes=[
                 (str(session_home_of(docker)), "/home/agent", "rw"),
+                ("/scratch/sockets", "/run/botbox", "ro"),
                 ("/host/work", "/work", "rw"),
             ],
             workdir="/home/agent",
-            networks=["a-jail"],
+            networks=["none"],
+            pid="container:a-proxy",
             user="user",
             cap_drop=["ALL"],
             security_options=["no-new-privileges"],

@@ -1,6 +1,6 @@
 # Extending the image
 
-There is no network at run time, so anything the agent needs beyond the CLI, its runtime, `git`, and `ca-certificates` is installed in your own Dockerfile.
+There is no network at run time, so anything the agent needs beyond the CLI, its runtime, `git`, `ca-certificates` and `socat` is installed in your own Dockerfile.
 
 ## Write a Dockerfile `FROM` the agent's image
 
