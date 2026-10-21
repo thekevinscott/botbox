@@ -8,6 +8,7 @@ from uuid import uuid4
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
 
+from botbox.owner_only import owner_only
 from botbox.stop_attached import stop_attached
 from botbox.wait_for_socket import wait_for_socket
 
@@ -46,9 +47,9 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     a tinyproxy sidecar on Docker's default bridge that refuses anything outside `allow`.
     tinyproxy listens on the sidecar's loopback only, so nothing else on the bridge reaches it.
 
-    The sidecar runs under an init and lives while this process holds its stdin. If this
-    process dies however it dies, stdin closes, the init exits, and the kernel kills every
-    process in the sidecar's PID namespace, which the agent container joins.
+    The sidecar runs under an init and lives while this process holds its stdin, which children
+    forked meanwhile close. If this process dies however it dies, stdin closes, the init exits,
+    and the kernel kills every process in the sidecar's PID namespace, which the agent joins.
     tinyproxy writes its log into `scratch` as it runs; it is read into `Lockdown.log` on exit.
     """
     docker.build(PROXY_DIR, tags=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile", progress=False)
@@ -108,8 +109,10 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
                 stdout=out,
                 stderr=subprocess.STDOUT,
             )
-        wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
-        yield jail
+        assert process.stdin is not None
+        with owner_only(process.stdin):
+            wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
+            yield jail
     finally:
         if process is not None:
             stop_attached(process, PROXY_EXIT_SECONDS)
