@@ -14,7 +14,6 @@ export default defineConfig({
     sidebar: [
       {
         items: [
-          { text: 'Motivation', link: '/motivation' },
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'How It Works', link: '/explanation/' },
         ],

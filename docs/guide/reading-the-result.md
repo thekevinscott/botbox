@@ -48,4 +48,4 @@ result = box.run(agent.command("Fix the tests"))
 subprocess.run(["docker", "rm", result.container])
 ```
 
-Next: the [Reference](../reference/#runresult) for every field, or [the error model](../explanation/#the-error-model).
+Next: the [Reference](../reference/#runresult) for every field, or [how a run works](../explanation/#a-run).
