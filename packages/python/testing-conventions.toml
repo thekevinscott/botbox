@@ -1,5 +1,5 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["47-48"]
+lines = ["48-49"]
 reason = "is -> == is equivalent: the main thread and SIG_DFL are singletons"
