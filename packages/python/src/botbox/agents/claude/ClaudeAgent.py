@@ -36,9 +36,9 @@ class ClaudeAgent:
             " --strict-mcp-config"
         )
         if self.model is not None:
-            command += f" --model {self.model}"
+            command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
-            command += f" --effort {self.effort}"
+            command += f" --effort {shlex.quote(self.effort)}"
         return command
 
     def session_command(self) -> str:
@@ -47,9 +47,9 @@ class ClaudeAgent:
             " --dangerously-skip-permissions --strict-mcp-config"
         )
         if self.model is not None:
-            command += f" --model {self.model}"
+            command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
-            command += f" --effort {self.effort}"
+            command += f" --effort {shlex.quote(self.effort)}"
         return command
 
     def encode(self, message: str) -> str:

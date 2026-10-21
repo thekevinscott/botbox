@@ -40,9 +40,9 @@ class CodexAgent:
             " --disable plugins --config analytics.enabled=false"
         )
         if self.model is not None:
-            command += f" --model {self.model}"
+            command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
-            command += f" --config model_reasoning_effort={self.effort}"
+            command += f" --config {shlex.quote(f'model_reasoning_effort={self.effort}')}"
         return f"{command} {shlex.quote(prompt)}"
 
     def session_command(self) -> str:

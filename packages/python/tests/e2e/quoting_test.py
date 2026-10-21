@@ -16,7 +16,7 @@ def result() -> Iterator[RunResult]:
 
 def describe_a_model_name_with_shell_syntax() -> None:
     def it_runs_no_second_command(result: RunResult) -> None:
-        assert "INJECTED" not in result.stdout + result.stderr
+        assert "INJECTED" not in result.stdout.splitlines()
 
     def it_hands_claude_the_whole_name(result: RunResult) -> None:
         assert "nope; echo INJECTED" in result.stdout + result.stderr

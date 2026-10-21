@@ -1,0 +1,1 @@
+**Fixed**: The `model` and `effort` options of `ClaudeAgent`, `CodexAgent` and `PiAgent` are shell-quoted. Before, they went into the container's `sh -c` command as-is, so a value with a space or shell syntax split into several arguments or ran as a separate command.

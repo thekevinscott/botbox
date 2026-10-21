@@ -52,13 +52,13 @@ class PiAgent:
     def command(self, prompt: str) -> str:
         command = f"pi -p {shlex.quote(prompt)} --mode json --provider {self.provider}"
         if self.model is not None:
-            command += f" --model {self.model}"
+            command += f" --model {shlex.quote(self.model)}"
         return command
 
     def session_command(self) -> str:
         command = f"pi --mode rpc --provider {self.provider}"
         if self.model is not None:
-            command += f" --model {self.model}"
+            command += f" --model {shlex.quote(self.model)}"
         return command
 
     def encode(self, message: str) -> str:
