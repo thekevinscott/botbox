@@ -180,6 +180,9 @@ def describe_command() -> None:
     def it_takes_the_model_by_keyword() -> None:
         assert PiAgent(provider="openrouter", model="m").command("hi").endswith(" --model m")
 
+    def it_shell_quotes_the_model() -> None:
+        assert PiAgent("openrouter", "a b; id").command("hi").endswith(" --model 'a b; id'")
+
 
 def describe_session() -> None:
     def it_runs_pi_in_rpc_mode_against_the_provider() -> None:
@@ -189,6 +192,9 @@ def describe_session() -> None:
         assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
             "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
         )
+
+    def it_shell_quotes_the_model() -> None:
+        assert PiAgent("openrouter", "a b; id").session_command().endswith(" --model 'a b; id'")
 
     def it_encodes_a_message_as_a_prompt_command() -> None:
         assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {

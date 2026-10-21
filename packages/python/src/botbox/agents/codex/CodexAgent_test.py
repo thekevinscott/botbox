@@ -134,6 +134,13 @@ def describe_command() -> None:
             .endswith(" --config model_reasoning_effort=low hi")
         )
 
+    def it_shell_quotes_the_model_and_effort() -> None:
+        assert (
+            CodexAgent("a b; id", "$(id)")
+            .command("hi")
+            .endswith(" --model 'a b; id' --config 'model_reasoning_effort=$(id)' hi")
+        )
+
 
 def describe_session() -> None:
     def it_has_no_session_command_and_points_at_pi() -> None:
