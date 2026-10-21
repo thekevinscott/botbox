@@ -52,6 +52,11 @@ def jail(docker: MagicMock, docker_cli: MagicMock, scratch: Path) -> Jail:  # no
     return call
 
 
+def proxy_name(docker: MagicMock) -> str:
+    name: str = docker.run.call_args.kwargs["name"]
+    return name
+
+
 def volumes(docker: MagicMock) -> dict[str, tuple[Path, str]]:
     return {t: (Path(s), m) for s, t, m in docker.run.call_args.kwargs["volumes"]}
 
@@ -100,7 +105,7 @@ def describe_lockdown() -> None:
                 assert docker.run.call_args.kwargs["networks"] == [
                     docker.network.create.call_args.args[0]
                 ]
-                docker.network.connect.assert_called_once_with(net.network, "proxy-container")
+                docker.network.connect.assert_called_once_with(net.network, proxy_name(docker))
 
         def it_runs_the_proxy_detached(jail: Jail, docker: MagicMock) -> None:
             with jail():
@@ -196,7 +201,7 @@ def describe_lockdown() -> None:
         def it_removes_the_proxy_and_both_networks(jail: Jail, docker: MagicMock) -> None:
             with jail() as net:
                 docker.container.remove.assert_not_called()
-            docker.container.remove.assert_called_once_with("proxy-container", force=True)
+            docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
             [egress] = docker.network.create.call_args.args
             removed = [call.args[0] for call in docker.network.remove.call_args_list]
             assert removed == [net.network, egress]
@@ -207,13 +212,37 @@ def describe_lockdown() -> None:
             docker.container.remove.assert_called_once()
             assert docker.network.remove.call_count == 2
 
-        def it_removes_nothing_that_was_never_created(jail: Jail, docker: MagicMock) -> None:
+        def it_removes_no_proxy_it_never_tried_to_start(
+            jail: Jail, docker_cli: MagicMock, docker: MagicMock
+        ) -> None:
             docker.network.create.side_effect = DockerException("gone")
             with pytest.raises(DockerException), jail():
                 pass
+            docker.run.assert_not_called()
             docker.container.remove.assert_not_called()
             docker.network.disconnect.assert_not_called()
-            assert docker.network.remove.call_count == 1
+            internal = docker_cli.call_args.args[0][-1]
+            [egress] = docker.network.create.call_args.args
+            removed = [call.args[0] for call in docker.network.remove.call_args_list]
+            assert removed == [internal, egress]
+
+        def it_removes_a_network_whose_creation_was_interrupted(
+            jail: Jail, docker_cli: MagicMock, docker: MagicMock
+        ) -> None:
+            docker_cli.side_effect = KeyboardInterrupt
+            with pytest.raises(KeyboardInterrupt), jail():
+                pass
+            internal = docker_cli.call_args.args[0][-1]
+            removed = [call.args[0] for call in docker.network.remove.call_args_list]
+            assert removed == [internal]
+
+        def it_removes_the_proxy_by_name_when_its_start_is_interrupted(
+            jail: Jail, docker: MagicMock
+        ) -> None:
+            docker.run.side_effect = KeyboardInterrupt
+            with pytest.raises(KeyboardInterrupt), jail():
+                pass
+            docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
 
         def it_removes_both_networks_even_when_the_proxy_removal_fails(
             jail: Jail, docker: MagicMock
@@ -250,7 +279,7 @@ def describe_lockdown() -> None:
                 ("network.disconnect", egress),
                 ("network.remove", egress),
             ]
-            assert docker.network.disconnect.call_args.args[1] == "proxy-container"
+            assert docker.network.disconnect.call_args.args[1] == proxy_name(docker)
             assert docker.network.disconnect.call_args.kwargs == {"force": True}
 
         def it_keeps_detaching_when_a_disconnect_fails(jail: Jail, docker: MagicMock) -> None:
@@ -274,7 +303,7 @@ def describe_lockdown() -> None:
             docker.run.side_effect = DockerException("no such image")
             with pytest.raises(DockerException), jail():
                 pass
-            docker.container.remove.assert_not_called()
+            docker.container.remove.assert_called_once_with(proxy_name(docker), force=True)
             docker.network.disconnect.assert_not_called()
             assert docker.network.remove.call_count == 2
 

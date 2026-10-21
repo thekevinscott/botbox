@@ -60,17 +60,19 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     log.touch()
     log.chmod(0o666)
 
+    # Marked for teardown before each create: an interrupted create can still leave it behind.
     proxy = None
     networks = []
     try:
+        networks.append(jail.network)
         # python-on-whales' network.create wraps no --internal, and --internal is the point.
         docker_utils.run(
             [*docker.network.docker_cmd, "network", "create", "--internal", jail.network]
         )
-        networks.append(jail.network)
-        docker.network.create(egress)
         networks.append(egress)
-        proxy = docker.run(
+        docker.network.create(egress)
+        proxy = proxy_name
+        docker.run(
             PROXY_IMAGE,
             detach=True,
             name=proxy_name,

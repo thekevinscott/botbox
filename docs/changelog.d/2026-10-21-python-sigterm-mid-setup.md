@@ -1,0 +1,1 @@
+**Fixed**: SIGTERM while a box is still setting up its lockdown no longer leaves the proxy container or its networks behind. Each is marked for teardown before Docker is asked to create it, so an interrupted create is removed too.
