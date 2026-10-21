@@ -19,6 +19,12 @@ PROBES = {
     "signal init": "kill -0 1 2>&1 || true",
     "init uid": "awk '/^Uid:/ {print $2}' /proc/1/status",
     "init environ": "cat /proc/1/environ 2>&1 >/dev/null || true",
+    "orphan": (
+        "o=$( (sleep 0.3 >/dev/null 2>&1 & echo $!) );"
+        " parent=$(awk '/^PPid:/ {print $2}' /proc/$o/status); sleep 1;"
+        " if [ -e /proc/$o ]; then echo \"$parent $(awk '/^State:/ {print $2}' /proc/$o/status)\";"
+        ' else echo "$parent reaped"; fi'
+    ),
 }
 
 
@@ -61,3 +67,7 @@ def describe_the_shared_pid_namespace() -> None:
 
     def it_cannot_read_its_environment(posture: dict[str, str]) -> None:
         assert "Permission denied" in posture["init environ"]
+
+    def it_reaps_what_the_agent_orphans(posture: dict[str, str]) -> None:
+        """No agent init under --pid container:, so orphans go to the proxy's, which must reap."""
+        assert posture["orphan"] == "1 reaped"

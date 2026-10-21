@@ -149,8 +149,9 @@ class Botbox:
     ) -> Session:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
-        Same lockdown, home and mounts as `run()`. The container shares the proxy's PID
-        namespace, whose init reaps whatever the agent leaves running in the background. Raises
+        Same lockdown, home and mounts as `run()`. The container joins the proxy's PID
+        namespace, whose init (the proxy's, not the agent's) reaps whatever the agent leaves
+        running in the background. Raises
         `TypeError` for an agent with no session mode. The session's container is removed with
         the box's, when its `with` block exits.
         """

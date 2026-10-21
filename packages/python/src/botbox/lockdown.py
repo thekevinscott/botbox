@@ -13,6 +13,8 @@ PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
 PROXY_IMAGE = "botbox-proxy:latest"
 PROXY_LOG_DIR = "/var/log/tinyproxy"
+# tinyproxy's uid in the image, pinned so a rebuilt image can't drift onto the agent's.
+PROXY_USER = "100:101"
 # tinyproxy's threads and socat's per-connection children, at MaxClients/max-children 100 each.
 PROXY_PIDS = 256
 PROXY_READY_SECONDS = 30
@@ -86,6 +88,7 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
             remove=True,
             init=True,
             name=name,
+            user=PROXY_USER,
             networks=["bridge"],
             pids_limit=PROXY_PIDS,
             volumes=[

@@ -170,6 +170,10 @@ def describe_lockdown() -> None:
             with jail():
                 assert created(docker)["init"] is True
 
+        def it_runs_as_a_pinned_uid_apart_from_the_agents(jail: Jail, docker: MagicMock) -> None:
+            with jail():
+                assert created(docker)["user"] == "100:101"
+
         def it_caps_the_processes_each_connection_forks(jail: Jail, docker: MagicMock) -> None:
             with jail():
                 assert created(docker)["pids_limit"] == 256

@@ -18,6 +18,12 @@ RUN usermod -u 4242 user && groupmod -g 4242 user
 USER user
 """
 
+PROXY_UID = """FROM botbox-claude:latest
+USER root
+RUN usermod -u 100 user
+USER user
+"""
+
 ENTRYPOINT = """FROM botbox-claude:latest
 ENTRYPOINT ["/bin/sh", "-c", "echo wrapped >&2; exec \\"$@\\"", "--"]
 """
@@ -36,6 +42,11 @@ def other_uid(tmp_path: Path) -> Iterator[RunResult]:
 
 
 @pytest.fixture
+def proxy_uid(tmp_path: Path) -> Iterator[RunResult]:
+    yield from layered(tmp_path, PROXY_UID)
+
+
+@pytest.fixture
 def entrypoint(tmp_path: Path) -> Iterator[RunResult]:
     yield from layered(tmp_path, ENTRYPOINT)
 
@@ -43,6 +54,13 @@ def entrypoint(tmp_path: Path) -> Iterator[RunResult]:
 def describe_an_agent_running_as_another_uid() -> None:
     def it_reaches_the_proxy(other_uid: RunResult) -> None:
         assert other_uid.stdout.split() == ["4242", "200"], other_uid.stderr
+
+
+def describe_an_agent_running_as_the_proxys_uid() -> None:
+    def it_refuses_to_start(proxy_uid: RunResult) -> None:
+        assert proxy_uid.exit_code == 125
+        assert "the agent runs as the proxy's uid 100" in proxy_uid.stderr
+        assert proxy_uid.stdout == ""
 
 
 def describe_a_layer_with_its_own_entrypoint() -> None:

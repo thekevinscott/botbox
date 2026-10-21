@@ -58,6 +58,12 @@ def wait_for(condition: Callable[[], bool], timeout: float) -> bool:
     return True
 
 
+def settled(before: set[str], live_before: set[str]) -> bool:
+    """Nothing new is running and the proxy container is gone, not just stopped."""
+    proxies = (n for n in leftovers() - before if n.startswith("container botbox-proxy-"))
+    return not (running() - live_before) and next(proxies, None) is None
+
+
 def sockets(temps: set[str]) -> list[Path]:
     root = Path(tempfile.gettempdir())
     return [s for t in temps for s in (root / t / "sockets").glob("*")]
@@ -68,7 +74,6 @@ def describe_sigkill_of_the_owner() -> None:
     def it_ends_every_container_within_seconds(box: Botbox, holder: str) -> None:  # noqa: ARG001
         before, live_before = leftovers(), running()
         owner = subprocess.Popen([sys.executable, "-c", holder])
-        new: set[str] = set()
         try:
             assert wait_for(
                 lambda: any(n.startswith("botbox-agent-") for n in running() - live_before), 120
@@ -77,7 +82,7 @@ def describe_sigkill_of_the_owner() -> None:
             owner.send_signal(signal.SIGKILL)
             owner.wait()
             started = time.monotonic()
-            assert wait_for(lambda: not (running() - live_before), GRACE), running() - live_before
+            assert wait_for(lambda: settled(before, live_before), GRACE), leftovers() - before
             elapsed = time.monotonic() - started
             new = leftovers() - before
             temps = {n.removeprefix("temp ") for n in new if n.startswith("temp ")}
