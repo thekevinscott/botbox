@@ -624,6 +624,11 @@ def describe_run() -> None:
             assert options["stdin"] == asyncio.subprocess.DEVNULL
             assert options["stdout"] is not options["stderr"]
 
+        @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
+        async def it_uses_the_requested_identity(runner: Mock, docker_run: Mock, user: str) -> None:
+            await Botbox(runner, user=user).run("true")
+            assert agent_options(docker_run)["user"] == user
+
         async def it_joins_the_proxy_with_no_network_as_the_unprivileged_user(
             runner: Mock, docker_run: Mock
         ) -> None:
@@ -902,6 +907,14 @@ def describe_session() -> None:
             assert options["name"] == AGENT
             assert options["label"] == f"botbox.run={TOKEN}"
             assert "--rm" not in session_args(hold_session)
+
+        @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
+        async def it_uses_the_requested_identity(
+            talker: Mock, hold_session: Mock, user: str
+        ) -> None:
+            async with Botbox(talker, user=user).session():
+                pass
+            assert session_options(hold_session)["user"] == user
 
         async def it_is_locked_down_like_a_run(
             talker: Mock, hold_session: Mock, scratch: Path
