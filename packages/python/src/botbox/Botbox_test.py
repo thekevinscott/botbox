@@ -600,8 +600,8 @@ def describe_run() -> None:
         async def it_holds_one_byte_past_each_cap_to_see_a_trim(
             runner: Mock, docker_run: Mock
         ) -> None:
-            await Botbox(runner, stdout_limit=5, stderr_limit=1).run("true")
-            assert docker_run.call_args.kwargs["limits"] == (6, 2)
+            await Botbox(runner, stdout_limit=5, stderr_limit=3).run("true")
+            assert docker_run.call_args.kwargs["limits"] == (6, 4)
 
         async def it_reads_the_exit_code_with_the_kept_stderr(
             runner: Mock, agent_exit: Mock
