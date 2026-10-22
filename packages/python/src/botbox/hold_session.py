@@ -43,4 +43,3 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[As
                     await settle(asyncio.gather(client, return_exceptions=True))
     finally:
         os.close(read)
-
