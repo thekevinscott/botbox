@@ -65,7 +65,7 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`. The one environment variable it reads is `PI_AGENT_HOST`, for `PiAgent("tower")`.
+Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
 After the container exits, every file matching the harness's transcript pattern becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
 
@@ -120,7 +120,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Command:** `pi -p <prompt> --mode json --provider <provider>`, plus `--model` when set.
 - **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
 - **Credentials:** `auth.json`, and `models.json` if present, are copied into `.pi/agent/`. With `api_key`, a fresh `.pi/agent/auth.json` holds the key for `provider` and nothing else.
-- **Hosts:** `openrouter.ai` for `openrouter`, `$PI_AGENT_HOST` for `tower`.
+- **Hosts:** `openrouter.ai` for `openrouter`. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.
 
 In every harness the prompt, model and effort are shell-quoted before they go into the command.
