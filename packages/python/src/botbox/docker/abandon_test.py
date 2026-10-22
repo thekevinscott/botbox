@@ -41,21 +41,20 @@ def describe_abandon() -> None:
         _, *drains = reap.await_args_list[0].args
         assert len(drains) == 1
 
-    async def it_keeps_none_of_what_it_drains() -> None:
+    async def it_discards_what_it_drains() -> None:
         stdout = stream(b"x" * 1024)
         # A plain Mock: an autospec of a coroutine function records the call only once it runs.
         with patch(
-            "botbox.docker.abandon.collect", Mock(side_effect=lambda *_: asyncio.sleep(0))
-        ) as collect:
+            "botbox.docker.abandon.discard", Mock(side_effect=lambda *_: asyncio.sleep(0))
+        ) as discard:
             await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
-        collect.assert_called_once_with(stdout, bytearray(), 0)
+        discard.assert_called_once_with(stdout)
 
-    async def it_then_stops_its_readers_and_closes_its_pipes(reap: AsyncMock) -> None:
+    async def it_then_stops_its_readers(reap: AsyncMock) -> None:
         process = Mock(stdout=stream(b"open", eof=False), stderr=None)
         await abandon(started(process))  # type: ignore[arg-type]
         _, drain = reap.await_args_list[0].args
         assert drain.cancelled()
-        process._transport.close.assert_called_once_with()
 
     async def it_waits_for_the_spawn_to_finish(reap: AsyncMock) -> None:
         starting: asyncio.Future[object] = asyncio.get_running_loop().create_future()

@@ -42,3 +42,22 @@ def describe_settle() -> None:
 
         with pytest.raises(asyncio.CancelledError):
             await settle(cancelled())
+
+    async def it_raises_a_cancel_that_came_even_when_the_coroutine_then_fails() -> None:
+        async def teardown() -> None:
+            await asyncio.sleep(0.03)
+            raise ValueError("teardown failed")
+
+        async def settled() -> BaseException | None:
+            try:
+                await settle(teardown())
+            except BaseException as error:
+                return error
+            return None
+
+        task = asyncio.create_task(settled())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        error = await task
+        assert isinstance(error, asyncio.CancelledError)
+        assert isinstance(error.__cause__, ValueError)
