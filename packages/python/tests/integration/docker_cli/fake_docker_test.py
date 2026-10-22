@@ -5,6 +5,7 @@ Named `_test` so the checks treat it as test code, not source.
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,22 @@ def volume(target):
 
 
 def settle(name, status, code=0):
-    (state / f"{name}.json").write_text(json.dumps({"Status": status, "ExitCode": code}))
+    labels = [option("--label")] if "--label" in argv else []
+    container = {"Status": status, "ExitCode": code, "Labels": labels}
+    (state / f"{name}.json").write_text(json.dumps(container))
+
+
+def exit_container(name, code=0):
+    # A container rm already removed stays removed: r+ never recreates the file.
+    try:
+        with open(state / f"{name}.json", "r+") as file:
+            container = json.load(file)
+            container.update(Status="exited", ExitCode=code)
+            file.seek(0)
+            file.truncate()
+            json.dump(container, file)
+    except FileNotFoundError:
+        pass
 
 
 command = argv[0]
@@ -58,11 +74,16 @@ elif command == "container":
     if not path.exists():
         fail(f"Error: No such container: {name}\\n")
     print(json.dumps([{"Name": "/" + name, "State": json.loads(path.read_text())}]))
+elif command == "ps":
+    for path in sorted(state.glob("botbox-*.json")):
+        if option("--filter").removeprefix("label=") in json.loads(path.read_text())["Labels"]:
+            print(path.stem)
 elif command == "rm":
     time.sleep(plan.get("rm_seconds", 0))
     if plan.get("rm_fails"):
         fail("Error response from daemon: removal of container is already in progress\\n")
-    (state / f"{argv[-1]}.json").unlink(missing_ok=True)
+    for name in argv[2:]:
+        (state / f"{name}.json").unlink(missing_ok=True)
 elif option("--name").startswith("botbox-proxy-"):
     name = option("--name")
     if plan.get("proxy_fails"):
@@ -75,7 +96,7 @@ elif option("--name").startswith("botbox-proxy-"):
         log.mkdir()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
-    settle(name, "exited")
+    exit_container(name)
 else:
     name = option("--name")
     agent = plan["agents"].get(argv[-1], {})
@@ -95,24 +116,31 @@ else:
             said = json.loads(line)["message"]["content"]
             print(json.dumps({"type": "assistant", "said": said}), flush=True)
             if said == "hang":
-                (state / f"{name}.hanging").touch()
-                time.sleep(600)
+                (state / f"{name}.hanging").write_text(str(os.getpid()))
+                while (state / f"{name}.json").exists():
+                    time.sleep(0.05)
+                sys.exit(137)
             if said == "die":
                 os.kill(os.getpid(), signal.SIGKILL)
             print("not json")
             print(json.dumps({"type": "result", "result": said.upper()}), flush=True)
     if mode == "hang":
-        (state / f"{name}.hanging").touch()
-        time.sleep(600)
+        # Dies with its owner, as an agent in the proxy's PID namespace does.
+        owner = os.getppid()
+        (state / f"{name}.hanging").write_text(str(os.getpid()))
+        while os.getppid() == owner:
+            time.sleep(0.05)
+        exit_container(name, 137)
+        sys.exit(137)
     if mode == "daemon_gone":
         (state / "down").touch()
         sys.exit(125)
     if mode == "client_dies":
         os.kill(os.getpid(), signal.SIGKILL)
     if mode == "client_dies_after_exit":
-        settle(name, "exited", 0)
+        exit_container(name, 0)
         os.kill(os.getpid(), signal.SIGKILL)
-    settle(name, "exited", agent.get("exit", 0))
+    exit_container(name, agent.get("exit", 0))
     sys.exit(agent.get("exit", 0))
 """
 
@@ -160,15 +188,35 @@ class Daemon:
             while len(list(self.state.glob("*.hanging"))) < count:
                 await asyncio.sleep(0.01)
 
+    async def hung_clients_gone(self) -> None:
+        """Wait for every client that hung to exit, as `docker run` does once its container goes."""
+        pids = [int(path.read_text()) for path in self.state.glob("*.hanging")]
+        async with asyncio.timeout(10):
+            while any(alive(pid) for pid in pids):
+                await asyncio.sleep(0.01)
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
 
 def token(daemon: Daemon) -> str:
     [run] = daemon.runs("botbox-agent-")
     return run[run.index("--name") + 1].removeprefix("botbox-agent-")
 
 
+def runs(temp: Path) -> Path:
+    """Where runs keep their locks and temp homes."""
+    return temp / f"botbox-{os.getuid()}"
+
+
 def homes(temp: Path) -> list[Path]:
-    """The temp homes left behind; build locks live beside them for good."""
-    return [path for path in temp.iterdir() if path.is_dir()]
+    """The temp homes left behind."""
+    return [path for path in runs(temp).iterdir() if path.is_dir()] if runs(temp).exists() else []
 
 
 def option(run: list[str], name: str) -> str:

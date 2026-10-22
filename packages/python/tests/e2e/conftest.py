@@ -39,7 +39,8 @@ def leftovers() -> set[str]:
         "ps", "-a", "--filter", "ancestor=botbox-claude:latest", "--format", "{{.Names}}"
     )
     networks = docker_lines("network", "ls", "--format", "{{.Name}}")
-    temps = Path(tempfile.gettempdir()).glob("botbox-*")
+    runs = Path(tempfile.gettempdir()) / f"botbox-{os.getuid()}"
+    temps = runs.iterdir() if runs.exists() else ()
     return {
         *(f"container {n}" for n in names if n.startswith("botbox-")),
         *(f"container {n}" for n in descendants),

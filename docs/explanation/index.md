@@ -18,7 +18,7 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 
 1. Checks the mounts and `workdir`. A missing host path or a `workdir` outside every mount raises here, before anything is built: Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
-3. Makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
+3. Sweeps up after runs whose owner died (see [Lifetime](#lifetime)), then makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
 5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
@@ -28,7 +28,7 @@ The client attaches before the container starts, so no output is missed. Neither
 
 If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
 
-Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets a sweep find it.
+Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets the sweep find it.
 
 Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
 
@@ -59,7 +59,11 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-A normal end or a cancel removes both containers. After SIGKILL of the owner they stay, stopped and labelled `botbox.run=<token>`, for a sweep to remove. The host temporary directory stays too.
+A normal end or a cancel removes both containers. After SIGKILL of the owner they stay, stopped and labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
+
+So each run takes a lock. Runs live in `botbox-<uid>/` under the system temp directory, owner-only. A run holds an exclusive `flock` on `<token>.lock` there for its whole life, beside its temporary directory `<token>/`. The kernel drops the lock however the owner dies. Each run starts by sweeping: a lock it can take belongs to a dead run, so it removes that run's containers by label, in any state, then its directory, then the lock file. `botbox.reap()` does the same on demand.
+
+The lock is the only test of liveness. A pid or boot id check reads a live owner as dead when it runs in another container or reaches a remote daemon, and pid reuse reads a dead one as alive. The lock file is outside every mount, so the agent can't touch it. It is locked before it gets its name, so a sweep never finds a live run's lock free.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
