@@ -34,4 +34,5 @@ def describe_exit_code() -> None:
         asyncio.get_running_loop().call_later(0.03, setattr, process, "returncode", 0)
         assert await exit_code(process) == 0
         leader_exit.assert_awaited_once_with(4242)
-        assert set(sleep.call_args_list) == {call(POLL)}
+        assert sleep.call_args_list
+        assert all(c == call(POLL) for c in sleep.call_args_list)

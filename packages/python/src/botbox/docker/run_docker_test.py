@@ -6,6 +6,8 @@ import pytest
 
 from botbox.docker.run_docker import LINGER, STDERR_LIMIT, run_docker
 
+TIMEOUT = asyncio.timeout
+
 
 def stream(data: bytes) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
@@ -126,7 +128,7 @@ def describe_run_docker() -> None:
         process: Process, ended: AsyncMock, stop: AsyncMock, timeout: Mock
     ) -> None:
         ended.side_effect = forever
-        timeout.side_effect = lambda _delay: asyncio.timeout(0.01)
+        timeout.side_effect = lambda _delay: TIMEOUT(0.01)
         assert await run_docker("version") == '{"Version":"29"}\n'
         stopped, *drains = stop.await_args_list[0].args
         assert stopped is process
@@ -150,7 +152,7 @@ def describe_run_docker() -> None:
     ) -> None:
         spawn.return_value = Process(code=3)
         ended.side_effect = forever
-        timeout.side_effect = lambda _delay: asyncio.timeout(0.01)
+        timeout.side_effect = lambda _delay: TIMEOUT(0.01)
         with pytest.raises(DockerException):
             await run_docker("build")
 
