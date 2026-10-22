@@ -74,7 +74,12 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     )
 
     allowlist = scratch / "filter"
-    allowlist.write_text("".join(f"^{re.escape(host)}$\n" for host in allow))
+    # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
+    allowlist.write_text(
+        "".join(
+            f"^{re.escape(host)}(:443)?$\n^http://{re.escape(host)}(:80)?(/|$)\n" for host in allow
+        )
+    )
     allowlist.chmod(0o644)
     log_dir = scratch / "proxy"
     log_dir.mkdir()

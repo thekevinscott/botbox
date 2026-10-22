@@ -137,7 +137,7 @@ def describe_the_proxy_log() -> None:
         assert 'Established connection to host "api.anthropic.com"' in proxy
 
     def it_records_the_refusal(proxy: str) -> None:
-        assert 'Proxying refused on filtered domain "example.com"' in proxy
+        assert 'Proxying refused on filtered url "example.com:443"' in proxy
 
 
 def describe_allow() -> None:
