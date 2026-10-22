@@ -102,6 +102,11 @@ def describe_AsyncSession() -> None:
             events = [event async for event in live.session.stream("hi")]
             assert events == [{"n": 1}, {"type": "end"}]
 
+        async def it_reads_past_an_empty_first_line(live: Live) -> None:
+            live.print(b"\n" + lines({"type": "end"}))
+            events = await asyncio.wait_for(live.session.message("hi"), 1)
+            assert events == [{"type": "end"}]
+
         async def it_skips_bytes_that_are_not_utf8(live: Live) -> None:
             live.print(b"\xff\xfe\n" + lines({"type": "end"}))
             events = [event async for event in live.session.stream("hi")]
