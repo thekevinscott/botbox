@@ -224,7 +224,7 @@ def describe_run_docker() -> None:
     async def it_reaps_the_client_when_waiting_on_it_fails(
         exit_code: AsyncMock, reap: AsyncMock
     ) -> None:
-        exit_code.side_effect = OSError("pidfd")
-        with pytest.raises(OSError, match="pidfd"):
+        exit_code.side_effect = OSError("wait failed")
+        with pytest.raises(OSError, match="wait failed"):
             await run_docker("build")
         reap.assert_awaited_once()

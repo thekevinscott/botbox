@@ -1,13 +1,19 @@
 import asyncio
 
-from botbox.docker.stop import stop
+from botbox.docker.collect import collect
+from botbox.docker.finish import finish
+from botbox.docker.reap import reap
 
 
 async def abandon(starting: asyncio.Future[asyncio.subprocess.Process]) -> None:
-    """Wait out a spawn whose caller was cancelled, then stop and reap what it started."""
+    """Wait out a spawn whose caller was cancelled, then reap what it started."""
     try:
         process = await starting
     except Exception:
         return
     pipes = (process.stdout, process.stderr)
-    await stop(process, *(asyncio.ensure_future(pipe.read()) for pipe in pipes if pipe))
+    readers = [asyncio.ensure_future(collect(pipe, bytearray(), 0)) for pipe in pipes if pipe]
+    try:
+        await reap(process, *readers)
+    finally:
+        await finish(process, readers)

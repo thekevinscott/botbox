@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from botbox.docker.collect import collect
+from botbox.docker.collect import CHUNK, collect
 
 
 def stream(data: bytes, *, eof: bool = True) -> asyncio.StreamReader:
@@ -24,10 +24,18 @@ def describe_collect() -> None:
         await collect(stream(b"a" * 100 + b"b" * 10), into, 10)
         assert into == b"b" * 10
 
-    async def it_reads_in_pieces_of_the_limit() -> None:
+    def it_reads_64k_at_a_time() -> None:
+        assert CHUNK == 64 * 1024
+
+    async def it_keeps_the_limit_across_reads() -> None:
         into = bytearray()
-        await collect(stream(b"abcdefghij"), into, 3)
-        assert into == b"hij"
+        await collect(stream(b"a" * CHUNK + b"bc"), into, 3)
+        assert into == b"abc"
+
+    async def it_keeps_everything_under_the_limit() -> None:
+        into = bytearray()
+        await collect(stream(b"shorter"), into, 10)
+        assert into == b"shorter"
 
     async def it_keeps_nothing_with_a_limit_of_zero() -> None:
         into = bytearray()
