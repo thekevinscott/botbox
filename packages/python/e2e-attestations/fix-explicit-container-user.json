@@ -1,7 +1,7 @@
 {
-  "command": "uv run --no-sync --directory /tmp/surprisals-docker-e2e/surprisals_experiment pytest e2e -q",
-  "ran_at": 1792698587,
+  "command": "just test-e2e",
+  "ran_at": 1792703843,
   "exit_code": 0,
-  "commit": "76dafea7659d44887f58bdab246c1de64e5789cc",
+  "commit": "e0d0ab296d5c9a1119fecc58236a025f41a1ee89",
   "branch": "fix/explicit-container-user"
 }
