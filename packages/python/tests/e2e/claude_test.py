@@ -1,5 +1,6 @@
 """Real Claude Code sessions in the box, billed. Module-scoped: each runs once."""
 
+import asyncio
 import json
 from fnmatch import fnmatch
 from pathlib import Path
@@ -12,7 +13,7 @@ from botbox import Botbox, ClaudeAgent, RunResult
 @pytest.fixture(scope="module")
 def result() -> RunResult:
     agent = ClaudeAgent(model="claude-opus-5", effort="low")
-    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
 @pytest.fixture(scope="module")
@@ -25,7 +26,7 @@ def tool_result(out: Path) -> RunResult:
     agent = ClaudeAgent(model="claude-opus-5", effort="low")
     prompt = "Write the text pong to /out/pong.txt using a tool. Do nothing else."
     box = Botbox(agent)
-    return box.run(agent.command(prompt), mounts=[(out, "/out", "rw")], workdir="/out")
+    return asyncio.run(box.run(agent.command(prompt), mounts=[(out, "/out", "rw")], workdir="/out"))
 
 
 def describe_a_claude_session() -> None:

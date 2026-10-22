@@ -1,5 +1,6 @@
 """A real pi session on OpenRouter, billed. Needs OPENROUTER_API_KEY."""
 
+import asyncio
 import os
 
 import pytest
@@ -15,7 +16,7 @@ if not OPENROUTER_API_KEY:
 @pytest.fixture(scope="module")
 def result() -> RunResult:
     agent = PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY)
-    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
 def describe_a_pi_session_on_openrouter() -> None:

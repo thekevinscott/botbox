@@ -1,5 +1,6 @@
 """Claude Code authenticated by an API key, billed. The key is ANTHROPIC_API_KEY, via conftest."""
 
+import asyncio
 import json
 import subprocess
 import time
@@ -9,7 +10,7 @@ from pathlib import Path
 import pytest
 from conftest import API_KEY, docker_lines
 
-from botbox import Botbox, ClaudeAgent, RunResult
+from botbox import Botbox, ClaudeAgent, DockerException, RunResult
 
 
 @pytest.fixture(scope="module")
@@ -19,13 +20,13 @@ def agent() -> ClaudeAgent:
 
 @pytest.fixture(scope="module")
 def result(agent: ClaudeAgent) -> RunResult:
-    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
 @pytest.fixture(scope="module")
 def listing(agent: ClaudeAgent) -> RunResult:
     """The staged home and the key file's mode, before any CLI runs."""
-    return Botbox(agent).run("find . -mindepth 1 | sort; stat -c %a .claude/api_key")
+    return asyncio.run(Botbox(agent).run("find . -mindepth 1 | sort; stat -c %a .claude/api_key"))
 
 
 @pytest.fixture(scope="module")
@@ -33,7 +34,7 @@ def config(agent: ClaudeAgent) -> str:
     """The agent container's `docker inspect`, taken mid-run: the container is gone after."""
     before = set(docker_lines("ps", "-a", "--format", "{{.Names}}"))
     with ThreadPoolExecutor(1) as pool:
-        run = pool.submit(Botbox(agent).run, "sleep 5")
+        run = pool.submit(asyncio.run, Botbox(agent).run("sleep 5"))
         deadline = time.monotonic() + 120
         while not (started := agents() - before) and time.monotonic() < deadline:
             time.sleep(0.1)
@@ -75,9 +76,10 @@ def describe_an_api_key_session() -> None:
 
     def it_keeps_the_key_out_of_a_refused_container(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=API_KEY)
-        refused = Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")])
-        assert refused.exit_code == 125
-        leaked = API_KEY in refused.stderr
+        with pytest.raises(DockerException) as refused:
+            asyncio.run(Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")]))
+        assert refused.value.return_code == 125
+        leaked = API_KEY in refused.value.stderr or API_KEY in str(refused.value)
         assert not leaked
 
     def it_keeps_the_key_out_of_the_transcript(result: RunResult) -> None:

@@ -1,4 +1,4 @@
-"""SIGTERM to a process holding an `async with AsyncBotbox(...)` block: nothing may outlive it.
+"""SIGTERM to a process holding an `async with Botbox(...)` block: nothing may outlive it.
 
 The holder wraps the step that starts the agent container. It reports the names of what the
 box started, then either goes on (mid-run) or waits forever with the proxy up and the agent
@@ -22,9 +22,9 @@ from botbox import Botbox
 HOLDER = """
 import asyncio, importlib, sys
 from pathlib import Path
-from botbox import AsyncBotbox, ClaudeAgent
+from botbox import Botbox, ClaudeAgent
 
-module = importlib.import_module("botbox.AsyncBotbox")
+module = importlib.import_module("botbox.Botbox")
 
 docker_run = module.docker_run
 
@@ -39,7 +39,7 @@ async def wrapped(args, **streams):
 module.docker_run = wrapped
 
 async def main():
-    async with AsyncBotbox(ClaudeAgent()) as box:
+    async with Botbox(ClaudeAgent()) as box:
         await box.run("sleep 600")
 
 asyncio.run(main())

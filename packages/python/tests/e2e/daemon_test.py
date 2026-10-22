@@ -7,6 +7,7 @@ fails as it would against a dead daemon. The real daemon keeps running, and the 
 removes what botbox could not.
 """
 
+import asyncio
 import socket
 import subprocess
 import tempfile
@@ -85,7 +86,9 @@ def result(box: Botbox) -> Iterator[RunResult]:
         monkeypatch.setenv("DOCKER_HOST", f"unix://{relay.path}")
         threading.Thread(target=cut_when_running, args=(relay,), daemon=True).start()
         try:
-            yield box.run("echo started; sleep 60; echo finished")
+            with pytest.warns(RuntimeWarning, match="^botbox could not remove"):
+                result = asyncio.run(box.run("echo started; sleep 60; echo finished"))
+            yield result
         finally:
             relay.cut()
             monkeypatch.delenv("DOCKER_HOST")

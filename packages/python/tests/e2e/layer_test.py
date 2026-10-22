@@ -3,6 +3,7 @@
 Either way the agent still reaches its proxy through the relay the agent image ships.
 """
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,7 @@ def layered(tmp_path: Path, text: str) -> RunResult:
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text(text)
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
-    return box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}")
+    return asyncio.run(box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}"))
 
 
 @pytest.fixture

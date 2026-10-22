@@ -1,7 +1,8 @@
-"""`AsyncBotbox.build()` against real Docker: turns, cancellation, and the loop while waiting.
+"""`Botbox.build()` against real Docker: turns, cancellation, and the loop while waiting.
 
 Each test builds its own `async83-*` image from a Dockerfile whose slow step no cache holds,
 watches the host's process table for the build's clients, and removes the image after.
+The concurrent builds at the end build the real Claude image, as parallel runs do.
 """
 
 import asyncio
@@ -9,25 +10,27 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ProcessPoolExecutor
 from contextlib import suppress
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
-from botbox import AsyncBotbox
+from botbox import Botbox, ClaudeAgent, DockerException
 
-SYNC_BUILD = """
-import sys
+OTHER_BUILD = """
+import asyncio, sys
 from pathlib import Path
-from botbox import Botbox
+from botbox import Botbox, ClaudeAgent, DockerException
 
 class Agent:
     image = sys.argv[1]
     dockerfile = Path(sys.argv[2])
 
-Botbox(Agent()).build()
+asyncio.run(Botbox(Agent()).build())
 """
+PROCESSES = 4
 
 
 class SlowAgent:
@@ -76,11 +79,24 @@ async def until(condition: Callable[[], object], timeout: float = 120) -> None:
             await asyncio.sleep(0.05)
 
 
-async def sync_build(agent: SlowAgent) -> asyncio.subprocess.Process:
-    """A sync `Botbox.build()` of `agent`, in a process of its own."""
+async def other_build(agent: SlowAgent) -> asyncio.subprocess.Process:
+    """A `Botbox.build()` of `agent`, in a process of its own."""
     return await asyncio.create_subprocess_exec(
-        sys.executable, "-c", SYNC_BUILD, agent.image, str(agent.dockerfile)
+        sys.executable, "-c", OTHER_BUILD, agent.image, str(agent.dockerfile)
     )
+
+
+def build(box: Botbox) -> str:
+    """The tag, or the error's stderr."""
+    try:
+        return asyncio.run(box.build())
+    except DockerException as error:
+        return error.stderr.strip()
+
+
+def build_concurrently(box: Botbox) -> list[str]:
+    with ProcessPoolExecutor(PROCESSES) as pool:
+        return list(pool.map(build, [box] * PROCESSES))
 
 
 @pytest.fixture
@@ -90,30 +106,30 @@ def agent(tmp_path: Path) -> Iterator[SlowAgent]:
     subprocess.run(["docker", "image", "rm", "--force", agent.image], capture_output=True)
 
 
-def describe_async_build() -> None:
+def describe_build() -> None:
     async def it_makes_two_concurrent_builds_of_one_tag_take_turns(agent: SlowAgent) -> None:
         watch = Watch(agent)
         watcher = asyncio.create_task(watch())
-        box = AsyncBotbox(agent)
+        box = Botbox(agent)
         tags = await asyncio.gather(box.build(), box.build())
         watcher.cancel()
         assert tags == [agent.image, agent.image]
         assert watch.most == 1
 
-    async def it_takes_turns_with_a_sync_build_of_one_tag_in_another_process(
+    async def it_takes_turns_with_a_build_of_one_tag_in_another_process(
         agent: SlowAgent,
     ) -> None:
         watch = Watch(agent)
         watcher = asyncio.create_task(watch())
-        other = await sync_build(agent)
+        other = await other_build(agent)
         await until(lambda: clients(agent) == 1)
-        assert await AsyncBotbox(agent).build() == agent.image
+        assert await Botbox(agent).build() == agent.image
         assert await other.wait() == 0
         watcher.cancel()
         assert watch.most == 1
 
     async def it_keeps_the_loop_running_while_it_waits_for_the_lock(agent: SlowAgent) -> None:
-        other = await sync_build(agent)
+        other = await other_build(agent)
         await until(lambda: clients(agent) == 1)
         ticks = 0
 
@@ -125,7 +141,7 @@ def describe_async_build() -> None:
 
         ticker = asyncio.create_task(tick())
         started = time.monotonic()
-        await AsyncBotbox(agent).build()
+        await Botbox(agent).build()
         waited = time.monotonic() - started
         ticker.cancel()
         assert await other.wait() == 0
@@ -140,7 +156,7 @@ def describe_async_build() -> None:
             subprocess.run(["docker", "image", "rm", "--force", agent.image], capture_output=True)
 
         async def it_leaves_no_buildx_client_or_build_step_running(agent: SlowAgent) -> None:
-            build = asyncio.create_task(AsyncBotbox(agent).build())
+            build = asyncio.create_task(Botbox(agent).build())
             await until(lambda: processes(agent.step) and clients(agent))
             build.cancel()
             async with asyncio.timeout(5):
@@ -150,7 +166,7 @@ def describe_async_build() -> None:
             await until(lambda: not processes(agent.step), timeout=5)
 
         async def it_stops_the_build_when_cancelled_twice(agent: SlowAgent) -> None:
-            build = asyncio.create_task(AsyncBotbox(agent).build())
+            build = asyncio.create_task(Botbox(agent).build())
             await until(lambda: processes(agent.step) and clients(agent))
             build.cancel()
             await asyncio.sleep(0)
@@ -160,3 +176,16 @@ def describe_async_build() -> None:
                     await build
             assert not processes(agent.image)
             await until(lambda: not processes(agent.step), timeout=5)
+
+
+def describe_concurrent_builds_in_separate_processes() -> None:
+    @pytest.mark.usefixtures("box")
+    def it_returns_the_agents_tag_to_every_caller() -> None:
+        assert build_concurrently(Botbox(ClaudeAgent())) == ["botbox-claude:latest"] * PROCESSES
+
+    @pytest.mark.usefixtures("box")
+    def it_returns_the_layers_tag_to_every_caller(tmp_path: Path) -> None:
+        layer = tmp_path / "Dockerfile"
+        layer.write_text("FROM botbox-claude:latest\nRUN echo layer > /tmp/layer\n")
+        box = Botbox(ClaudeAgent(), dockerfile=layer)
+        assert build_concurrently(box) == [asyncio.run(box.build())] * PROCESSES

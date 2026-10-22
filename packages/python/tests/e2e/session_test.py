@@ -1,4 +1,4 @@
-"""`AsyncBotbox.session()` against real Docker and real agents, billed.
+"""`Botbox.session()` against real Docker and real agents, billed.
 
 Claude uses the host's Claude Code login. Pi and a Codex model (through pi, as CodexAgent has
 no session mode) need OPENROUTER_API_KEY, and are skipped without it.
@@ -14,9 +14,9 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from async_run_test import Runs
+from run_test import Runs
 
-from botbox import AsyncBotbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
+from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
 
 # A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -78,7 +78,7 @@ def runs(temp: Path) -> Iterator[Runs]:
 def session(harness: str) -> tuple[Turns, list[float], RunResult]:
     """Three messages in one session; for the first, when each event arrived."""
     make, _, _ = HARNESSES[harness]
-    box = AsyncBotbox(make())
+    box = Botbox(make())
 
     async def talk() -> tuple[Turns, list[float], RunResult]:
         async with box.session() as live:
@@ -106,13 +106,21 @@ def session(harness: str) -> tuple[Turns, list[float], RunResult]:
     return asyncio.run(talk())
 
 
-def describe_an_async_session() -> None:
+def describe_a_session() -> None:
     def it_ends_each_turn_at_the_agents_turn_end(
         harness: str, session: tuple[Turns, list[float], RunResult]
     ) -> None:
         turns, _, _ = session
         _, end, _ = HARNESSES[harness]
         assert [turn[-1]["type"] for turn in turns] == [end] * 3
+
+    def it_has_claude_report_no_error_on_any_turn(
+        harness: str, session: tuple[Turns, list[float], RunResult]
+    ) -> None:
+        if harness != "claude":
+            pytest.skip("only Claude's turn end says whether it errored")
+        turns, _, _ = session
+        assert [turn[-1]["is_error"] for turn in turns] == [False] * 3
 
     def it_streams_events_before_the_turn_ends(
         session: tuple[Turns, list[float], RunResult],
@@ -152,7 +160,7 @@ def describe_an_async_session() -> None:
 
 def describe_cancelling_mid_turn() -> None:
     async def it_removes_the_sessions_containers_and_home(runs: Runs) -> None:
-        box = AsyncBotbox(claude())
+        box = Botbox(claude())
 
         async def talk() -> None:
             async with box.session() as live:

@@ -3,6 +3,7 @@
 The home is the agent's to write, and botbox reads the transcript from it on the host.
 """
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -22,10 +23,12 @@ def secret(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="module")
 def result(box: Botbox, secret: Path) -> RunResult:
     projects = "/home/user/.claude/projects"
-    return box.run(
-        f"mkdir -p {projects}/linked"
-        f" && ln -s {secret} {projects}/linked/file.jsonl"
-        f" && ln -s {secret.parent} {projects}/dir"
+    return asyncio.run(
+        box.run(
+            f"mkdir -p {projects}/linked"
+            f" && ln -s {secret} {projects}/linked/file.jsonl"
+            f" && ln -s {secret.parent} {projects}/dir"
+        )
     )
 
 
@@ -40,11 +43,13 @@ def describe_a_transcript_link_out_of_the_home() -> None:
 @pytest.fixture(scope="module")
 def garbled(box: Botbox) -> RunResult:
     projects = "/home/user/.claude/projects/garbled"
-    return box.run(
-        f"mkdir -p {projects}"
-        f" && printf 'ok \\377\\376' > {projects}/bytes.jsonl"
-        f" && echo locked > {projects}/locked.jsonl && chmod 0 {projects}/locked.jsonl"
-        " && echo done"
+    return asyncio.run(
+        box.run(
+            f"mkdir -p {projects}"
+            f" && printf 'ok \\377\\376' > {projects}/bytes.jsonl"
+            f" && echo locked > {projects}/locked.jsonl && chmod 0 {projects}/locked.jsonl"
+            " && echo done"
+        )
     )
 
 

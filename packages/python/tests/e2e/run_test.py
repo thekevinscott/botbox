@@ -1,4 +1,4 @@
-"""`AsyncBotbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
+"""`Botbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
 
 Every run labels its containers `botbox.run=<token>` and names its temp home after the token.
 A test sees only the tokens that appeared while it ran, and cleans up only those.
@@ -14,13 +14,14 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from conftest import docker_lines
 
-from botbox import AsyncBotbox, ClaudeAgent, DockerException
+from botbox import Botbox, ClaudeAgent, DockerException
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -29,9 +30,45 @@ HOSTILE = (
 
 OWNER = f"""
 import asyncio
-from botbox import AsyncBotbox, ClaudeAgent
+from botbox import Botbox, ClaudeAgent
 
-asyncio.run(AsyncBotbox(ClaudeAgent()).run({HOSTILE!r}))
+asyncio.run(Botbox(ClaudeAgent()).run({HOSTILE!r}))
+"""
+
+SESSION_OWNER = f"""
+import asyncio
+from botbox import Botbox, ClaudeAgent
+
+class Hostile(ClaudeAgent):
+    def session_command(self):
+        return {HOSTILE!r}
+
+async def main():
+    async with Botbox(Hostile()).session() as live:
+        await live.message("never answered")
+
+asyncio.run(main())
+"""
+
+# A worker forked by the owner outlives it and inherits its descriptors.
+FORKING_OWNER = f"""
+import asyncio, os, sys, time
+from botbox import Botbox, ClaudeAgent
+
+class Hostile(ClaudeAgent):
+    def session_command(self):
+        return {HOSTILE!r}
+
+async def main():
+    async with Botbox(Hostile()).session() as live:
+        child = os.fork()
+        if child == 0:
+            time.sleep(600)
+            os._exit(0)
+        open(sys.argv[1], "w").write(str(child))
+        await live.message("never answered")
+
+asyncio.run(main())
 """
 
 GRACE = 5
@@ -94,8 +131,8 @@ class Runs:
 
 
 @pytest.fixture(scope="module")
-def box() -> AsyncBotbox:
-    box = AsyncBotbox(ClaudeAgent())
+def box() -> Botbox:
+    box = Botbox(ClaudeAgent())
     asyncio.run(box.build())
     return box
 
@@ -128,35 +165,37 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
     return time.monotonic() - started
 
 
-def describe_async_run() -> None:
-    async def it_returns_what_the_command_left(box: AsyncBotbox, runs: Runs) -> None:
+def describe_run() -> None:
+    async def it_returns_what_the_command_left(box: Botbox, runs: Runs) -> None:
         result = await box.run("echo out; echo err >&2; exit 5")
         assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
         assert result.image == "botbox-claude:latest"
+        assert result.transcript == {}
+        assert "Starting main loop" in result.proxy
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
-    async def it_returns_an_exit_of_125_from_the_container(box: AsyncBotbox, runs: Runs) -> None:
+    async def it_returns_an_exit_of_125_from_the_container(box: Botbox, runs: Runs) -> None:
         assert (await box.run("exit 125")).exit_code == 125
         assert runs.leftovers() == []
 
     def describe_cancelling() -> None:
         @pytest.mark.parametrize("command", ["sleep 600", HOSTILE], ids=["plain", "hostile"])
         async def it_removes_the_runs_containers_and_home(
-            box: AsyncBotbox, runs: Runs, command: str
+            box: Botbox, runs: Runs, command: str
         ) -> None:
             task = asyncio.ensure_future(box.run(command))
             await runs.started()
             assert await cancelled(task) < GRACE
             assert runs.leftovers() == []
 
-        async def it_finishes_through_a_second_cancel(box: AsyncBotbox, runs: Runs) -> None:
+        async def it_finishes_through_a_second_cancel(box: Botbox, runs: Runs) -> None:
             task = asyncio.ensure_future(box.run("sleep 600"))
             await runs.started()
             assert await cancelled(task, twice=True) < GRACE
             assert runs.leftovers() == []
 
-        async def it_removes_the_run_when_a_timeout_fires(box: AsyncBotbox, runs: Runs) -> None:
+        async def it_removes_the_run_when_a_timeout_fires(box: Botbox, runs: Runs) -> None:
             started = time.monotonic()
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(8):
@@ -167,11 +206,11 @@ def describe_async_run() -> None:
 
     def describe_a_task_group() -> None:
         async def it_raises_the_failed_runs_error_and_removes_its_siblings(
-            box: AsyncBotbox, runs: Runs, tmp_path: Path
+            box: Botbox, runs: Runs, tmp_path: Path
         ) -> None:
             layer = tmp_path / "Dockerfile"
             layer.write_text("FROM botbox-claude:latest\nRUN exit 3\n")
-            broken = AsyncBotbox(ClaudeAgent(), dockerfile=layer)
+            broken = Botbox(ClaudeAgent(), dockerfile=layer)
 
             async def fail_once_up() -> None:
                 await runs.started(2)
@@ -188,9 +227,20 @@ def describe_async_run() -> None:
             assert runs.leftovers() == []
 
     def describe_sigkill_of_the_owner() -> None:
-        async def it_leaves_nothing_running_within_seconds(runs: Runs, temp: Path) -> None:
+        @pytest.mark.parametrize(
+            "holder",
+            [OWNER, SESSION_OWNER, FORKING_OWNER],
+            ids=["run", "session", "forked-child"],
+        )
+        async def it_leaves_nothing_running_within_seconds(
+            runs: Runs, temp: Path, tmp_path: Path, holder: str
+        ) -> None:
             env = {**os.environ, "TMPDIR": str(temp)}
-            owner = subprocess.Popen([sys.executable, "-c", OWNER], env=env, start_new_session=True)
+            child = tmp_path / "child"
+            # Its own process group, so a forked child dies with it even before its pid is known.
+            owner = subprocess.Popen(
+                [sys.executable, "-c", holder, str(child)], env=env, start_new_session=True
+            )
             try:
                 await runs.started()
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
@@ -203,7 +253,10 @@ def describe_async_run() -> None:
                     await asyncio.sleep(0.1)
                 # Stopped and labelled, for a sweep to remove.
                 assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
+                assert [s for h in runs.homes() for s in (h / "sockets").glob("*")] == []
+                if holder == FORKING_OWNER:
+                    os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
-                if owner.poll() is None:
+                with suppress(ProcessLookupError):
                     os.killpg(owner.pid, signal.SIGKILL)
-                    owner.wait()
+                owner.wait()
