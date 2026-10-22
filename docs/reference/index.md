@@ -112,6 +112,8 @@ live.result -> RunResult | None
 
 `live.stream(text)` sends `text` and yields each event as the CLI prints it, one per JSON line on its stdout. It ends after the event that ends the agent's turn. Lines that aren't JSON objects are skipped, and stay in the result's `stdout`. If the CLI exits mid-turn, the stream ends with what arrived. Leave the loop early and the rest of that turn is read and dropped before the next message is sent. `await live.message(text)` collects a whole turn into a list. Run one turn at a time. There is no timeout; wrap a turn in `asyncio.timeout` to bound it, which ends the session.
 
+Events come from inside the box, and any process there can forge one. See [Forged session events](../threat-model#forged-session-events).
+
 ## `reap()`
 
 ```python
