@@ -1,8 +1,8 @@
 """`Botbox.run()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
-import os
 import contextlib
+import os
 from pathlib import Path
 from typing import Any
 

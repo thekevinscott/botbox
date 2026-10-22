@@ -1,4 +1,5 @@
 import asyncio
+import os
 import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
@@ -35,9 +36,6 @@ class Botbox:
     `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
     program set itself is left alone, and so is SIGTERM off the main thread.
 
-    Set `user` to a Docker user specifier (for example the host UID:GID) when bind mounts
-    belong to a different user than the image default. HOME stays at the staged agent home.
-
     Don't fork while a run is in progress: a forked child shares the loop's state and holds
     the run's pipes.
     """
@@ -48,9 +46,9 @@ class Botbox:
         *,
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
-        user: str = "user",
     ) -> None:
-        self.user = user
+        if os.getuid() == 0:
+            raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         if isinstance(allow, str):
@@ -269,7 +267,7 @@ class Botbox:
             "--pid",
             f"container:{jail.proxy}",
             "--user",
-            self.user,
+            f"{os.getuid()}:{os.getgid()}",
             "--cap-drop",
             "ALL",
             "--security-opt",

@@ -1,9 +1,10 @@
-"""A caller's layer that changes who the agent runs as, or wraps it in an ENTRYPOINT.
+"""An agent running as another host uid, or in a caller's layer with its own ENTRYPOINT.
 
 Either way the agent still reaches its proxy through the relay the agent image ships.
 """
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -11,43 +12,37 @@ from network_test import CONNECT, PROXY
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
-OTHER_UID = """FROM botbox-claude:latest
-USER root
-RUN usermod -u 4242 user && groupmod -g 4242 user
-USER user
-"""
-
-PROXY_UID = """FROM botbox-claude:latest
-USER root
-RUN usermod -u 100 user
-USER user
-"""
-
 ENTRYPOINT = """FROM botbox-claude:latest
 ENTRYPOINT ["/bin/sh", "-c", "echo wrapped >&2; exec \\"$@\\"", "--"]
 """
 
 
-def layered(tmp_path: Path, text: str) -> RunResult:
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text(text)
-    box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
+def connect(box: Botbox) -> RunResult:
     return asyncio.run(box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}"))
 
 
-@pytest.fixture
-def other_uid(tmp_path: Path) -> RunResult:
-    return layered(tmp_path, OTHER_UID)
+def as_uid(box: Botbox, uid: int) -> RunResult:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(os, "getuid", lambda: uid)
+        patch.setattr(os, "getgid", lambda: uid)
+        return connect(box)
 
 
 @pytest.fixture
-def proxy_uid(tmp_path: Path) -> RunResult:
-    return layered(tmp_path, PROXY_UID)
+def other_uid(box: Botbox) -> RunResult:
+    return as_uid(box, 4242)
+
+
+@pytest.fixture
+def proxy_uid(box: Botbox) -> RunResult:
+    return as_uid(box, 100)
 
 
 @pytest.fixture
 def entrypoint(tmp_path: Path) -> RunResult:
-    return layered(tmp_path, ENTRYPOINT)
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(ENTRYPOINT)
+    return connect(Botbox(ClaudeAgent(), dockerfile=dockerfile))
 
 
 def describe_an_agent_running_as_another_uid() -> None:
@@ -65,4 +60,4 @@ def describe_an_agent_running_as_the_proxys_uid() -> None:
 def describe_a_layer_with_its_own_entrypoint() -> None:
     def it_runs_the_command_through_it_and_reaches_the_proxy(entrypoint: RunResult) -> None:
         assert "wrapped" in entrypoint.stderr
-        assert entrypoint.stdout.split() == ["1000", "200"], entrypoint.stderr
+        assert entrypoint.stdout.split() == [str(os.getuid()), "200"], entrypoint.stderr

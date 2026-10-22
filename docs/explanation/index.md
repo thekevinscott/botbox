@@ -37,9 +37,9 @@ Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `
 Every agent container runs with:
 
 - `--cap-drop ALL` and `--security-opt no-new-privileges`.
-- `--user user`. The harness images strip setuid bits, so nothing in the image can become root.
+- `--user` set to your uid and gid, with `HOME` at the harness's home, so the agent can write the temporary home and your mounts as you. botbox refuses to run as root. The harness images strip setuid bits, so nothing in the image can become root.
 - `--network none` and the proxy's PID namespace, with the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms) pointing at the run's proxy.
-- The temporary home mounted read-write at the harness's home, plus your mounts. The home is owner-only, so the agent must run as your uid to write it. That keeps an agent under another uid from leaving files in it that you can't delete, credentials included.
+- The temporary home mounted read-write at the harness's home, plus your mounts. The home is owner-only, so only your uid can write it. That keeps an agent from leaving files in it that you can't delete, credentials included.
 
 Your command runs as `botbox-relay sh -c <command>`. The relay is a script in each harness image; it starts a forwarder from the proxy port on the container's loopback to the proxy's socket, then runs your command.
 
