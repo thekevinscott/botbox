@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from botbox import RunResult
+
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 
@@ -217,6 +219,15 @@ def runs(temp: Path) -> Path:
 def homes(temp: Path) -> list[Path]:
     """The temp homes left behind."""
     return [path for path in runs(temp).iterdir() if path.is_dir()] if runs(temp).exists() else []
+
+
+def transcript(result: RunResult) -> dict[str, str]:
+    """The result's transcript files, by path relative to the agent's home."""
+    return {
+        path.relative_to(result.transcript).as_posix(): path.read_text()
+        for path in sorted(result.transcript.rglob("*"))
+        if path.is_file()
+    }
 
 
 def option(run: list[str], name: str) -> str:

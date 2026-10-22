@@ -427,7 +427,7 @@ def jail(scratch: Path) -> Mock:
         proxy=PROXY,
         sockets=scratch / "sockets",
         envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
-        log="",
+        log=scratch / "proxy" / "tinyproxy.log",
     )
 
 
@@ -440,7 +440,6 @@ def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
             yield jail
         finally:
             steps.append("stop proxy")
-            jail.log = "CONNECT api.anthropic.com:443\n"
 
     with patch("botbox.Botbox.lockdown", autospec=True, side_effect=lockdown) as m:
         yield m
@@ -502,12 +501,12 @@ def settle(steps: list[str]) -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def read_transcript(steps: list[str]) -> Iterator[Mock]:
-    def read(*_args: object) -> dict[str, str]:
-        steps.append("read transcript")
-        return {".claude/projects/a.jsonl": "{}\n"}
+def capture(steps: list[str]) -> Iterator[Mock]:
+    def captured(stdout: str, stderr: str, exit_code: int, image: str, *_args: object) -> Mock:
+        steps.append("capture result")
+        return Mock(stdout=stdout, stderr=stderr, exit_code=exit_code, image=image)
 
-    with patch("botbox.Botbox.read_transcript", autospec=True, side_effect=read) as m:
+    with patch("botbox.Botbox.capture_result", autospec=True, side_effect=captured) as m:
         yield m
 
 
@@ -537,8 +536,6 @@ def describe_run() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-        assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
     async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
@@ -600,18 +597,26 @@ def describe_run() -> None:
             f"remove {AGENT}",
             "settle",
             f"warned: remove its agent container {AGENT}",
-            "read transcript",
             "stop proxy",
+            "capture result",
             "settle",
             "remove temp home",
             "warned: remove its temp home",
         ]
 
-    async def it_reads_the_transcript_from_the_home(
-        runner: Mock, read_transcript: Mock, scratch: Path
+    async def it_captures_the_transcript_from_the_home_and_the_proxy_log(
+        runner: Mock, capture: Mock, scratch: Path, jail: Mock
     ) -> None:
         await Botbox(runner).run("true")
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/**/*.jsonl")
+        capture.assert_called_once_with(
+            "out\ufffd\n",
+            "err\n",
+            3,
+            "an-agent-123:latest",
+            scratch / "home",
+            ".claude/**/*.jsonl",
+            jail.log,
+        )
 
     async def it_reads_the_exit_code_with_the_command_client_and_stderr(
         runner: Mock, docker_run: Mock, agent_exit: Mock
@@ -796,8 +801,8 @@ def session_options(hold_session: Mock) -> dict[str, Any]:
 
 def describe_session() -> None:
     @pytest.fixture(autouse=True)
-    def session_reader(read_transcript: Mock) -> Iterator[None]:
-        with patch("botbox.session_result.read_transcript", read_transcript):
+    def session_capture(capture: Mock) -> Iterator[None]:
+        with patch("botbox.session_result.capture_result", capture):
             yield
 
     @pytest.fixture
@@ -818,8 +823,6 @@ def describe_session() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-        assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
@@ -889,7 +892,7 @@ def describe_session() -> None:
             f"warned: remove its agent container {AGENT}",
             "stop proxy",
             "settle",
-            "read transcript",
+            "capture result",
             "warned: read its session artifacts",
             "settle",
             "remove temp home",
@@ -905,12 +908,20 @@ def describe_session() -> None:
         agent_exit.assert_awaited_once_with(AGENT, ["docker", "run", *args], 3, "err\n")
         assert hold_session.call_args.args[0] is talker
 
-    async def it_reads_the_transcript_from_the_home(
-        talker: Mock, read_transcript: Mock, scratch: Path
+    async def it_captures_the_transcript_from_the_home_and_the_proxy_log(
+        talker: Mock, capture: Mock, scratch: Path, jail: Mock
     ) -> None:
         async with Botbox(talker).session():
             pass
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/**/*.jsonl")
+        capture.assert_called_once_with(
+            "out\ufffd\n",
+            "err\n",
+            3,
+            "an-agent-123:latest",
+            scratch / "home",
+            ".claude/**/*.jsonl",
+            jail.log,
+        )
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(
@@ -980,8 +991,6 @@ def describe_session() -> None:
             assert steps[-1] == "warned: remove its temp home"
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, held: Mock, steps: list[str]
@@ -998,7 +1007,7 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "read transcript",
+                "capture result",
                 "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
@@ -1006,8 +1015,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_when_cancelled_mid_turn(
             talker: Mock, held: Mock, steps: list[str]
@@ -1033,7 +1040,7 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "read transcript",
+                "capture result",
                 "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
@@ -1041,8 +1048,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_client_that_failed_to_start(
             talker: Mock, held: Mock, steps: list[str]

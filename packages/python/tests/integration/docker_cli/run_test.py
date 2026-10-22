@@ -2,12 +2,13 @@
 
 import asyncio
 import contextlib
+import gc
 import os
 from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, runs, token, volume
+from fake_docker_test import REFUSAL, Daemon, homes, option, runs, token, transcript, volume
 
 from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, PiAgent, RunResult
 
@@ -44,29 +45,37 @@ def describe_run() -> None:
             daemon.agent("claude -p hi", stdout="out\n", stderr="err\n", exit=3)
             daemon.set(proxy_log=REFUSAL)
             result = await box.run("claude -p hi")
-            assert result == RunResult(
-                stdout="out\n",
-                stderr="err\n",
-                exit_code=3,
-                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
-                proxy=REFUSAL,
-                image="botbox-claude:latest",
+            assert (result.stdout, result.stderr, result.exit_code, result.image) == (
+                "out\n",
+                "err\n",
+                3,
+                "botbox-claude:latest",
             )
+            assert transcript(result) == {
+                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
+            }
+            assert result.proxy.read_text() == REFUSAL
 
-        async def it_replaces_proxy_log_bytes_that_are_not_utf8(
-            box: Botbox, daemon: Daemon
-        ) -> None:
+        async def it_keeps_the_proxy_log_bytes_as_written(box: Botbox, daemon: Daemon) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
-            assert (await box.run("true")).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
+            assert (await box.run("true")).proxy.read_bytes() == b"GET http://caf\xe9/ HTTP/1.1\n"
+
+        async def it_deletes_its_files_once_dropped(box: Botbox) -> None:
+            result = await box.run("true")
+            files = result.files
+            assert files.is_dir()
+            del result
+            gc.collect()
+            assert not files.exists()
 
         async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
             box: Botbox, daemon: Daemon
         ) -> None:
             daemon.agent("true", stdout="out\n")
             daemon.set(proxy_log_unreadable=True)
-            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: "):
+            with pytest.warns(RuntimeWarning, match="^botbox could not copy its proxy log: "):
                 result = await box.run("true")
-            assert (result.stdout, result.exit_code, result.proxy) == ("out\n", 0, "")
+            assert (result.stdout, result.exit_code, result.proxy.read_text()) == ("out\n", 0, "")
 
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: Botbox, daemon: Daemon
@@ -89,8 +98,10 @@ def describe_run() -> None:
             ]
             assert result.exit_code == -1
             assert result.stdout == "partial\n"
-            assert result.transcript == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
-            assert result.proxy == REFUSAL
+            assert transcript(result) == {
+                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
+            }
+            assert result.proxy.read_text() == REFUSAL
             assert homes(temp) == []
 
     def describe_the_containers() -> None:

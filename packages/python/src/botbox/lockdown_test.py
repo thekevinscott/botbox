@@ -19,7 +19,6 @@ from botbox.lockdown import (
 )
 
 ALLOW = ("api.anthropic.com",)
-REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 TOKEN = "0123456789ab"
 PROXY = "botbox-proxy-0123456789ab"
 
@@ -379,47 +378,9 @@ def describe_lockdown() -> None:
             os.close.assert_called_once_with(3)
 
     def describe_the_log() -> None:
-        async def it_starts_empty(scratch: Path) -> None:
+        async def it_points_at_the_log_tinyproxy_writes(scratch: Path) -> None:
             async with jail(scratch) as net:
-                assert net.log == ""
-
-        async def it_reads_the_log_on_the_way_out(scratch: Path) -> None:
-            async with jail(scratch) as net:
-                (scratch / "proxy" / "tinyproxy.log").write_text(REFUSAL)
-            assert net.log == REFUSAL
-
-        async def it_reads_the_log_when_the_body_raises(scratch: Path) -> None:
-            with pytest.raises(KeyError):
-                async with jail(scratch) as net:
-                    (scratch / "proxy" / "tinyproxy.log").write_text(REFUSAL)
-                    raise KeyError
-            assert net.log == REFUSAL
-
-        async def it_reads_the_log_as_utf8_replacing_what_is_not(scratch: Path) -> None:
-            async with jail(scratch) as net:
-                (scratch / "proxy" / "tinyproxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
-            assert net.log == "GET /café \ufffd\n"
-
-        async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:
-            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: ") as w:
-                async with jail(scratch) as net:
-                    unreadable(scratch / "proxy" / "tinyproxy.log")
-            assert net.log == ""
-            assert w[0].filename == __file__
-
-        async def it_keeps_the_bodys_error_when_it_cannot_read_the_log(scratch: Path) -> None:
-            with (
-                pytest.warns(RuntimeWarning, match="could not read its proxy log"),
-                pytest.raises(KeyError),
-            ):
-                async with jail(scratch):
-                    unreadable(scratch / "proxy" / "tinyproxy.log")
-                    raise KeyError
-
-
-def unreadable(log: Path) -> None:
-    log.unlink()
-    log.mkdir()
+                assert net.log == scratch / "proxy" / "tinyproxy.log"
 
 
 def describe_the_shipped_proxy() -> None:

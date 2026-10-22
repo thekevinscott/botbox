@@ -7,9 +7,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, token
+from fake_docker_test import REFUSAL, Daemon, homes, option, token, transcript
 
-from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult, Session
+from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, Session
 
 SESSION = ClaudeAgent().session_command()
 
@@ -75,19 +75,21 @@ def describe_session() -> None:
             async with talker.session() as live:
                 await live.message("hi")
                 assert live.result is None
-            assert live.result == RunResult(
-                stdout=(
-                    "booting\n"
-                    '{"type": "assistant", "said": "hi"}\n'
-                    "not json\n"
-                    '{"type": "result", "result": "HI"}\n'
-                ),
-                stderr="",
-                exit_code=0,
-                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
-                proxy=REFUSAL,
-                image="botbox-claude:latest",
+            result = live.result
+            assert result is not None
+            assert (result.stdout, result.stderr, result.exit_code, result.image) == (
+                "booting\n"
+                '{"type": "assistant", "said": "hi"}\n'
+                "not json\n"
+                '{"type": "result", "result": "HI"}\n',
+                "",
+                0,
+                "botbox-claude:latest",
             )
+            assert transcript(result) == {
+                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
+            }
+            assert result.proxy.read_text() == REFUSAL
 
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: Botbox, daemon: Daemon
@@ -185,7 +187,7 @@ def describe_session() -> None:
                     raise ValueError("boom")
             assert live.result is not None
             assert live.result.exit_code == -1
-            assert live.result.transcript
+            assert transcript(live.result)
             assert '"said": "hi"' in live.result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
@@ -217,7 +219,7 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert result.transcript
+            assert transcript(result)
             assert '"said": "hang"' in result.stdout
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
@@ -245,7 +247,7 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert result.transcript
+            assert transcript(result)
             assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
