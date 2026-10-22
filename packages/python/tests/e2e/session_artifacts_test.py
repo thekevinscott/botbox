@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from conftest import docker_lines
+from conftest import docker_lines, transcript
 
 from botbox import Botbox, ClaudeAgent, Session
 
@@ -50,7 +50,7 @@ def describe_session_artifacts() -> None:
                 await run()
         assert live is not None
         assert live.result is not None
-        assert live.result.transcript == {".claude/projects/turn.jsonl": "transcript\n"}
+        assert transcript(live.result) == {".claude/projects/turn.jsonl": "transcript\n"}
         assert "ready" in live.result.stdout
         assert live.result.stderr == "diagnostic\n"
         assert live.result.exit_code == (0 if outcome == "normal" else -1)

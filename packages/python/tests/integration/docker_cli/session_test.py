@@ -86,9 +86,7 @@ def describe_session() -> None:
                 0,
                 "botbox-claude:latest",
             )
-            assert transcript(result) == {
-                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
-            }
+            assert transcript(result) == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
             assert result.proxy.read_text() == REFUSAL
 
         async def it_reads_the_exit_code_from_the_stopped_container(

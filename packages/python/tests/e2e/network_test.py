@@ -87,7 +87,7 @@ def report(session: tuple[RunResult, dict[str, str]]) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def proxy(session: tuple[RunResult, dict[str, str]]) -> str:
-    return session[0].proxy
+    return session[0].proxy.read_text()
 
 
 def describe_a_request_through_the_proxy() -> None:
@@ -147,7 +147,7 @@ def describe_allow() -> None:
         box = Botbox(ClaudeAgent(), allow=["example.com"])
         result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}"))
         assert result.stdout.strip() == "200"
-        assert 'Established connection to host "example.com"' in result.proxy
+        assert 'Established connection to host "example.com"' in result.proxy.read_text()
 
 
 @pytest.fixture(scope="module")

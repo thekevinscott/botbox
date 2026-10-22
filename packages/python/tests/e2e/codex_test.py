@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import pytest
+from conftest import transcript
 
 from botbox import Botbox, CodexAgent, RunResult
 
@@ -26,12 +27,14 @@ def describe_a_codex_session() -> None:
         assert "pong" in result.stdout
 
     def it_returns_the_transcript(result: RunResult) -> None:
-        assert result.transcript
-        assert all(result.transcript.values())
+        assert transcript(result)
+        assert all(transcript(result).values())
 
     def it_reaches_chatgpt_through_the_proxy(result: RunResult) -> None:
-        assert 'Established connection to host "chatgpt.com"' in result.proxy
+        assert 'Established connection to host "chatgpt.com"' in result.proxy.read_text()
 
     def it_reaches_for_no_refused_host(result: RunResult) -> None:
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+        refused = [
+            line for line in result.proxy.read_text().splitlines() if "Proxying refused" in line
+        ]
         assert refused == []

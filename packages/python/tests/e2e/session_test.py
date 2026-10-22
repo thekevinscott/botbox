@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from conftest import transcript
 from run_test import Runs
 
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
@@ -149,12 +150,14 @@ def describe_a_session() -> None:
 
     def it_returns_the_transcript(session: tuple[Turns, list[float], RunResult]) -> None:
         _, _, result = session
-        assert result.transcript
-        assert all(result.transcript.values())
+        assert transcript(result)
+        assert all(transcript(result).values())
 
     def it_reaches_for_no_refused_host(session: tuple[Turns, list[float], RunResult]) -> None:
         _, _, result = session
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+        refused = [
+            line for line in result.proxy.read_text().splitlines() if "Proxying refused" in line
+        ]
         assert refused == []
 
 

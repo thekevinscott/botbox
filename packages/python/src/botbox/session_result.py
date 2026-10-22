@@ -1,7 +1,8 @@
 import asyncio
+from functools import partial
 from pathlib import Path
 
-from botbox.read_transcript import read_transcript
+from botbox.capture_result import capture_result
 from botbox.RunResult import RunResult
 from botbox.Session import Session
 
@@ -9,17 +10,21 @@ from botbox.Session import Session
 async def session_result(
     live: Session,
     home: Path,
-    proxy: str,
+    proxy: Path,
     image: str,
     exit_code: int,
 ) -> None:
     """Capture a stopped session before its temporary home is removed."""
-    transcript = await asyncio.to_thread(read_transcript, home, live.agent.transcripts)
-    live.result = RunResult(
-        live.stdout.into.decode(errors="replace"),
-        live.stderr.decode(errors="replace"),
-        exit_code,
-        transcript,
+    live.result = await asyncio.to_thread(
+        capture_result,
+        partial(
+            RunResult,
+            live.stdout.into.decode(errors="replace"),
+            live.stderr.decode(errors="replace"),
+            exit_code,
+            image,
+        ),
+        home,
+        live.agent.transcripts,
         proxy,
-        image,
     )

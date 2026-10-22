@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from conftest import API_KEY, docker_lines
+from conftest import API_KEY, docker_lines, transcript
 
 from botbox import Botbox, ClaudeAgent, DockerException, RunResult
 
@@ -83,9 +83,9 @@ def describe_an_api_key_session() -> None:
         assert not leaked
 
     def it_keeps_the_key_out_of_the_transcript(result: RunResult) -> None:
-        leaked = any(API_KEY in text for text in result.transcript.values())
+        leaked = any(API_KEY in text for text in transcript(result).values())
         assert not leaked
 
     def it_keeps_the_key_out_of_the_proxy_log(result: RunResult) -> None:
-        leaked = API_KEY in result.proxy
+        leaked = API_KEY in result.proxy.read_text()
         assert not leaked

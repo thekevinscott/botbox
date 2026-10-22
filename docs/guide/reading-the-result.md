@@ -1,6 +1,6 @@
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, and `image`. Nothing is parsed.
+`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `image`, and `files`, a temp directory holding the transcript and the proxy log. Nothing is parsed.
 
 ## Check the exit code
 
@@ -13,19 +13,34 @@ if result.exit_code != 0:
 
 ## Read the transcript
 
-`result.transcript` is a `dict[str, str]`: path relative to the agent's home → file contents.
+`result.transcript` is a directory. Each transcript file sits at its path relative to the agent's home.
 
 ```python
-for path, contents in result.transcript.items():
-    print(path, len(contents))
+for path in result.transcript.rglob("*.jsonl"):
+    print(path.relative_to(result.transcript), path.stat().st_size)
 ```
 
 ## Read the proxy log
 
-`result.proxy` is a `str`: every connection, admitted or refused.
+`result.proxy` is the path to the proxy's log: every connection, admitted or refused.
 
 ```python
-print(result.proxy)
+print(result.proxy.read_text())
+```
+
+## Keep the files
+
+`result.files` is deleted when the result is garbage collected. A path into it is only good while you hold the result. Copy what you want to keep:
+
+```python
+result.save("runs/fix-tests")
+```
+
+To delete the files sooner, call `result.cleanup()`, or use the result as a context manager:
+
+```python
+with await box.run(command) as result:
+    print(result.proxy.read_text())
 ```
 
 ## Keep what the run wrote

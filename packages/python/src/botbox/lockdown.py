@@ -1,7 +1,6 @@
 import asyncio
 import os
 import re
-import warnings
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,11 +35,11 @@ OUTPUT_LIMIT = 64 * 1024
 class Lockdown:
     """The proxy a locked-down container shares a PID namespace with, its socket, and its log."""
 
-    def __init__(self, proxy: str, sockets: Path, envs: dict[str, str]) -> None:
+    def __init__(self, proxy: str, sockets: Path, envs: dict[str, str], log: Path) -> None:
         self.proxy = proxy
         self.sockets = sockets
         self.envs = envs
-        self.log = ""
+        self.log = log
 
 
 @asynccontextmanager
@@ -57,7 +56,7 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     remove itself: leaving the block closes its stdin and removes it, through any number of
     cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`. The
     last 64 KiB of its output is the error if it won't start. tinyproxy writes its log into
-    `scratch` as it runs; it is read into `Lockdown.log` on exit.
+    `scratch` as it runs, at `Lockdown.log`; it is complete once the block is left.
     """
     async with build_lock(PROXY_IMAGE):
         await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
@@ -68,6 +67,8 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     sockets.mkdir()
     # The proxy runs as its own user and creates the socket here.
     sockets.chmod(0o777)
+    log_dir = scratch / "proxy"
+    log = log_dir / "tinyproxy.log"
     jail = Lockdown(
         proxy=name,
         sockets=sockets,
@@ -78,6 +79,7 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
             "https_proxy": url,
             "NO_PROXY": "localhost,127.0.0.1",
         },
+        log=log,
     )
 
     allowlist = scratch / "filter"
@@ -85,10 +87,8 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
     allowlist.chmod(0o644)
-    log_dir = scratch / "proxy"
     log_dir.mkdir()
     log_dir.chmod(0o755)
-    log = log_dir / "tinyproxy.log"
     log.touch()
     log.chmod(0o666)
 
@@ -133,10 +133,3 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
                 await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
     finally:
         os.close(read)
-        try:
-            jail.log = log.read_text(encoding="utf-8", errors="replace")
-        except OSError as error:
-            # 3: past contextlib's __aexit__, to whoever entered the block.
-            warnings.warn(
-                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
-            )

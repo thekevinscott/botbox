@@ -6,6 +6,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
+from conftest import transcript
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -38,16 +39,18 @@ def describe_a_claude_session() -> None:
 
     def it_returns_the_transcript(result: RunResult) -> None:
         jsonl = {
-            k: v for k, v in result.transcript.items() if fnmatch(k, ".claude/projects/*/*.jsonl")
+            k: v for k, v in transcript(result).items() if fnmatch(k, ".claude/projects/*/*.jsonl")
         }
         assert jsonl
         assert all(jsonl.values())
 
     def it_reaches_the_api_through_the_proxy(result: RunResult) -> None:
-        assert 'Established connection to host "api.anthropic.com"' in result.proxy
+        assert 'Established connection to host "api.anthropic.com"' in result.proxy.read_text()
 
     def it_reaches_for_no_refused_host(result: RunResult) -> None:
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+        refused = [
+            line for line in result.proxy.read_text().splitlines() if "Proxying refused" in line
+        ]
         assert refused == []
 
 

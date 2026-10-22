@@ -23,7 +23,7 @@ def result(files: Path) -> RunResult:
 
 def describe_run_result() -> None:
     def it_names_its_fields(result: RunResult) -> None:
-        assert [f.name for f in dataclasses.fields(result)] == [
+        assert [f.name for f in dataclasses.fields(result) if f.init] == [
             "stdout",
             "stderr",
             "exit_code",
@@ -35,9 +35,7 @@ def describe_run_result() -> None:
         with pytest.raises(dataclasses.FrozenInstanceError):
             result.exit_code = 1  # type: ignore[misc]
 
-    def it_keeps_the_transcript_and_proxy_log_in_its_files(
-        result: RunResult, files: Path
-    ) -> None:
+    def it_keeps_the_transcript_and_proxy_log_in_its_files(result: RunResult, files: Path) -> None:
         assert result.transcript == files / "transcript"
         assert (result.transcript / ".claude" / "projects" / "s.jsonl").read_text() == "{}"
         assert result.proxy == files / "proxy.log"
@@ -60,7 +58,7 @@ def describe_run_result() -> None:
             assert files.exists()
         assert not files.exists()
 
-    def it_saves_a_copy_that_outlives_it(result: RunResult, files: Path, tmp_path: Path) -> None:
+    def it_saves_a_copy_that_outlives_it(result: RunResult, tmp_path: Path) -> None:
         saved = result.save(tmp_path / "kept")
         result.cleanup()
         assert saved == tmp_path / "kept"

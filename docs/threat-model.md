@@ -48,19 +48,19 @@ Each section answers four questions. Who is the attacker? What does botbox do to
 
 ## Transcript reads that follow links
 
-**Attacker.** The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
+**Attacker.** The agent, through its home. botbox takes the transcript out of the home after the run, so the agent can plant a link there to a host file and try to get it into the result. If the daemon goes away mid-run with `live-restore` on, the agent may still be running and can swap a file for a link while botbox works.
 
-**Today.** A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+**Today.** botbox never reads the transcript. Each match is reached without following links and renamed into a directory the agent can't reach, then kept only if it is a regular file there (see [Home and Credentials](./explanation/#home-and-credentials)). A link swapped in at any point is never followed.
 
-**What remains.** One case breaks that assumption ([#112](https://github.com/thekevinscott/botbox/issues/112)). If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+**What remains.** Deleting the home after a run still has a race of the same kind, on a permissions change ([#112](https://github.com/thekevinscott/botbox/issues/112)).
 
-**Why doesn't botbox mitigate this automatically?** It's being done. [#123](https://github.com/thekevinscott/botbox/pull/123) opens each file without following links and reads only regular files.
+**Why doesn't botbox mitigate this automatically?** It does for the transcript. The delete is tracked in #112.
 
 ## Resource exhaustion
 
 **Attacker.** The agent, using up host memory, processes, CPU or disk, by accident or on purpose.
 
-**Today.** The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+**Today.** The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is moved, not read, but its size is not capped. There is no default time limit; wrap calls in `asyncio.timeout`.
 
 **What remains.** On main, all of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and time stay open.
 

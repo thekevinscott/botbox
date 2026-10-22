@@ -54,14 +54,14 @@ async def main() -> None:
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
     print(result.stdout)
-    print(result.proxy)
+    print(result.proxy.read_text())
 
 
 asyncio.run(main())
 ```
 
 
-`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, stops the proxy, and returns.
+`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, moves the transcript and copies the proxy log into the result's own temp directory, deletes the temporary home, stops the proxy, and returns.
 
 The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
@@ -98,15 +98,18 @@ await box.run(
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `image`, `files`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
-| `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
-| `proxy`      | `str`: the proxy log.                                                           |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+| `files`      | `Path`: a temp directory the result owns, deleted when the result is garbage collected. |
+| `transcript` | `Path`: `files / "transcript"`, each file at its path relative to the agent's home. |
+| `proxy`      | `Path`: `files / "proxy.log"`, the proxy log.                                   |
 
-The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
+`result.save(dest)` copies `files` somewhere permanent. `result.cleanup()`, or `with result:`, deletes it sooner.
+
+The container is removed once its exit code is read. Everything in the result is captured before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
 A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
@@ -135,7 +138,7 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are moved into `result.transcript` and the temporary home is deleted.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 

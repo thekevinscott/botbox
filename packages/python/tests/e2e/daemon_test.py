@@ -110,4 +110,4 @@ def describe_the_daemon_dying_mid_run() -> None:
         assert result.stdout == "started\n"
 
     def it_keeps_the_proxy_log(result: RunResult) -> None:
-        assert "Starting main loop" in result.proxy
+        assert "Starting main loop" in result.proxy.read_text()

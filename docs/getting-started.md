@@ -30,7 +30,7 @@ async def main() -> None:
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
     print(result.stdout)
-    print(result.proxy)
+    print(result.proxy.read_text())
 
 
 asyncio.run(main())
@@ -40,7 +40,7 @@ The API is asyncio. From sync code, wrap each call in `asyncio.run(...)`.
 
 ## What came back
 
-`result.stdout` is the CLI's output. `result.proxy` is every connection the agent made, admitted or refused.
+`result.stdout` is the CLI's output. `result.proxy` is the path to a log of every connection the agent made, admitted or refused. It lives in a temp directory that goes away with `result`.
 
 ## Next steps
 

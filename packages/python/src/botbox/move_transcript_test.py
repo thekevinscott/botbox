@@ -1,6 +1,7 @@
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -63,6 +64,12 @@ def describe_move_transcript() -> None:
         move_transcript(home, "*.jsonl", staging, dest)
         assert (dest / "a.jsonl").read_bytes() == b"ok \xff\xfe"
 
+    def it_makes_a_file_the_agent_locked_readable(home: Path, staging: Path, dest: Path) -> None:
+        (home / "a.jsonl").write_text("a")
+        (home / "a.jsonl").chmod(0)
+        move_transcript(home, "*.jsonl", staging, dest)
+        assert (dest / "a.jsonl").read_text() == "a"
+
     def it_skips_directories_that_match(home: Path, staging: Path, dest: Path) -> None:
         (home / "sessions" / "dir.jsonl").mkdir()
         move_transcript(home, "sessions/*.jsonl", staging, dest)
@@ -97,8 +104,10 @@ def describe_move_transcript() -> None:
             (home / "sessions" / "a.jsonl").write_text("a")
             original = Path.glob
 
-            def glob(path: Path, pattern: str) -> Iterator[Path]:
-                found = list(original(path, pattern))
+            def glob(path: Path, pattern: str, **options: Any) -> Iterator[Path]:
+                found = list(original(path, pattern, **options))
+                if path != home:
+                    return iter(found)
                 shutil.rmtree(home / "sessions")
                 (home / "sessions").symlink_to(host)
                 return iter(found)
@@ -120,8 +129,10 @@ def describe_move_transcript() -> None:
             (home / "sessions" / "a.jsonl").write_text("a")
             original = Path.glob
 
-            def glob(path: Path, pattern: str) -> Iterator[Path]:
-                found = list(original(path, pattern))
+            def glob(path: Path, pattern: str, **options: Any) -> Iterator[Path]:
+                found = list(original(path, pattern, **options))
+                if path != home:
+                    return iter(found)
                 (home / "sessions" / "a.jsonl").unlink()
                 (home / "sessions" / "a.jsonl").symlink_to(host / "a.jsonl")
                 return iter(found)

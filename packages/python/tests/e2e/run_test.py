@@ -173,8 +173,8 @@ def describe_run() -> None:
         result = await box.run("echo out; echo err >&2; exit 5")
         assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
         assert result.image == "botbox-claude:latest"
-        assert result.transcript == {}
-        assert "Starting main loop" in result.proxy
+        assert list(result.transcript.iterdir()) == []
+        assert "Starting main loop" in result.proxy.read_text()
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 

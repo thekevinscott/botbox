@@ -1,12 +1,12 @@
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import Mock, patch
 
 import pytest
 
 from botbox.capture_result import capture_result
-from botbox.RunResult import RunResult
 
 
 @pytest.fixture(autouse=True)
@@ -17,22 +17,28 @@ def temp(tmp_path: Path) -> Iterator[Path]:
         yield directory
 
 
+@pytest.fixture(autouse=True)
+def move() -> Iterator[Mock]:
+    with patch("botbox.capture_result.move_transcript", autospec=True) as m:
+        yield m
+
+
 @pytest.fixture
 def scratch(tmp_path: Path) -> Path:
     scratch = tmp_path / "run"
-    (scratch / "home" / "sessions").mkdir(parents=True)
-    (scratch / "home" / "sessions" / "a.jsonl").write_text("a")
+    (scratch / "home").mkdir(parents=True)
     (scratch / "proxy").mkdir()
     (scratch / "proxy" / "tinyproxy.log").write_bytes(b"CONNECT \xff\n")
     return scratch
 
 
-def capture(scratch: Path) -> RunResult:
+def made(files: Path) -> Mock:
+    return Mock(files=files, transcript=files / "transcript", proxy=files / "proxy.log")
+
+
+def capture(scratch: Path) -> Any:
     return capture_result(
-        "out",
-        "err",
-        3,
-        "an-image",
+        made,
         scratch / "home",
         "sessions/*.jsonl",
         scratch / "proxy" / "tinyproxy.log",
@@ -40,14 +46,9 @@ def capture(scratch: Path) -> RunResult:
 
 
 def describe_capture_result() -> None:
-    def it_holds_the_output_exit_code_and_image(scratch: Path) -> None:
+    def it_makes_the_result_on_its_files(scratch: Path) -> None:
         result = capture(scratch)
-        assert (result.stdout, result.stderr, result.exit_code, result.image) == (
-            "out",
-            "err",
-            3,
-            "an-image",
-        )
+        assert result.files.is_dir()
 
     def it_keeps_its_files_in_a_fresh_dir_under_the_system_temp_dir(
         scratch: Path, temp: Path
@@ -56,15 +57,13 @@ def describe_capture_result() -> None:
         assert result.files.parent == temp
         assert result.files.stat().st_mode & 0o777 == 0o700
 
-    def it_moves_the_transcript_out_of_the_home(scratch: Path) -> None:
+    def it_moves_the_transcript_into_its_files_staged_beside_the_home(
+        scratch: Path, move: Mock
+    ) -> None:
         result = capture(scratch)
-        assert (result.transcript / "sessions" / "a.jsonl").read_text() == "a"
-        assert not (scratch / "home" / "sessions" / "a.jsonl").exists()
-
-    def it_stages_the_transcript_beside_the_home(scratch: Path) -> None:
-        (scratch / "home" / "sessions" / "b.jsonl").symlink_to("a.jsonl")
-        capture(scratch)
-        assert [p.is_symlink() for p in (scratch / "transcript").iterdir()] == [True]
+        move.assert_called_once_with(
+            scratch / "home", "sessions/*.jsonl", scratch / "transcript", result.transcript
+        )
 
     def it_copies_the_proxy_log_as_written(scratch: Path) -> None:
         result = capture(scratch)
@@ -77,10 +76,14 @@ def describe_capture_result() -> None:
             result = capture(scratch)
         assert result.proxy.read_text() == ""
 
-    def it_removes_its_dir_when_moving_the_transcript_fails(scratch: Path, temp: Path) -> None:
-        with (
-            patch("botbox.capture_result.move_transcript", side_effect=OSError("boom")),
-            pytest.raises(OSError, match="boom"),
-        ):
-            capture(scratch)
-        assert list(temp.iterdir()) == []
+    def it_cleans_the_result_up_when_moving_the_transcript_fails(scratch: Path, move: Mock) -> None:
+        results: list[Mock] = []
+
+        def make(files: Path) -> Mock:
+            results.append(made(files))
+            return results[-1]
+
+        move.side_effect = OSError("boom")
+        with pytest.raises(OSError, match="boom"):
+            capture_result(make, scratch / "home", "*.jsonl", scratch / "proxy" / "tinyproxy.log")
+        results[0].cleanup.assert_called_once_with()

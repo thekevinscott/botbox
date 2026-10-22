@@ -4,6 +4,7 @@ import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self, cast
@@ -14,13 +15,13 @@ from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
+from botbox.capture_result import capture_result
 from botbox.Claim import Claim
 from botbox.docker.build import build as docker_build
 from botbox.docker.run import run as docker_run
 from botbox.docker.settle import settle
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
-from botbox.read_transcript import read_transcript
 from botbox.reap import reap
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
@@ -125,7 +126,8 @@ class Botbox:
 
         Mounts and `workdir` are checked before anything is built. The agent's home is a fresh
         host temp directory with the credentials staged in; the proxy logs into the same
-        directory. Both are read into the result once the container exits, then deleted.
+        directory. Once the container exits, the transcript is moved and the proxy log copied
+        into the result's own temp dir (see `RunResult`), then the run's is deleted.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -154,10 +156,15 @@ class Botbox:
                 stdout, stderr, exit_code = await self._attach(
                     token, [*flags, image, RELAY, "sh", "-c", command]
                 )
-                transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+            return await asyncio.to_thread(
+                capture_result,
+                partial(RunResult, stdout, stderr, exit_code, image),
+                home,
+                agent.transcripts,
+                jail.log,
+            )
         finally:
             await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
-        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
 
     @asynccontextmanager
     async def session(

@@ -21,7 +21,14 @@ def describe_session_result() -> None:
             stderr=bytearray(b"error\xff"),
         )
         await session_result(live, Path("/home"), Path("/proxy.log"), "image", -1)
-        capture.assert_called_once_with(
-            "partial�", "error�", -1, "image", Path("/home"), "*.jsonl", Path("/proxy.log")
+        [make, home, pattern, log] = capture.call_args.args
+        assert (home, pattern, log) == (Path("/home"), "*.jsonl", Path("/proxy.log"))
+        made = make(Path("/files"))
+        assert (made.stdout, made.stderr, made.exit_code, made.image, made.files) == (
+            "partial�",
+            "error�",
+            -1,
+            "image",
+            Path("/files"),
         )
         assert live.result is capture.return_value

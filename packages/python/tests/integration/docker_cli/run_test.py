@@ -51,9 +51,7 @@ def describe_run() -> None:
                 3,
                 "botbox-claude:latest",
             )
-            assert transcript(result) == {
-                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
-            }
+            assert transcript(result) == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
             assert result.proxy.read_text() == REFUSAL
 
         async def it_keeps_the_proxy_log_bytes_as_written(box: Botbox, daemon: Daemon) -> None:
@@ -98,9 +96,7 @@ def describe_run() -> None:
             ]
             assert result.exit_code == -1
             assert result.stdout == "partial\n"
-            assert transcript(result) == {
-                ".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'
-            }
+            assert transcript(result) == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
             assert result.proxy.read_text() == REFUSAL
             assert homes(temp) == []
 
@@ -277,17 +273,11 @@ def describe_run() -> None:
             assert daemon.runs("botbox-agent-") == []
             assert homes(temp) == []
 
-        async def it_keeps_the_error_and_warns_when_the_proxy_log_will_not_read(
-            box: Botbox, daemon: Daemon
-        ) -> None:
+        async def it_leaves_no_result_files_behind(box: Botbox, daemon: Daemon, temp: Path) -> None:
             daemon.agent("true", missing=True)
-            daemon.set(proxy_log_unreadable=True)
-            with (
-                pytest.warns(RuntimeWarning, match="could not read its proxy log"),
-                pytest.raises(DockerException) as raised,
-            ):
+            with pytest.raises(DockerException):
                 await box.run("true")
-            assert raised.value.return_code == 125
+            assert list(temp.glob("botbox-result-*")) == []
 
         async def it_returns_the_result_and_warns_when_teardown_fails(
             box: Botbox, daemon: Daemon

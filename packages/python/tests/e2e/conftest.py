@@ -26,6 +26,15 @@ LINE = 'printf "%s\\t" "{name}"; ({command}) 2>&1 | tr "\\n" " "; echo'
 Probe = Callable[..., tuple[RunResult, dict[str, str]]]
 
 
+def transcript(result: RunResult) -> dict[str, str]:
+    """The result's transcript files' text, by path relative to the agent's home."""
+    return {
+        path.relative_to(result.transcript).as_posix(): path.read_text(errors="replace")
+        for path in sorted(result.transcript.rglob("*"))
+        if path.is_file()
+    }
+
+
 def docker_lines(*args: str) -> list[str]:
     return subprocess.run(
         ["docker", *args], check=True, capture_output=True, text=True

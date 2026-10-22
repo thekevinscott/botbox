@@ -1,12 +1,13 @@
 """A run that plants symlinks in its transcript folder, aimed at a file only the host can see.
 
-The home is the agent's to write, and botbox reads the transcript from it on the host.
+The home is the agent's to write, and botbox moves the transcript out of it on the host.
 """
 
 import asyncio
 from pathlib import Path
 
 import pytest
+from conftest import transcript
 
 from botbox import Botbox, RunResult
 
@@ -37,7 +38,11 @@ def describe_a_transcript_link_out_of_the_home() -> None:
         assert result.exit_code == 0, result.stderr
 
     def it_keeps_the_host_file_out_of_the_transcript(result: RunResult) -> None:
-        assert not any(SECRET in text for text in result.transcript.values())
+        assert not any(SECRET in text for text in transcript(result).values())
+
+    @pytest.mark.usefixtures("result")
+    def it_leaves_the_host_file_where_it_was(secret: Path) -> None:
+        assert secret.read_text() == SECRET
 
 
 @pytest.fixture(scope="module")
@@ -57,8 +62,10 @@ def describe_a_transcript_the_host_cannot_decode_or_open() -> None:
     def it_still_returns_the_run(garbled: RunResult) -> None:
         assert (garbled.exit_code, garbled.stdout) == (0, "done\n")
 
-    def it_replaces_the_bad_bytes(garbled: RunResult) -> None:
-        assert garbled.transcript[".claude/projects/garbled/bytes.jsonl"] == "ok ��"
+    def it_keeps_the_bytes_as_written(garbled: RunResult) -> None:
+        written = garbled.transcript / ".claude/projects/garbled/bytes.jsonl"
+        assert written.read_bytes() == b"ok \377\376"
 
-    def it_skips_the_file_it_cannot_open(garbled: RunResult) -> None:
-        assert ".claude/projects/garbled/locked.jsonl" not in garbled.transcript
+    def it_keeps_a_file_the_agent_locked_readable(garbled: RunResult) -> None:
+        locked = garbled.transcript / ".claude/projects/garbled/locked.jsonl"
+        assert locked.read_text() == "locked\n"

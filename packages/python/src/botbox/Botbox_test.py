@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 import os
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -501,10 +501,10 @@ def settle(steps: list[str]) -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def capture(steps: list[str]) -> Iterator[Mock]:
-    def captured(stdout: str, stderr: str, exit_code: int, image: str, *_args: object) -> Mock:
+def capture(steps: list[str], tmp_path: Path) -> Iterator[Mock]:
+    def captured(result: Callable[[Path], Any], *_args: object) -> Any:
         steps.append("capture result")
-        return Mock(stdout=stdout, stderr=stderr, exit_code=exit_code, image=image)
+        return result(tmp_path / "files")
 
     with patch("botbox.Botbox.capture_result", autospec=True, side_effect=captured) as m:
         yield m
@@ -608,15 +608,8 @@ def describe_run() -> None:
         runner: Mock, capture: Mock, scratch: Path, jail: Mock
     ) -> None:
         await Botbox(runner).run("true")
-        capture.assert_called_once_with(
-            "out\ufffd\n",
-            "err\n",
-            3,
-            "an-agent-123:latest",
-            scratch / "home",
-            ".claude/**/*.jsonl",
-            jail.log,
-        )
+        capture.assert_called_once()
+        assert capture.call_args.args[1:] == (scratch / "home", ".claude/**/*.jsonl", jail.log)
 
     async def it_reads_the_exit_code_with_the_command_client_and_stderr(
         runner: Mock, docker_run: Mock, agent_exit: Mock
@@ -913,15 +906,8 @@ def describe_session() -> None:
     ) -> None:
         async with Botbox(talker).session():
             pass
-        capture.assert_called_once_with(
-            "out\ufffd\n",
-            "err\n",
-            3,
-            "an-agent-123:latest",
-            scratch / "home",
-            ".claude/**/*.jsonl",
-            jail.log,
-        )
+        capture.assert_called_once()
+        assert capture.call_args.args[1:] == (scratch / "home", ".claude/**/*.jsonl", jail.log)
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(

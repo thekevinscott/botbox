@@ -22,11 +22,11 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 4. Starts a proxy for this run (see [Network](#network)).
 5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Reads the transcript and the proxy log out of the temporary directory, stops and removes the proxy, and deletes the directory.
+7. Stops and removes the proxy, moves the transcript and copies the proxy log into the result's own temp directory, and deletes the run's.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are taken from the host directory as usual. That's why both live on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets the sweep find it.
 
@@ -51,7 +51,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. It writes its log into the host temporary directory as it goes, and that log becomes `result.proxy`.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. It writes its log into the host temporary directory as it goes, and a copy of that log is `result.proxy`.
 
 ### Lifetime
 
@@ -71,10 +71,11 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
-After the container exits, every file matching the harness's transcript pattern becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
+After the container exits, every file matching the harness's transcript pattern is moved into `result.transcript`, at its path relative to the home. botbox never reads it. The agent can write anything in its home, and may still be running if the daemon went away, so botbox defends the move:
 
-- A match that resolves outside the home is a link to a host file, and is skipped. The container has exited by then, so no link can change after the check.
-- Bytes that aren't UTF-8 are replaced, and a file that won't open is skipped. The agent can't break the run's result.
+- Each match is reached one directory at a time from the home, never following a link, so a linked directory can't steer the move to a host file.
+- The match is renamed into a directory only botbox can reach, then kept only if it is a regular file there. A link, or anything else, is left behind and deleted with the run's directory.
+- A kept file is made readable to its owner, so one the agent locked still copies with `save()`.
 
 ## Sessions
 
@@ -82,7 +83,7 @@ After the container exits, every file matching the harness's transcript pattern 
 
 The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
-The block's end closes stdin, waits for the client, reads the exit code, removes the container and reads the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
+The block's end closes stdin, waits for the client, reads the exit code, removes the container and captures the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
 ## Images
 
