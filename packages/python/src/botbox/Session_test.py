@@ -229,6 +229,14 @@ def describe_Session() -> None:
             assert live.sent == b"<hi>\n"
 
     def describe_retention() -> None:
+        def it_holds_a_1_gib_line_a_1_mib_window_and_1_mib_of_output() -> None:
+            assert (module.LINE_LIMIT, module.WINDOW, module.OUTPUT_LIMIT) == (2**30, 2**20, 2**20)
+
+        async def it_keeps_an_empty_first_line_as_output(live: Live) -> None:
+            live.print(b"\n" + lines({"type": "end"}))
+            await live.session.message("hi")
+            assert live.session.output() == "\n"
+
         async def it_releases_each_line_once_read(live: Live) -> None:
             def update(n: int) -> dict[str, Any]:
                 partial = {"thinking": "x" * 16 * n}

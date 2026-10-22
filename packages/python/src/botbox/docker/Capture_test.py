@@ -66,6 +66,18 @@ def describe_Capture() -> None:
             await asyncio.wait_for(capture.eof, 1)
         assert into == b"ef"
 
+    async def it_pauses_reading_past_high() -> None:
+        into = bytearray()
+        async with Capture(into, high=4) as capture:
+            os.write(capture.write, b"abcdef")
+            await asyncio.wait_for(capture.grew.wait(), 1)
+            os.write(capture.write, b"gh")
+            await asyncio.sleep(0.01)
+            assert into == b"abcdef"
+            capture.unblock()
+            capture.release()
+            await asyncio.wait_for(capture.eof, 1)
+
     async def it_reads_to_the_end_once_unblocked() -> None:
         into = bytearray()
         async with Capture(into, high=2) as capture:
