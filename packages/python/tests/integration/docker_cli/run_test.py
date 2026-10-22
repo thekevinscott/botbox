@@ -52,6 +52,14 @@ def describe_run() -> None:
                 image="botbox-claude:latest",
             )
 
+        async def it_keeps_the_end_of_output_over_its_cap_and_says_so(
+            box: Botbox, daemon: Daemon
+        ) -> None:
+            daemon.agent("chatty", stdout="first\nlast\n", stderr="oops\n")
+            capped = Botbox(box.agent, stdout_limit=5, stderr_limit=3)
+            result = await capped.run("chatty")
+            assert (result.stdout, result.stderr, result.truncated) == ("last\n", "ps\n", True)
+
         async def it_replaces_proxy_log_bytes_that_are_not_utf8(
             box: Botbox, daemon: Daemon
         ) -> None:

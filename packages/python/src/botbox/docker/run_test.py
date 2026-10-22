@@ -84,8 +84,7 @@ def describe_run() -> None:
             stdin=None,
             stdout=bytearray(),
             stderr=bytearray(),
-            stdout_limit=64,
-            stderr_limit=8,
+            limits=(64, 8),
         )
         assert [capture.limit for capture in captures] == [64, 8]
 

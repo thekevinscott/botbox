@@ -243,7 +243,8 @@ def describe_lockdown() -> None:
                 options = run.call_args.kwargs
             assert options["stdout"] is options["stderr"]
             assert isinstance(options["stdout"], bytearray)
-            assert options["stdout_limit"] == options["stderr_limit"] == OUTPUT_LIMIT == 64 * 1024
+            assert options["limits"] == (OUTPUT_LIMIT, OUTPUT_LIMIT)
+            assert OUTPUT_LIMIT == 64 * 1024
 
         async def it_waits_for_the_socket_with_the_client_and_its_output(
             scratch: Path, run: AsyncMock, wait: AsyncMock, steps: list[str]

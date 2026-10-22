@@ -98,13 +98,14 @@ await box.run(
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`, `truncated`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
 | `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
-| `proxy`      | `str`: the proxy log.                                                           |
+| `proxy`      | `str`: the proxy log, its last 1 MiB.                                           |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+| `truncated`  | `bool`: `stdout` or `stderr` passed `Botbox(stdout_limit=, stderr_limit=)` and only its end was kept. Both default to 100 GiB; lower them. |
 
 The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 

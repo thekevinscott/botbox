@@ -1,6 +1,6 @@
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, and `image`. Nothing is parsed.
+`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`, and `truncated`. Nothing is parsed. `truncated` is `True` when `stdout` or `stderr` passed its [cap](../reference/#output-caps) and only its end was kept.
 
 ## Check the exit code
 
@@ -22,7 +22,7 @@ for path, contents in result.transcript.items():
 
 ## Read the proxy log
 
-`result.proxy` is a `str`: every connection, admitted or refused.
+`result.proxy` is a `str`: every connection, admitted or refused, up to the log's last 1 MiB.
 
 ```python
 print(result.proxy)

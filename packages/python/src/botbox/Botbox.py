@@ -27,6 +27,8 @@ from botbox.Session import Session
 from botbox.session_result import session_result
 from botbox.warned import warned
 
+DEFAULT_OUTPUT_LIMIT = 100 * 2**30
+
 
 class Botbox:
     """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
@@ -35,6 +37,10 @@ class Botbox:
     so a run or session in progress unwinds and tears down, then the block raises
     `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
     program set itself is left alone, and so is SIGTERM off the main thread.
+
+    `stdout_limit` and `stderr_limit` cap the bytes of a run's output held in memory; past a
+    cap only the end is kept and the result is marked `truncated`. The defaults only stop a
+    runaway agent from exhausting the host; set them to what you expect.
 
     Don't fork while a run is in progress: a forked child shares the loop's state and holds
     the run's pipes.
@@ -46,12 +52,19 @@ class Botbox:
         *,
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
+        stdout_limit: int = DEFAULT_OUTPUT_LIMIT,
+        stderr_limit: int = DEFAULT_OUTPUT_LIMIT,
     ) -> None:
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
+        for cap, limit in (("stdout_limit", stdout_limit), ("stderr_limit", stderr_limit)):
+            if limit < 0:
+                raise ValueError(f"{cap} must be at least 0, got {limit}")
+        self.stdout_limit = stdout_limit
+        self.stderr_limit = stderr_limit
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -148,13 +161,13 @@ class Botbox:
             allow = (*agent.allow, *self.allow)
             async with lockdown(allow, claim.path, token) as jail:
                 flags = self._lockdown_flags(token, home, jail, volumes, workdir)
-                stdout, stderr, exit_code = await self._attach(
+                stdout, stderr, exit_code, truncated = await self._attach(
                     token, [*flags, image, RELAY, "sh", "-c", command]
                 )
                 transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
         finally:
             await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
-        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
+        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image, truncated)
 
     @asynccontextmanager
     async def session(
@@ -225,20 +238,30 @@ class Botbox:
             finally:
                 await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
 
-    async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
-        """Run the agent container to its exit, remove it, and return its output and exit code."""
+    async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int, bool]:
+        """Run the agent container to its exit, remove it, and return its output and exit code.
+
+        Each stream keeps one byte past its cap, so a trim shows as a stream over it.
+        """
         name = f"botbox-agent-{token}"
         args = ["--name", name, *args]
         out, err = bytearray(), bytearray()
         try:
             client = await docker_run(
-                args, stdin=asyncio.subprocess.DEVNULL, stdout=out, stderr=err
+                args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=out,
+                stderr=err,
+                limits=(self.stdout_limit + 1, self.stderr_limit + 1),
             )
+            truncated = len(out) > self.stdout_limit or len(err) > self.stderr_limit
+            del out[: max(len(out) - self.stdout_limit, 0)]
+            del err[: max(len(err) - self.stderr_limit, 0)]
             stderr = err.decode(errors="replace")
             exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
         finally:
             await settle(warned(remove_within(name), f"remove its agent container {name}"))
-        return out.decode(errors="replace"), stderr, exit_code
+        return out.decode(errors="replace"), stderr, exit_code, truncated
 
     def _lockdown_flags(
         self,

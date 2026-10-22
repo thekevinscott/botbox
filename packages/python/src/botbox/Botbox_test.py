@@ -110,10 +110,13 @@ def describe_botbox() -> None:
         box = Botbox(agent, stdout_limit=2**20, stderr_limit=0)
         assert (box.stdout_limit, box.stderr_limit) == (2**20, 0)
 
-    @pytest.mark.parametrize("cap", ["stdout_limit", "stderr_limit"])
-    def it_refuses_a_negative_output_cap(agent: Mock, cap: str) -> None:
-        with pytest.raises(ValueError, match=f"^{cap} must be at least 0, got -1$"):
-            Botbox(agent, **{cap: -1})
+    def it_refuses_a_negative_stdout_cap(agent: Mock) -> None:
+        with pytest.raises(ValueError, match=r"^stdout_limit must be at least 0, got -1$"):
+            Botbox(agent, stdout_limit=-1)
+
+    def it_refuses_a_negative_stderr_cap(agent: Mock) -> None:
+        with pytest.raises(ValueError, match=r"^stderr_limit must be at least 0, got -2$"):
+            Botbox(agent, stderr_limit=-2)
 
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
@@ -461,12 +464,14 @@ def docker_run(steps: list[str]) -> Iterator[Mock]:
         *,
         stdout: bytearray,
         stderr: bytearray,
-        stdout_limit: int | None = None,
-        stderr_limit: int | None = None,
+        limits: tuple[int | None, int | None] = (None, None),
         **_options: Any,
     ) -> int:
         steps.append("run agent")
-        for into, data, limit in ((stdout, b"out\xff\n", stdout_limit), (stderr, b"err\n", stderr_limit)):
+        for into, data, limit in (
+            (stdout, b"out\xff\n", limits[0]),
+            (stderr, b"err\n", limits[1]),
+        ):
             into.extend(data)
             if limit is not None:
                 del into[: max(len(into) - limit, 0)]

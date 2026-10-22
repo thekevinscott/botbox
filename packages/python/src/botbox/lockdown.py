@@ -1,4 +1,5 @@
 import asyncio
+import io
 import os
 import re
 import warnings
@@ -31,6 +32,7 @@ RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
 OUTPUT_LIMIT = 64 * 1024
+PROXY_LOG_LIMIT = 2**20
 
 
 class Lockdown:
@@ -57,7 +59,7 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     remove itself: leaving the block closes its stdin and removes it, through any number of
     cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`. The
     last 64 KiB of its output is the error if it won't start. tinyproxy writes its log into
-    `scratch` as it runs; it is read into `Lockdown.log` on exit.
+    `scratch` as it runs; its last MiB is read into `Lockdown.log` on exit.
     """
     async with build_lock(PROXY_IMAGE):
         await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
@@ -124,7 +126,13 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     try:
         with owner_only(stdin):
             client = asyncio.ensure_future(
-                run(args, stdin=read, stdout=output, stderr=output, limit=OUTPUT_LIMIT)
+                run(
+                    args,
+                    stdin=read,
+                    stdout=output,
+                    stderr=output,
+                    limits=(OUTPUT_LIMIT, OUTPUT_LIMIT),
+                )
             )
             try:
                 await wait_for_proxy(sockets / "proxy.sock", client, output, PROXY_READY_SECONDS)
@@ -134,7 +142,9 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     finally:
         os.close(read)
         try:
-            jail.log = log.read_text(encoding="utf-8", errors="replace")
+            with log.open("rb") as file:
+                file.seek(max(file.seek(0, io.SEEK_END) - PROXY_LOG_LIMIT, 0))
+                jail.log = file.read(PROXY_LOG_LIMIT).decode(errors="replace")
         except OSError as error:
             # 3: past contextlib's __aexit__, to whoever entered the block.
             warnings.warn(
