@@ -3,8 +3,8 @@ import stat
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
-_DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-_FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+_DIR = os.O_DIRECTORY | os.O_NOFOLLOW
+_FILE = os.O_NOFOLLOW | os.O_NONBLOCK
 
 
 def read_transcript(home: Path, pattern: str) -> dict[str, str]:
@@ -16,7 +16,7 @@ def read_transcript(home: Path, pattern: str) -> dict[str, str]:
     a file that won't open is skipped, so the agent can't break the run's result.
     """
     transcript = {}
-    home_fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY)
+    home_fd = os.open(home, os.O_DIRECTORY)
     try:
         for path in sorted(home.glob(pattern)):
             relative = path.relative_to(home)
