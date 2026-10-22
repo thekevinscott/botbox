@@ -20,6 +20,7 @@ from botbox.docker.reap import reap
 from botbox.docker.remove import remove
 from botbox.docker.run import run
 from botbox.docker.run_docker import run_docker
+from botbox.docker.spawn import spawn
 from botbox.docker.version import version
 from botbox.docker.wait import wait
 
@@ -98,13 +99,13 @@ sys.exit(int(sys.argv[-2]))
 ZOMBIES = """
 import asyncio, ctypes, os, sys
 from botbox.docker.reap import reap
-from botbox.docker.run import run
+from botbox.docker.spawn import spawn
 
 PR_SET_CHILD_SUBREAPER = 36
 ctypes.CDLL(None).prctl(PR_SET_CHILD_SUBREAPER, 1)
 
 async def main():
-    process = await run([], stdin=None, stdout=asyncio.subprocess.PIPE, stderr=None)
+    process = await spawn([], stdin=None, stdout=asyncio.subprocess.PIPE, stderr=None)
     drain = asyncio.ensure_future(process.stdout.read())
     while not os.path.exists(os.environ["PIDS"]) or not open(os.environ["PIDS"]).read():
         await asyncio.sleep(0.01)
@@ -259,16 +260,34 @@ def describe_docker() -> None:
         install(RECORD)
         await remove("sdk-box")
 
-    async def it_hands_back_an_attached_run_with_its_streams(install: Install) -> None:
-        install("import sys; print(sys.argv[1:], sys.stdin.read())")
-        process = await run(
-            ["--interactive", "busybox", "cat"],
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=None,
+    async def it_runs_an_attached_run_to_its_exit_into_its_buffers(install: Install) -> None:
+        install(
+            "import sys; print(sys.argv[1:], sys.stdin.read()); "
+            "print('said this', file=sys.stderr); sys.exit(3)"
         )
-        stdout, _ = await process.communicate(b"hello")
-        assert stdout == b"['run', '--interactive', 'busybox', 'cat'] hello\n"
+        read, write = os.pipe()
+        os.write(write, b"hello")
+        os.close(write)
+        stdout, stderr = bytearray(), bytearray()
+        try:
+            code = await run(["busybox", "cat"], stdin=read, stdout=stdout, stderr=stderr)
+        finally:
+            os.close(read)
+        assert code == 3
+        assert stdout == b"['run', 'busybox', 'cat'] hello\n"
+        assert stderr == b"said this\n"
+
+    async def it_kills_an_attached_run_that_ignores_the_terminate_when_cancelled(
+        install: Install, pids: Path
+    ) -> None:
+        install(STUBBORN)
+        out, err = bytearray(), bytearray()
+        task = asyncio.ensure_future(run([], stdin=None, stdout=out, stderr=err))
+        (client,) = await started(pids)
+        started_at = time.monotonic()
+        await cancel_twice(task)
+        assert await gone(client)
+        assert time.monotonic() - started_at < 1
 
     def describe_stopping() -> None:
         async def it_reaps_a_client_that_floods_stderr_while_stopping(
@@ -285,7 +304,7 @@ def describe_docker() -> None:
             install: Install, pids: Path
         ) -> None:
             install(STUBBORN)
-            process = await run([], stdin=None, stdout=None, stderr=None)
+            process = await spawn([], stdin=None, stdout=None, stderr=None)
             (client,) = await started(pids)
             await reap(process, grace=0.2)
             assert await gone(client)
@@ -294,7 +313,7 @@ def describe_docker() -> None:
             install: Install, pids: Path
         ) -> None:
             install(ORPHAN)
-            process = await run(
+            process = await spawn(
                 [], stdin=None, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             assert process.stdout is not None
@@ -311,7 +330,7 @@ def describe_docker() -> None:
             install: Install, pids: Path
         ) -> None:
             install(ORPHAN)
-            process = await run([], stdin=None, stdout=None, stderr=None)
+            process = await spawn([], stdin=None, stdout=None, stderr=None)
             _, child = await started(pids)
             await exited(process)
             await reap(process, grace=0.2)
