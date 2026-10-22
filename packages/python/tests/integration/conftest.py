@@ -1,12 +1,11 @@
 """Integration tests: Docker mocked at the python_on_whales boundary."""
 
 import argparse
-import asyncio
 import io
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from python_on_whales.exceptions import DockerException
@@ -175,59 +174,3 @@ def docker(daemon: Daemon) -> Iterator[dict[str, MagicMock]]:
             "cli": cli,
             "popen": popen,
         }
-
-
-class Buildx:
-    """The `docker buildx build` client as `AsyncBotbox.build()` spawns it.
-
-    `fails` maps a tag to the stderr its build exits 1 with; every other build succeeds.
-    """
-
-    def __init__(self) -> None:
-        self.builds: list[dict[str, Any]] = []
-        self.fails: dict[str, bytes] = {}
-
-
-BUILDX = argparse.ArgumentParser()
-BUILDX.add_argument("--load", action="store_true")
-BUILDX.add_argument("--progress")
-BUILDX.add_argument("--tag")
-BUILDX.add_argument("--file")
-BUILDX.add_argument("--build-context", dest="contexts", action="append", default=[])
-BUILDX.add_argument("context")
-
-
-@pytest.fixture
-def buildx() -> Buildx:
-    return Buildx()
-
-
-@pytest.fixture(autouse=True)
-def buildx_client(buildx: Buildx) -> Iterator[MagicMock]:
-    """Every subprocess `AsyncBotbox.build()` spawns, patched where asyncio defines it."""
-    with patch("asyncio.create_subprocess_exec", autospec=True) as spawn:
-
-        async def start(*argv: str, **_options: Any) -> MagicMock:
-            assert list(argv[:3]) == ["docker", "buildx", "build"]
-            options = vars(BUILDX.parse_args(argv[3:]))
-            file = Path(options["file"])
-            buildx.builds.append(
-                {
-                    **options,
-                    "context": Path(options["context"]),
-                    "file": file,
-                    "text": file.read_text(),
-                    "contexts": dict(c.split("=", 1) for c in options["contexts"]),
-                }
-            )
-            stderr = buildx.fails.get(options["tag"])
-            process = MagicMock()
-            process.stderr = asyncio.StreamReader()
-            process.stderr.feed_data(stderr or b"")
-            process.stderr.feed_eof()
-            process.returncode = 0 if stderr is None else 1
-            process.wait = AsyncMock(return_value=process.returncode)
-            return process
-
-        spawn.side_effect = start
-        yield spawn

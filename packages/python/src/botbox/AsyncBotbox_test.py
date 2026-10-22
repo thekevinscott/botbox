@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -43,12 +44,37 @@ def build_steps() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def buildx(steps: list[str]) -> Iterator[Mock]:
+def docker_build(steps: list[str]) -> Iterator[Mock]:
     async def build(_context: Path, *, tag: str, **_options: Any) -> None:
         steps.append(f"build {tag}")
 
-    with patch("botbox.AsyncBotbox.buildx", autospec=True, side_effect=build) as m:
+    with patch("botbox.AsyncBotbox.docker_build", autospec=True, side_effect=build) as m:
         yield m
+
+
+class CommandFailed(Exception):
+    def __init__(self, docker_command: list[str], return_code: int, stderr: str) -> None:
+        self.docker_command = docker_command
+        self.return_code = return_code
+        self.stderr = stderr
+
+
+class DockerException(Exception):
+    def __init__(
+        self, command_launched: list[str], return_code: int, stderr: bytes | None = None
+    ) -> None:
+        self.command_launched = command_launched
+        self.return_code = return_code
+        self.stderr = stderr
+
+
+@pytest.fixture(autouse=True)
+def exceptions() -> Iterator[None]:
+    with (
+        patch("botbox.AsyncBotbox.CommandFailed", CommandFailed),
+        patch("botbox.AsyncBotbox.DockerException", DockerException),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -101,9 +127,9 @@ def describe_build() -> None:
         build_steps.return_value = [AGENT_STEP]
         assert await AsyncBotbox(agent).build() == "an-agent:latest"
 
-    async def it_builds_each_step_with_buildx(agent: Mock, buildx: Mock) -> None:
+    async def it_builds_each_step_with_the_docker_sdk(agent: Mock, docker_build: Mock) -> None:
         await AsyncBotbox(agent).build()
-        assert buildx.call_args_list == [
+        assert docker_build.call_args_list == [
             call(
                 Path("/agents"),
                 tag="an-agent:latest",
@@ -130,9 +156,46 @@ def describe_build() -> None:
         ]
 
     async def it_stops_at_the_first_failed_step(
-        agent: Mock, buildx: Mock, steps: list[str]
+        agent: Mock, docker_build: Mock, steps: list[str]
     ) -> None:
-        buildx.side_effect = RuntimeError("agent failed")
+        docker_build.side_effect = RuntimeError("agent failed")
         with pytest.raises(RuntimeError, match="agent failed"):
             await AsyncBotbox(agent).build()
+        assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
+
+    async def it_raises_a_failed_build_as_botboxs_docker_exception(
+        agent: Mock, docker_build: Mock
+    ) -> None:
+        failed = CommandFailed(["docker", "buildx", "build"], 1, "ERROR: failed to solve\n")
+        docker_build.side_effect = failed
+        with pytest.raises(DockerException) as raised:
+            await AsyncBotbox(agent).build()
+        assert raised.value.command_launched == ["docker", "buildx", "build"]
+        assert raised.value.return_code == 1
+        assert raised.value.stderr == b"ERROR: failed to solve\n"
+        assert raised.value.__cause__ is failed
+
+    async def it_releases_the_lock_when_a_build_fails(
+        agent: Mock, docker_build: Mock, steps: list[str]
+    ) -> None:
+        docker_build.side_effect = CommandFailed(["docker"], 1, "")
+        with pytest.raises(DockerException):
+            await AsyncBotbox(agent).build()
+        assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
+
+    async def it_releases_the_lock_when_a_build_is_cancelled(
+        agent: Mock, docker_build: Mock, steps: list[str]
+    ) -> None:
+        started = asyncio.Event()
+
+        async def hang(*_args: object, **_options: object) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        docker_build.side_effect = hang
+        build = asyncio.create_task(AsyncBotbox(agent).build())
+        await started.wait()
+        build.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await build
         assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
