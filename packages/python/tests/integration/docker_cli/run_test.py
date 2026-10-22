@@ -1,6 +1,7 @@
 """`Botbox.run()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+import os
 import contextlib
 from pathlib import Path
 from typing import Any
@@ -345,11 +346,14 @@ def describe_run() -> None:
             assert homes(temp) == []
 
 
-def describe_explicit_container_user() -> None:
-    @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
-    async def it_preserves_identity_and_home(box: Botbox, daemon: Daemon, user: str) -> None:
-        custom = Botbox(box.agent, user=user)
-        await custom.run("true")
+def describe_the_agent_user() -> None:
+    @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
+    async def it_is_the_host_user_with_the_staged_home(
+        box: Botbox, daemon: Daemon, monkeypatch: pytest.MonkeyPatch, uid: int, gid: int
+    ) -> None:
+        monkeypatch.setattr(os, "getuid", lambda: uid)
+        monkeypatch.setattr(os, "getgid", lambda: gid)
+        await Botbox(box.agent).run("true")
         [agent] = daemon.runs("botbox-agent-")
-        assert option(agent, "--user") == user
+        assert option(agent, "--user") == f"{uid}:{gid}"
         assert "HOME=/home/user" in agent

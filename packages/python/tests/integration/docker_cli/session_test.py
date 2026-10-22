@@ -1,6 +1,7 @@
 """`Botbox.session()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+import os
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -259,12 +260,15 @@ def describe_session() -> None:
             assert homes(temp) == []
 
 
-def describe_explicit_container_user() -> None:
-    @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
-    async def it_preserves_identity_and_home(talker: Botbox, daemon: Daemon, user: str) -> None:
-        custom = Botbox(talker.agent, user=user)
-        async with custom.session() as live:
+def describe_the_agent_user() -> None:
+    @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
+    async def it_is_the_host_user_with_the_staged_home(
+        talker: Botbox, daemon: Daemon, monkeypatch: pytest.MonkeyPatch, uid: int, gid: int
+    ) -> None:
+        monkeypatch.setattr(os, "getuid", lambda: uid)
+        monkeypatch.setattr(os, "getgid", lambda: gid)
+        async with Botbox(talker.agent).session() as live:
             await live.message("hi")
         [agent] = daemon.runs("botbox-agent-")
-        assert option(agent, "--user") == user
+        assert option(agent, "--user") == f"{uid}:{gid}"
         assert "HOME=/home/user" in agent
