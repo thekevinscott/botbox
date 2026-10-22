@@ -50,8 +50,8 @@ def describe_Capture() -> None:
             capture.release()
             os.write(held, b"partial")
             await asyncio.sleep(0.01)
+        await asyncio.wait_for(capture.eof, 1)
         assert into == b"partial"
-        assert capture.eof.done()
         with pytest.raises(BrokenPipeError):
             os.write(held, b"more")
         os.close(held)
