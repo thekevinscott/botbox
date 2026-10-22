@@ -16,6 +16,7 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'How It Works', link: '/explanation/' },
+          { text: 'Threat Model', link: '/threat-model' },
         ],
       },
       {

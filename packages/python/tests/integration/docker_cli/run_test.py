@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -163,7 +164,9 @@ def describe_run() -> None:
             assert homes(temp) == []
 
         @pytest.mark.parametrize("agent_class", [ClaudeAgent, CodexAgent, PiAgent])
-        def it_ships_the_relay_into_every_agent_image(agent_class: type) -> None:
+        def it_ships_the_relay_into_every_agent_image(
+            agent_class: type[ClaudeAgent | CodexAgent | PiAgent],
+        ) -> None:
             text = agent_class.dockerfile.read_text()
             assert RELAY_COPY in text
             assert "socat" in text
@@ -351,3 +354,11 @@ def describe_run() -> None:
             assert isinstance(error, DockerException)
             assert daemon.containers == []
             assert homes(temp) == []
+
+
+def describe_the_agent_user() -> None:
+    async def it_is_the_host_user_with_the_staged_home(box: Botbox, daemon: Daemon) -> None:
+        await Botbox(box.agent).run("true")
+        [agent] = daemon.runs("botbox-agent-")
+        assert option(agent, "--user") == f"{os.getuid()}:{os.getgid()}"
+        assert "HOME=/home/user" in agent

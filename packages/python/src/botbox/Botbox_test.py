@@ -118,6 +118,11 @@ def describe_botbox() -> None:
         with pytest.raises(ValueError, match=r"^stderr_limit must be at least 0, got -2$"):
             Botbox(agent, stderr_limit=-2)
 
+    def it_refuses_to_run_an_agent_as_root(agent: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(os, "getuid", lambda: 0)
+        with pytest.raises(RuntimeError, match="root"):
+            Botbox(agent)
+
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
         def threads() -> Iterator[MagicMock]:
@@ -707,6 +712,15 @@ def describe_run() -> None:
             assert options["stdin"] == asyncio.subprocess.DEVNULL
             assert options["stdout"] is not options["stderr"]
 
+        @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
+        async def it_runs_the_agent_as_the_host_user(
+            runner: Mock, docker_run: Mock, monkeypatch: pytest.MonkeyPatch, uid: int, gid: int
+        ) -> None:
+            monkeypatch.setattr(os, "getuid", lambda: uid)
+            monkeypatch.setattr(os, "getgid", lambda: gid)
+            await Botbox(runner).run("true")
+            assert agent_options(docker_run)["user"] == f"{uid}:{gid}"
+
         async def it_joins_the_proxy_with_no_network_as_the_unprivileged_user(
             runner: Mock, docker_run: Mock
         ) -> None:
@@ -714,10 +728,10 @@ def describe_run() -> None:
             options = agent_options(docker_run)
             assert options["network"] == "none"
             assert options["pid"] == f"container:{PROXY}"
-            assert options["user"] == "user"
+            assert options["user"] == f"{os.getuid()}:{os.getgid()}"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
-            assert options["env"] == ["HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
 
         async def it_mounts_the_home_the_sockets_and_the_callers_mounts(
             runner: Mock, docker_run: Mock, scratch: Path
@@ -987,6 +1001,16 @@ def describe_session() -> None:
             assert options["label"] == f"botbox.run={TOKEN}"
             assert "--rm" not in session_args(hold_session)
 
+        @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
+        async def it_runs_the_agent_as_the_host_user(
+            talker: Mock, hold_session: Mock, monkeypatch: pytest.MonkeyPatch, uid: int, gid: int
+        ) -> None:
+            monkeypatch.setattr(os, "getuid", lambda: uid)
+            monkeypatch.setattr(os, "getgid", lambda: gid)
+            async with Botbox(talker).session():
+                pass
+            assert session_options(hold_session)["user"] == f"{uid}:{gid}"
+
         async def it_is_locked_down_like_a_run(
             talker: Mock, hold_session: Mock, scratch: Path
         ) -> None:
@@ -995,10 +1019,10 @@ def describe_session() -> None:
             options = session_options(hold_session)
             assert options["network"] == "none"
             assert options["pid"] == f"container:{PROXY}"
-            assert options["user"] == "user"
+            assert options["user"] == f"{os.getuid()}:{os.getgid()}"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
-            assert options["env"] == ["HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
             assert options["workdir"] == "/home/user/src"
             assert options["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",

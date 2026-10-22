@@ -8,7 +8,7 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.296
 
 RUN usermod --login user --home /home/user --move-home node && groupmod --new-name user node
 
-RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + && chmod 666 /etc/passwd
 
 COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay
 
