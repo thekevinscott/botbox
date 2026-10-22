@@ -46,6 +46,19 @@ def settle(name, status, code=0):
     (state / f"{name}.json").write_text(json.dumps(container))
 
 
+def exit_container(name, code=0):
+    # A container rm already removed stays removed: r+ never recreates the file.
+    try:
+        with open(state / f"{name}.json", "r+") as file:
+            container = json.load(file)
+            container.update(Status="exited", ExitCode=code)
+            file.seek(0)
+            file.truncate()
+            json.dump(container, file)
+    except FileNotFoundError:
+        pass
+
+
 command = argv[0]
 if command == "buildx":
     if option("--tag") in plan.get("builds_fail", ()):
@@ -83,7 +96,7 @@ elif option("--name").startswith("botbox-proxy-"):
         log.mkdir()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
-    settle(name, "exited")
+    exit_container(name)
 else:
     name = option("--name")
     agent = plan["agents"].get(argv[-1], {})
@@ -117,7 +130,7 @@ else:
         (state / f"{name}.hanging").write_text(str(os.getpid()))
         while os.getppid() == owner:
             time.sleep(0.05)
-        settle(name, "exited", 137)
+        exit_container(name, 137)
         sys.exit(137)
     if mode == "daemon_gone":
         (state / "down").touch()
@@ -125,9 +138,9 @@ else:
     if mode == "client_dies":
         os.kill(os.getpid(), signal.SIGKILL)
     if mode == "client_dies_after_exit":
-        settle(name, "exited", 0)
+        exit_container(name, 0)
         os.kill(os.getpid(), signal.SIGKILL)
-    settle(name, "exited", agent.get("exit", 0))
+    exit_container(name, agent.get("exit", 0))
     sys.exit(agent.get("exit", 0))
 """
 
