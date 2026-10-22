@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -366,6 +367,15 @@ def scratch(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def open_umask() -> Iterator[None]:
+    previous = os.umask(0)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.fixture
 def runner() -> Mock:
     """An agent that runs: its home, credentials, hosts and transcripts."""
     agent = Mock(image="an-agent:latest", home="/home/user", allow=("api.anthropic.com",))
@@ -541,6 +551,13 @@ def describe_run() -> None:
         await Botbox(runner).run("true")
         runner.stage_auth.assert_called_once_with(scratch / "home")
         assert (scratch / "home" / ".credentials").read_text() == "token"
+
+    @pytest.mark.usefixtures("open_umask")
+    async def it_keeps_the_home_to_its_owner_whatever_the_umask(
+        runner: Mock, scratch: Path
+    ) -> None:
+        await Botbox(runner).run("true")
+        assert (scratch / "home").stat().st_mode & 0o777 == 0o700
 
     async def it_locks_down_with_the_agents_hosts_and_the_boxs(
         runner: Mock, lockdown: Mock, scratch: Path
@@ -791,6 +808,14 @@ def describe_session() -> None:
         with pytest.raises(TypeError):
             async with Botbox(talker).session(()):  # type: ignore[call-arg]
                 pass
+
+    @pytest.mark.usefixtures("open_umask")
+    async def it_keeps_the_home_to_its_owner_whatever_the_umask(
+        talker: Mock, scratch: Path
+    ) -> None:
+        async with Botbox(talker).session():
+            pass
+        assert (scratch / "home").stat().st_mode & 0o777 == 0o700
 
     async def it_checks_the_mounts_before_building(
         talker: Mock, bind_mounts: Mock, docker_build: Mock

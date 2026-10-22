@@ -1,0 +1,1 @@
+**Fixed**: the agent's temp home is created owner-only (0700) whatever the host's umask. Under a permissive umask, an agent running as another uid could write into the home and leave a directory the host couldn't delete, so cleanup failed and the staged credentials stayed on disk. An agent whose uid differs from yours now can't write the home at all.
