@@ -102,8 +102,8 @@ tag = await AsyncBotbox(ClaudeAgent(), dockerfile="./Dockerfile").build()
 
 - Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.
 - The containers don't remove themselves. The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`, and the temp home is named `botbox-<token>-*`. A process killed outright (SIGKILL) leaves them stopped, for a sweep to remove.
-- If the Docker client dies while the daemon is still up, `run()` raises `DockerException` instead of returning. So does a container that never started, such as an image the daemon can't find. If the daemon goes away mid-run, `exit_code` is -1, as for `run()`.
-- A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back.
+- If the Docker client dies or is killed while the daemon is still up, `run()` raises `DockerException` instead of returning. So does a container that never started: an image the daemon can't find raises `DockerException` with `return_code` 125, where `Botbox.run()` returns a `RunResult` with `exit_code` 125. If the daemon goes away mid-run, `exit_code` is -1, as for `run()`.
+- A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back. So is a container removal the daemon hasn't finished within 30 seconds, and a proxy log that can't be read, which leaves `proxy` empty.
 - Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.
 
 ```python
