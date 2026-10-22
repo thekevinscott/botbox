@@ -377,6 +377,40 @@ def describe_lockdown() -> None:
                 )
                 assert mode == "ro"
 
+        def it_brackets_an_ipv6_literal_as_the_request_url_does(
+            jail: Jail, popen: MagicMock
+        ) -> None:
+            with jail(allow=("2001:db8::1",)):
+                source, _ = volumes(popen)["/etc/tinyproxy/filter"]
+                assert source.read_text() == (
+                    "^\\[2001:db8::1\\](:443)?$\n^http://\\[2001:db8::1\\](:80)?(/|$)\n"
+                )
+
+        @pytest.mark.parametrize(
+            ("host", "authority"),
+            [
+                ("2001:db8::1", "[2001:db8::1]"),
+                ("192.0.2.1", "192.0.2.1"),
+                ("api.anthropic.com", "api.anthropic.com"),
+            ],
+        )
+        def it_matches_the_urls_tinyproxy_filters_only_on_443_and_80(
+            jail: Jail, popen: MagicMock, host: str, authority: str
+        ) -> None:
+            """tinyproxy reads each line as a case-insensitive ERE; they read the same in `re`."""
+            with jail(allow=(host,)):
+                source, _ = volumes(popen)["/etc/tinyproxy/filter"]
+                patterns = source.read_text().splitlines()
+
+            def admitted(url: str) -> bool:
+                return any(re.search(p, url, re.IGNORECASE) for p in patterns)
+
+            assert admitted(f"{authority}:443")
+            assert admitted(f"http://{authority}/")
+            assert admitted(f"http://{authority}:80/")
+            assert not admitted(f"{authority}:8022")
+            assert not admitted(f"http://{authority}:8022/")
+
         def it_is_readable_by_the_proxy_user(jail: Jail, popen: MagicMock) -> None:
             with jail():
                 source, _ = volumes(popen)["/etc/tinyproxy/filter"]
