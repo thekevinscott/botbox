@@ -4,6 +4,7 @@ from python_on_whales.exceptions import DockerException
 
 from botbox.agents import Agent, ClaudeAgent, CodexAgent, PiAgent, SessionAgent
 from botbox.AsyncBotbox import AsyncBotbox
+from botbox.AsyncSession import AsyncSession
 from botbox.Botbox import Botbox
 from botbox.RunResult import RunResult
 from botbox.Session import Session
@@ -11,6 +12,7 @@ from botbox.Session import Session
 __all__ = [
     "Agent",
     "AsyncBotbox",
+    "AsyncSession",
     "Botbox",
     "ClaudeAgent",
     "CodexAgent",
