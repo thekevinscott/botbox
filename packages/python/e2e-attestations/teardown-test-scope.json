@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/teardown_test.py ",
+  "ran_at": 1792704653,
+  "exit_code": 0,
+  "commit": "322559e73075503e702d986b824205702202398a",
+  "branch": "teardown-test-scope"
+}
