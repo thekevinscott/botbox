@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/transcript_test.py ",
+  "ran_at": 1792704732,
+  "exit_code": 0,
+  "commit": "c1edcdbc90a686bb44163ae771c17c4ce00c8194",
+  "branch": "read-transcript-nofollow"
+}
