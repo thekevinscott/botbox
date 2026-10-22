@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file /home/duncan/work/code/research/botbox/.env pytest tests/e2e/session_artifacts_test.py -q --tb=short --basetemp /tmp/botbox-artifacts-e2e",
+  "ran_at": 1792682766,
+  "exit_code": 0,
+  "commit": "8d5eec7a6e2e0eb134137664bdf46f97ff81c49f",
+  "branch": "fix/session-failure-artifacts"
+}
