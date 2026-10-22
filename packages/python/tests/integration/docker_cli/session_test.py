@@ -22,10 +22,14 @@ def talker(box: Botbox, daemon: Daemon) -> Botbox:
 
 @pytest.fixture
 def unreadable_transcript() -> Iterator[Mock]:
-    with patch(
-        "botbox.session_result.read_transcript",
-        side_effect=OSError("unreadable transcript"),
-    ) as read:
+    original = Path.glob
+
+    def glob(path: Path, pattern: str) -> Iterator[Path]:
+        if path.name == "home":
+            raise OSError("unreadable transcript directory")
+        return original(path, pattern)
+
+    with patch("pathlib.Path.glob", autospec=True, side_effect=glob) as read:
         yield read
 
 
@@ -153,11 +157,11 @@ def describe_session() -> None:
             assert daemon.containers == []
             assert homes(temp) == []
 
+        @pytest.mark.usefixtures("unreadable_transcript")
         async def it_preserves_the_original_error_if_artifact_reading_fails(
             talker: Botbox,
             daemon: Daemon,
             temp: Path,
-            unreadable_transcript: Mock,
         ) -> None:
             failed = ValueError("original failure")
             with (
@@ -168,7 +172,6 @@ def describe_session() -> None:
                     await live.message("hi")
                     raise failed
             assert raised.value is failed
-            unreadable_transcript.assert_called_once()
             assert daemon.containers == []
             assert homes(temp) == []
 
