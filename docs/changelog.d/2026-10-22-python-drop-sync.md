@@ -1,0 +1,3 @@
+**Removed** (**BREAKING**, see [the migration](../migrations.d/2026-10-22-python-drop-sync.md)): the sync `Botbox` and `Session`, and the python-on-whales dependency.
+
+**Changed** (**BREAKING**): `AsyncBotbox` is now `Botbox`, and `AsyncSession` is now `Session`. There is no `AsyncBotbox` alias. `build()`, `run()` and `session()` are async. `botbox.DockerException` is botbox's own class, with `docker_command`, `return_code` and `stderr` as text. A missing image raises it instead of returning exit 125. Containers are removed by the run, not by `--rm`, and carry the label `botbox.run=<token>`. Teardown failures after the command ran are `RuntimeWarning`s.

@@ -3,7 +3,7 @@
 Give the agent directories to read or write by passing bind mounts to `run()`.
 
 ```python
-result = box.run(
+result = await box.run(
     command=agent.command("Fix the tests"),
     mounts=[
         ("./reference", "/reference", "ro"),
