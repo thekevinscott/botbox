@@ -1,17 +1,34 @@
+import asyncio
 from collections.abc import Sequence
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from python_on_whales.exceptions import DockerException
 
+from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent
 from botbox.async_build_lock import async_build_lock
+from botbox.async_lockdown import async_lockdown
+from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.docker.build import build as docker_build
 from botbox.docker.DockerException import DockerException as CommandFailed
+from botbox.docker.remove import remove
+from botbox.docker.run import run as docker_run
+from botbox.docker.settle import settle
+from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown
+from botbox.RunResult import RunResult
+from botbox.Session import read_transcript
+from botbox.warned import warned
 
 
 class AsyncBotbox:
-    """`Botbox` for asyncio: an agent, an optional image layer on top of it, and extra hosts."""
+    """`Botbox` for asyncio: an agent, an optional image layer on top of it, and extra hosts.
+
+    Don't fork while a run is in progress: a forked child shares the loop's state and holds
+    the run's pipes.
+    """
 
     def __init__(
         self,
@@ -46,3 +63,94 @@ class AsyncBotbox:
                         error.docker_command, error.return_code, stderr=error.stderr.encode()
                     ) from error
         return steps[-1].tag
+
+    async def run(
+        self,
+        command: str,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+    ) -> RunResult:
+        """Run `command` as `sh -c` in the locked-down container and return what it left.
+
+        The same run as `Botbox.run()`: the same lockdown, home, mounts and result. A non-zero
+        exit is a normal result; so is the daemon going away mid-run, with `exit_code` -1.
+
+        Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
+        temp home before the cancel propagates, through any number of further cancels. Both
+        containers are labelled `botbox.run=<token>`, and the temp home is named after the
+        token. Raises `DockerException` if setup fails or the container never ran to its exit
+        while the daemon was up. A teardown step that fails is a warning, never the error.
+        """
+        agent = self.agent
+        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        image = await self.build()
+        token = uuid4().hex[:12]
+        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
+        try:
+            home = Path(scratch.name) / "home"
+            home.mkdir()
+            agent.stage_auth(home)
+            allow = (*agent.allow, *self.allow)
+            try:
+                async with async_lockdown(allow, Path(scratch.name), token) as jail:
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    stdout, stderr, exit_code = await self._attach(
+                        token, [*flags, image, RELAY, "sh", "-c", command]
+                    )
+                    transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+            except CommandFailed as error:
+                raise DockerException(
+                    error.docker_command, error.return_code, stderr=error.stderr.encode()
+                ) from error
+        finally:
+            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
+
+    async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
+        """Run the agent container to its exit, remove it, and return its output and exit code."""
+        name = f"botbox-agent-{token}"
+        args = ["--name", name, *args]
+        out, err = bytearray(), bytearray()
+        try:
+            client = await docker_run(
+                args, stdin=asyncio.subprocess.DEVNULL, stdout=out, stderr=err
+            )
+            stderr = err.decode(errors="replace")
+            exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
+        finally:
+            await settle(warned(remove(name), f"remove its agent container {name}"))
+        return out.decode(errors="replace"), stderr, exit_code
+
+    def _lockdown_flags(
+        self,
+        token: str,
+        home: Path,
+        jail: Lockdown,
+        volumes: list[tuple[str, str, str]],
+        workdir: str | Path | None,
+    ) -> list[str]:
+        """`docker run` flags for an agent container, in the proxy's PID namespace, with no network.
+
+        No `--rm`: the run reads the exit code from the stopped container, then removes it.
+        """
+        agent = self.agent
+        mounts = [(str(home), agent.home, "rw"), (str(jail.sockets), SOCKET_DIR, "ro"), *volumes]
+        return [
+            "--label",
+            f"botbox.run={token}",
+            *[flag for k, v in jail.envs.items() for flag in ("--env", f"{k}={v}")],
+            *[flag for m in mounts for flag in ("--volume", ":".join(m))],
+            "--workdir",
+            agent.home if workdir is None else Path(workdir).as_posix(),
+            "--network",
+            "none",
+            "--pid",
+            f"container:{jail.proxy}",
+            "--user",
+            "user",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+        ]
