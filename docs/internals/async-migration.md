@@ -136,7 +136,7 @@ async with asyncio.timeout(600):
 - Don't catch `CancelledError` without re-raising it.
 - SIGTERM inside `async with Botbox(...)` cancels the task that entered the block, then raises `SystemExit(143)` once teardown is done. Outside the block, SIGTERM keeps Python's default and exits without teardown.
 
-Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`, for #60's sweep.
+Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`. The next run's sweep, or `botbox.reap()`, removes them and the temp home.
 
 ## Errors
 

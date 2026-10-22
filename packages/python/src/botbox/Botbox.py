@@ -5,7 +5,6 @@ import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
@@ -15,12 +14,14 @@ from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
+from botbox.Claim import Claim
 from botbox.docker.build import build as docker_build
 from botbox.docker.run import run as docker_run
 from botbox.docker.settle import settle
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.read_transcript import read_transcript
+from botbox.reap import reap
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import Session
@@ -130,30 +131,32 @@ class Botbox:
 
         Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
         temp home before the cancel propagates, through any number of further cancels. Both
-        containers are labelled `botbox.run=<token>`, and the temp home is named after the
-        token. Raises `DockerException` if setup fails or the container never ran to its exit
-        while the daemon was up. A teardown step that fails, or a container removal that takes
-        longer than 30 seconds, is a warning, never the error.
+        containers are labelled `botbox.run=<token>`, and the temp home is `<token>` in a
+        per-user dir under the system temp dir. A run first sweeps up after runs whose owner
+        died (see `reap()`). Raises `DockerException` if setup fails or the container never ran
+        to its exit while the daemon was up. A teardown step that fails, or a container removal
+        that takes longer than 30 seconds, is a warning, never the error.
         """
         agent = self.agent
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        await reap()
         image = await self.build()
         token = uuid4().hex[:12]
-        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
+        claim = Claim(token)
         try:
-            home = Path(scratch.name) / "home"
+            home = claim.path / "home"
             # Owner-only, so an agent under another uid can't leave files the host can't delete.
             home.mkdir(mode=0o700)
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
-            async with lockdown(allow, Path(scratch.name), token) as jail:
+            async with lockdown(allow, claim.path, token) as jail:
                 flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                 stdout, stderr, exit_code = await self._attach(
                     token, [*flags, image, RELAY, "sh", "-c", command]
                 )
                 transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
         finally:
-            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+            await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
         return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
 
     @asynccontextmanager
@@ -179,17 +182,18 @@ class Botbox:
             raise TypeError(f"{type(agent).__name__} has no session mode")
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        await reap()
         image = await self.build()
         token = uuid4().hex[:12]
-        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
+        claim = Claim(token)
         live = None
         exit_code = -1
         try:
-            home = Path(scratch.name) / "home"
+            home = claim.path / "home"
             home.mkdir(mode=0o700)
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
-            async with lockdown(allow, Path(scratch.name), token) as jail:
+            async with lockdown(allow, claim.path, token) as jail:
                 name = f"botbox-agent-{token}"
                 flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                 args = [
@@ -222,7 +226,7 @@ class Botbox:
                         )
                     )
             finally:
-                await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+                await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
 
     async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
         """Run the agent container to its exit, remove it, and return its output and exit code."""

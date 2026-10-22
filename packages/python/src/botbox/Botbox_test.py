@@ -366,7 +366,7 @@ PROXY = "botbox-proxy-0123456789ab"
 
 @pytest.fixture
 def scratch(tmp_path: Path) -> Path:
-    scratch = tmp_path / f"botbox-{TOKEN}-x"
+    scratch = tmp_path / TOKEN
     scratch.mkdir()
     return scratch
 
@@ -397,10 +397,20 @@ def uuid4() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def temporary_directory(scratch: Path, steps: list[str]) -> Iterator[Mock]:
-    with patch("botbox.Botbox.TemporaryDirectory", autospec=True) as m:
-        m.return_value.name = str(scratch)
+def claim(scratch: Path, steps: list[str]) -> Iterator[Mock]:
+    with patch("botbox.Botbox.Claim", autospec=True) as m:
+        m.return_value.path = scratch
         m.return_value.cleanup.side_effect = lambda: steps.append("remove temp home")
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def reap(steps: list[str]) -> Iterator[Mock]:
+    async def reap() -> list[str]:
+        steps.append("reap")
+        return []
+
+    with patch("botbox.Botbox.reap", autospec=True, side_effect=reap) as m:
         yield m
 
 
@@ -546,11 +556,20 @@ def describe_run() -> None:
         )
         docker_build.assert_not_called()
 
-    async def it_names_the_temp_home_after_the_run_token(
-        runner: Mock, temporary_directory: Mock
+    async def it_claims_a_temp_home_named_after_the_run_token(runner: Mock, claim: Mock) -> None:
+        await Botbox(runner).run("true")
+        claim.assert_called_once_with(TOKEN)
+
+    async def it_reaps_dead_runs_after_checking_the_mounts_and_before_building(
+        runner: Mock, bind_mounts: Mock, steps: list[str]
     ) -> None:
         await Botbox(runner).run("true")
-        temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
+        assert steps[0] == "reap"
+        bind_mounts.side_effect = ValueError("no such path")
+        steps.clear()
+        with pytest.raises(ValueError, match="no such path"):
+            await Botbox(runner).run("true")
+        assert steps == []
 
     async def it_stages_the_credentials_into_a_fresh_home(runner: Mock, scratch: Path) -> None:
         await Botbox(runner).run("true")
@@ -844,11 +863,12 @@ def describe_session() -> None:
         docker_build.assert_not_called()
 
     async def it_stages_a_home_named_after_the_run_token_and_locks_it_down(
-        talker: Mock, temporary_directory: Mock, lockdown: Mock, scratch: Path
+        talker: Mock, claim: Mock, lockdown: Mock, scratch: Path, steps: list[str]
     ) -> None:
         async with Botbox(talker, allow=["registry.npmjs.org"]).session():
             pass
-        temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
+        assert steps[0] == "reap"
+        claim.assert_called_once_with(TOKEN)
         assert (scratch / "home" / ".credentials").read_text() == "token"
         lockdown.assert_called_once_with(
             ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN

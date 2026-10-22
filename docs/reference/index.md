@@ -54,7 +54,7 @@ await box.run(
 Returns a [`RunResult`](#runresult). A non-zero exit is a normal `RunResult`.
 
 - Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.
-- The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`, and the temp home is named `botbox-<token>-*`. A process killed outright (SIGKILL) leaves them stopped, for a sweep to remove.
+- The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`. The temp home is `<token>/` in `botbox-<uid>/` under the system temp directory. A process killed outright (SIGKILL) leaves them behind, for [`reap()`](#reap) to remove. Each run calls it first.
 - A Docker failure during setup raises `botbox.DockerException`, with the command in `docker_command`, its `return_code` and its `stderr` as text. So does a Docker client that dies or is killed while the daemon is still up, and a container that never started: an image the daemon can't find raises with `return_code` 125. If the daemon goes away mid-run, `exit_code` is -1.
 - A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back. So is a container removal the daemon hasn't finished within 30 seconds, and a proxy log that can't be read, which leaves `proxy` empty.
 
@@ -111,5 +111,18 @@ live.result -> RunResult | None
 ```
 
 `live.stream(text)` sends `text` and yields each event as the CLI prints it, one per JSON line on its stdout. It ends after the event that ends the agent's turn. Lines that aren't JSON objects are skipped, and stay in the result's `stdout`. If the CLI exits mid-turn, the stream ends with what arrived. Leave the loop early and the rest of that turn is read and dropped before the next message is sent. `await live.message(text)` collects a whole turn into a list. Run one turn at a time. There is no timeout; wrap a turn in `asyncio.timeout` to bound it, which ends the session.
+
+## `reap()`
+
+```python
+await botbox.reap() -> list[str]
+```
+
+Removes what runs whose owner died left behind, and returns their tokens. A run's containers go, in any state, and so does its temp home, with the credentials staged in it. Every `run()` and `session()` calls it before it builds. Call it yourself to clean up without starting a run.
+
+- A run counts as dead when its lock is free. The owner holds an exclusive `flock` on `botbox-<uid>/<token>.lock` for the run's whole life, and the kernel drops it however the owner dies. There are no pid or host checks, so an owner in another container or on another host never looks dead.
+- It sweeps only the current user's runs, and only containers on the daemon `docker` reaches now. A dead run whose containers live on another daemon loses its temp home, and the containers stay.
+- A run it can't clear is a `RuntimeWarning`, and the next sweep tries again.
+- Runs that died before this release left their temp homes as `botbox-<token>-*` in the system temp directory. Those aren't swept.
 
 See also: [Guides](../guide/), [How It Works](../explanation/).
