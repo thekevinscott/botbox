@@ -1,6 +1,6 @@
 # Reference
 
-The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session` and `build()`. The agent classes are on the [harness pages](../harnesses/).
+The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session`, `build()` and `AsyncBotbox`. The agent classes are on the [harness pages](../harnesses/).
 
 ## `Botbox`
 
@@ -81,5 +81,20 @@ box.build() -> str
 Builds the agent's image, then your `dockerfile` on top, and returns the tag. `run()` calls this every time.
 
 Concurrent builds of one tag, from any process, take turns. Safe to call from parallel runs.
+
+## `AsyncBotbox`
+
+```python
+AsyncBotbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[str] = ())
+await box.build() -> str
+```
+
+`Botbox` for asyncio, with the same arguments. So far it has only `build()`. `run()` and `session()` come later.
+
+`await box.build()` builds the same images as `build()` and returns the same tag. Concurrent builds of one tag take turns with each other and with sync `build()`s, from any process, without blocking the event loop. Cancelling the task, or an `asyncio.timeout` firing, stops the build in progress. A failed build raises `DockerException` with the build's error in `stderr`.
+
+```python
+tag = await AsyncBotbox(ClaudeAgent(), dockerfile="./Dockerfile").build()
+```
 
 See also: [Guides](../guide/), [How It Works](../explanation/).

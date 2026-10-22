@@ -126,7 +126,7 @@ def describe_build() -> None:
                     build_contexts={"botbox": RELAY_DIR},
                     progress=False,
                 ),
-                call(layer.parent, tags=tag, file=layer, progress=False),
+                call(layer.parent, tags=tag, file=layer, build_contexts={}, progress=False),
             ]
 
     def it_holds_each_tags_lock_only_while_building_it(
