@@ -82,6 +82,11 @@ def describe_run_docker() -> None:
         assert raised.value.return_code == 1
         assert raised.value.stderr == "no such image�"
 
+    async def it_raises_when_a_signal_killed_the_client(spawn: AsyncMock) -> None:
+        spawn.return_value = Process(code=-9)
+        with pytest.raises(DockerException):
+            await run_docker("rm", "x")
+
     async def it_keeps_only_the_end_of_a_long_stderr(spawn: AsyncMock) -> None:
         spawn.return_value = Process(stderr=b"x" * STDERR_LIMIT * 2 + b"the error", code=1)
         with pytest.raises(DockerException) as raised:
