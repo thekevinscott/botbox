@@ -30,7 +30,7 @@ def state() -> dict[str, Any]:
 
 @pytest.fixture(autouse=True)
 def inspect(state: dict[str, Any]) -> Iterator[AsyncMock]:
-    with patch("botbox.agent_exit.inspect", autospec=True) as m:
+    with patch("botbox.agent_exit.inspect_container", autospec=True) as m:
         m.return_value = {"Name": "/botbox-agent-1", "State": state}
         yield m
 

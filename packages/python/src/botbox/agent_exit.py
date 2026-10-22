@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 
 from botbox.docker.DockerException import DockerException
-from botbox.docker.inspect import inspect
+from botbox.docker.inspect_container import inspect_container
 from botbox.docker.version import version
 
 
@@ -13,7 +13,7 @@ async def agent_exit(container: str, command: Sequence[str], client: int, stderr
     stderr, if the container never ran to its exit while the daemon was up.
     """
     try:
-        state = (await inspect(container))["State"]
+        state = (await inspect_container(container))["State"]
     except DockerException:
         try:
             await version()
