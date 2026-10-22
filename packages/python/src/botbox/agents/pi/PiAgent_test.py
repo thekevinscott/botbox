@@ -21,10 +21,14 @@ def agent(pi_home: Path) -> PiAgent:
 
 
 @pytest.fixture
-def local_host(monkeypatch: pytest.MonkeyPatch) -> str:
-    host = "model-host.example"
-    monkeypatch.setenv("PI_AGENT_HOST", host)
-    return host
+def custom_home(tmp_path: Path) -> Path:
+    home = tmp_path / "custom-home"
+    home.mkdir()
+    (home / "auth.json").write_text("{}")
+    (home / "models.json").write_text(
+        json.dumps({"providers": {"ollama": {"baseUrl": "http://models.example:11434/v1"}}})
+    )
+    return home
 
 
 @pytest.fixture
@@ -67,23 +71,25 @@ def describe_the_provider() -> None:
     def it_allows_the_host_openrouter_answers_on() -> None:
         assert PiAgent(provider="openrouter").allow == ("openrouter.ai",)
 
-    def it_allows_the_host_the_local_model_serves_from(local_host: str) -> None:
-        assert PiAgent(provider="tower").allow == (local_host,)
+    def it_allows_the_host_of_a_custom_providers_base_url(custom_home: Path) -> None:
+        assert PiAgent("ollama", host_home=custom_home).allow == ("models.example",)
 
-    def it_refuses_a_local_provider_with_no_host_configured(
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.delenv("PI_AGENT_HOST", raising=False)
-        with pytest.raises(ValueError, match="PI_AGENT_HOST"):
-            PiAgent(provider="tower")
+    def it_refuses_a_provider_missing_from_models_json(custom_home: Path) -> None:
+        with pytest.raises(ValueError, match=r"'vllm'.*models\.json"):
+            PiAgent("vllm", host_home=custom_home)
 
-    def it_rejects_a_provider_it_has_no_allowlist_for() -> None:
-        with pytest.raises(ValueError, match="anthropic"):
-            PiAgent(provider="anthropic")
+    def it_refuses_a_custom_provider_with_no_base_url(custom_home: Path) -> None:
+        (custom_home / "models.json").write_text(json.dumps({"providers": {"ollama": {}}}))
+        with pytest.raises(ValueError, match="baseUrl"):
+            PiAgent("ollama", host_home=custom_home)
 
-    def it_lists_the_providers_it_knows() -> None:
-        with pytest.raises(ValueError, match="openrouter, tower"):
-            PiAgent(provider="")
+    def it_refuses_a_custom_provider_when_there_is_no_models_json(tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match=r"'ollama'.*models\.json"):
+            PiAgent("ollama", host_home=tmp_path)
+
+    def it_refuses_a_custom_provider_with_an_api_key(custom_home: Path) -> None:
+        with pytest.raises(ValueError, match="api_key"):
+            PiAgent("ollama", api_key="k", host_home=custom_home)
 
 
 def describe_stage_auth() -> None:
@@ -164,8 +170,18 @@ def describe_command() -> None:
             "pi -p 'Fix the tests' --mode json --provider openrouter"
         )
 
-    def it_runs_against_the_local_provider(local_host: str) -> None:  # noqa: ARG001
-        assert PiAgent(provider="tower").command("hi") == "pi -p hi --mode json --provider tower"
+    def it_passes_a_custom_provider_through(custom_home: Path) -> None:
+        assert PiAgent("ollama", host_home=custom_home).command("hi") == (
+            "pi -p hi --mode json --provider ollama"
+        )
+
+    def it_shell_quotes_the_provider(tmp_path: Path) -> None:
+        (tmp_path / "models.json").write_text(
+            json.dumps({"providers": {"a b; id": {"baseUrl": "https://models.example"}}})
+        )
+        agent = PiAgent("a b; id", host_home=tmp_path)
+        assert agent.command("hi") == "pi -p hi --mode json --provider 'a b; id'"
+        assert agent.session_command() == "pi --mode rpc --provider 'a b; id'"
 
     def it_shell_quotes_the_prompt() -> None:
         assert PiAgent(provider="openrouter").command("it's $HOME") == (

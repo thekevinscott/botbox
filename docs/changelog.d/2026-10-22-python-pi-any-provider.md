@@ -1,0 +1,1 @@
+**Fixed**: `PiAgent` accepts any provider defined in `~/.pi/agent/models.json` and admits the host of its `baseUrl`. Before, it only accepted `openrouter` and a provider hard-coded to one machine's setup, whose host came from `PI_AGENT_HOST`. That provider and the variable are gone. The provider name is now shell-quoted in the command.

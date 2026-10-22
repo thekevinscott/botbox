@@ -1,6 +1,6 @@
 # pi
 
-`PiAgent` runs the pi coding agent against a model provider: OpenRouter, or a model host on your own network.
+`PiAgent` runs the pi coding agent against a model provider: one of pi's built-ins, or one you define in `~/.pi/agent/models.json`.
 
 ```python
 PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
@@ -8,7 +8,7 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 
 | Option     | Default       | Meaning                                         |
 | ---------- | ------------- | ----------------------------------------------- |
-| `provider` | required      | `openrouter` or `tower`                         |
+| `provider` | required      | passed as `--provider`                          |
 | `model`    | the CLI's own | passed as `--model`                             |
 | `api_key`  | `None`        | a key for `provider`, instead of the host login |
 
@@ -22,8 +22,8 @@ async with Botbox(agent) as box:
 
 ## Providers
 
-- `openrouter`: OpenRouter.
-- `tower`: a model host on your own network. Set `PI_AGENT_HOST` to the host it serves from, or `PiAgent` raises `ValueError`.
+- `openrouter`: OpenRouter. The proxy admits `openrouter.ai`.
+- Any other name: a provider defined in `~/.pi/agent/models.json`. The proxy admits the host of its `baseUrl`. If the provider isn't there, or has no `baseUrl`, `PiAgent` raises `ValueError`. With `api_key` no `models.json` is staged, so only `openrouter` works.
 
 ## Credentials
 

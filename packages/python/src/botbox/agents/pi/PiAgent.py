@@ -1,32 +1,34 @@
 import json
-import os
 import shlex
 import shutil
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
-
-PROVIDER_HOST_VARIABLES = {"tower": "PI_AGENT_HOST"}
-
-PROVIDERS = (*PROVIDER_HOSTS, *PROVIDER_HOST_VARIABLES)
 
 AUTH = "auth.json"
 MODELS = "models.json"
 
 
-def resolve_allow(provider: str) -> tuple[str, ...]:
+def resolve_allow(provider: str, models: Path, *, staged: bool) -> tuple[str, ...]:
     if provider in PROVIDER_HOSTS:
         return PROVIDER_HOSTS[provider]
-    variable = PROVIDER_HOST_VARIABLES[provider]
-    host = os.environ.get(variable)
+    if not staged:
+        raise ValueError(
+            f"provider {provider!r} is not built in, and with api_key no {MODELS} is staged"
+        )
+    providers = json.loads(models.read_text()).get("providers", {}) if models.is_file() else {}
+    if provider not in providers:
+        raise ValueError(f"provider {provider!r} is not built in and not defined in {models}")
+    host = urlparse(providers[provider].get("baseUrl", "")).hostname
     if not host:
-        raise ValueError(f"provider {provider!r} needs {variable} set to the host it serves from")
+        raise ValueError(f"provider {provider!r} in {models} has no baseUrl with a host")
     return (host,)
 
 
 class PiAgent:
-    """pi, on OpenRouter or a local model host."""
+    """pi, on OpenRouter or any provider defined in models.json."""
 
     image = "botbox-pi:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
@@ -41,22 +43,20 @@ class PiAgent:
         api_key: str | None = None,
         host_home: Path | None = None,
     ) -> None:
-        if provider not in PROVIDERS:
-            raise ValueError(f"unknown provider {provider!r}: expected {', '.join(PROVIDERS)}")
         self.provider = provider
         self.model = model
         self.api_key = api_key
-        self.allow = resolve_allow(provider)
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
+        self.allow = resolve_allow(provider, self.host_home / MODELS, staged=api_key is None)
 
     def command(self, prompt: str) -> str:
-        command = f"pi -p {shlex.quote(prompt)} --mode json --provider {self.provider}"
+        command = f"pi -p {shlex.quote(prompt)} --mode json --provider {shlex.quote(self.provider)}"
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
         return command
 
     def session_command(self) -> str:
-        command = f"pi --mode rpc --provider {self.provider}"
+        command = f"pi --mode rpc --provider {shlex.quote(self.provider)}"
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
         return command
