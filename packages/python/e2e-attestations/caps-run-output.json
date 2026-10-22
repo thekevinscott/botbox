@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/lockdown_test.py ",
+  "ran_at": 1792704871,
+  "exit_code": 0,
+  "commit": "9ffa79f58752fe44a3f923e8320a79701a687865",
+  "branch": "caps-run-output"
+}
