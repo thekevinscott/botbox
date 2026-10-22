@@ -14,5 +14,5 @@ def run_docker() -> Iterator[AsyncMock]:
 
 def describe_remove() -> None:
     async def it_force_removes_the_container(run_docker: AsyncMock) -> None:
-        assert await remove("sdk-box") is None
+        await remove("sdk-box")
         run_docker.assert_awaited_once_with("rm", "--force", "sdk-box")

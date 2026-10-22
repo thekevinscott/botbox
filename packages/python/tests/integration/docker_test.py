@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.docker import reap
 from botbox.docker.build import build
 from botbox.docker.DockerException import DockerException
+from botbox.docker.reap import reap
 from botbox.docker.remove import remove
 from botbox.docker.run import run
 from botbox.docker.run_docker import run_docker
@@ -47,6 +47,11 @@ with open(os.environ["PIDS"], "w") as f:
     f.write(f"{os.getpid()}")
 time.sleep(60)
 """
+
+
+@pytest.fixture(autouse=True)
+def docker() -> None:
+    """Overrides conftest's, which patches `subprocess.Popen` that asyncio spawns through."""
 
 
 @pytest.fixture
@@ -90,9 +95,9 @@ async def cancel_twice(task: asyncio.Task[object]) -> None:
     task.cancel()
     await asyncio.sleep(0.01)
     task.cancel()
-    async with asyncio.timeout(10):
-        with pytest.raises(asyncio.CancelledError):
-            await task
+    # Not asyncio.timeout: a teardown that absorbs cancels would absorb its cancel too.
+    await asyncio.wait({task}, timeout=10)
+    assert task.cancelled()
 
 
 def describe_docker() -> None:
@@ -146,7 +151,7 @@ def describe_docker() -> None:
         stdout, _ = await process.communicate(b"hello")
         assert stdout == b"['run', '--interactive', 'busybox', 'cat'] hello\n"
 
-    def describe_cancelled() -> None:
+    def describe_stopping() -> None:
         async def it_reaps_a_client_that_floods_stderr_while_stopping(
             install: Install, pids: Path
         ) -> None:
@@ -157,12 +162,11 @@ def describe_docker() -> None:
             assert await gone(client)
             assert await gone(child)
 
-        async def it_kills_a_client_that_ignores_the_terminate(
+        async def it_kills_a_client_that_ignores_the_terminate_after_the_grace(
             install: Install, pids: Path
         ) -> None:
             install(STUBBORN)
-            with patch.object(reap, "GRACE", 0.2):
-                task = asyncio.create_task(run_docker("buildx", "build"))
-                (client,) = await started(pids)
-                await cancel_twice(task)
+            process = await run([], stdin=None, stdout=None, stderr=None)
+            (client,) = await started(pids)
+            await reap(process, grace=0.2)
             assert await gone(client)

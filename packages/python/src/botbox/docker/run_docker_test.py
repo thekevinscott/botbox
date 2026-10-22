@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.DockerException import DockerException
 from botbox.docker.run_docker import STDERR_LIMIT, run_docker
 
 
@@ -29,8 +28,21 @@ class Process:
         return self.code
 
 
+class DockerException(Exception):
+    def __init__(self, docker_command: list[str], return_code: int, stderr: str) -> None:
+        self.docker_command = docker_command
+        self.return_code = return_code
+        self.stderr = stderr
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch("botbox.docker.run_docker.DockerException", DockerException):
+        yield
+
+
 @pytest.fixture
-def process() -> Process:
+async def process() -> Process:
     return Process(stdout=b'{"Version":"29"}\n')
 
 
@@ -88,7 +100,7 @@ def describe_run_docker() -> None:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        (reaped, *drains), _ = reap.await_args
+        reaped, *drains = reap.await_args_list[0].args
         assert reaped is process
         assert len(drains) == 2
 

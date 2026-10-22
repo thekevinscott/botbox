@@ -35,7 +35,7 @@ def describe_build() -> None:
             file=Path("/ctx/D"),
             contexts={"botbox": Path("/relay"), "base": "docker-image://busybox"},
         )
-        assert run_docker.await_args.args[6:] == (
+        assert run_docker.await_args_list[0].args[6:] == (
             "--file",
             "/ctx/D",
             "--build-context",
