@@ -1,4 +1,7 @@
+import os
+import shutil
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -51,10 +54,45 @@ def describe_read_transcript() -> None:
             (home / "sessions" / "host").symlink_to(secret.parent)
             assert read_transcript(home, "sessions/*/*.jsonl") == {}
 
-        def it_reads_a_link_that_stays_in_the_home(home: Path) -> None:
+        def it_skips_a_link_that_stays_in_the_home(home: Path) -> None:
             (home / "sessions" / "a.jsonl").write_text("a")
             (home / "sessions" / "b.jsonl").symlink_to(home / "sessions" / "a.jsonl")
-            assert read_transcript(home, "sessions/*.jsonl") == {
-                "sessions/a.jsonl": "a",
-                "sessions/b.jsonl": "a",
-            }
+            assert read_transcript(home, "sessions/*.jsonl") == {"sessions/a.jsonl": "a"}
+
+        def it_skips_a_fifo(home: Path) -> None:
+            os.mkfifo(home / "sessions" / "a.jsonl")
+            assert read_transcript(home, "sessions/*.jsonl") == {}
+
+        def describe_a_link_swapped_in_while_reading() -> None:
+            @pytest.fixture(params=["glob", "resolve"])
+            def swap(
+                request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, home: Path
+            ) -> list[Path]:
+                swaps: list[Path] = []
+                original = getattr(Path, request.param)
+
+                def then_swap(self: Path, *args: Any) -> Any:
+                    result = original(self, *args)
+                    while swaps and self != home:
+                        link, target = swaps.pop(0), swaps.pop(0)
+                        shutil.rmtree(link) if link.is_dir() else link.unlink()
+                        link.symlink_to(target)
+                    return result
+
+                monkeypatch.setattr(Path, request.param, then_swap)
+                return swaps
+
+            def it_skips_a_file_swapped_for_a_link_out_of_the_home(
+                home: Path, secret: Path, swap: list[Path]
+            ) -> None:
+                (home / "sessions" / "a.jsonl").write_text("a")
+                swap += [home / "sessions" / "a.jsonl", secret]
+                assert "host secret" not in read_transcript(home, "sessions/*.jsonl").values()
+
+            def it_skips_a_directory_swapped_for_a_link_out_of_the_home(
+                home: Path, secret: Path, swap: list[Path]
+            ) -> None:
+                (home / "sessions" / "host").mkdir()
+                (home / "sessions" / "host" / "secret.jsonl").write_text("a")
+                swap += [home / "sessions" / "host", secret.parent]
+                assert "host secret" not in read_transcript(home, "sessions/*/*.jsonl").values()
