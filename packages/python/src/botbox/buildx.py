@@ -13,8 +13,9 @@ async def buildx(
 ) -> None:
     """Build and load `tag` with `docker buildx build`; raise `DockerException` if it fails.
 
-    The error carries the last `STDERR_LIMIT` bytes of stderr. Cancelling stops the client,
-    and BuildKit drops the build when its client goes.
+    The error carries the last `STDERR_LIMIT` bytes of stderr. Cancelling stops the client and
+    waits for it to exit, however many cancels arrive meanwhile; BuildKit drops the build when
+    its client goes.
     """
     argv = [
         "docker",
@@ -38,6 +39,8 @@ async def buildx(
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
+        # Out of the caller's process group: Ctrl-C reaches it only as a cancel.
+        start_new_session=True,
     )
     assert process.stderr is not None
     tail = b""
@@ -48,7 +51,10 @@ async def buildx(
     except BaseException:
         with suppress(ProcessLookupError):
             process.terminate()
-        await asyncio.shield(process.wait())
+        reaped = asyncio.ensure_future(process.wait())
+        while not reaped.done():
+            with suppress(asyncio.CancelledError):
+                await asyncio.shield(reaped)
         raise
     if code != 0:
         raise DockerException(argv, code, stderr=tail.decode(errors="replace").encode())
