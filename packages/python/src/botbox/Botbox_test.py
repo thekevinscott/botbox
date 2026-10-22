@@ -978,9 +978,7 @@ def describe_session() -> None:
                 "/src:/home/user/src:ro",
             ]
 
-        async def it_caps_memory_and_pids_as_the_box_says(
-            talker: Mock, hold_session: Mock
-        ) -> None:
+        async def it_caps_memory_and_pids_as_the_box_says(talker: Mock, hold_session: Mock) -> None:
             async with Botbox(talker, memory="2g", pids=None).session():
                 pass
             options = session_options(hold_session)
