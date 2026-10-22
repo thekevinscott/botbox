@@ -1,7 +1,8 @@
-import hashlib
+import fcntl
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from threading import Event, Thread
+from typing import IO
 from unittest.mock import patch
 
 import pytest
@@ -12,8 +13,8 @@ WAIT = 0.2
 
 
 @pytest.fixture(autouse=True)
-def tempdir(tmp_path: Path) -> Iterator[Path]:
-    with patch("botbox.build_lock.gettempdir", return_value=str(tmp_path)):
+def lock_dir(tmp_path: Path) -> Iterator[Path]:
+    with patch("botbox.build_lock.build_lock_path", lambda tag: tmp_path / f"{tag}.lock"):
         yield tmp_path
 
 
@@ -54,9 +55,16 @@ def describe_build_lock() -> None:
         assert acquires("another-agent:latest").wait(WAIT * 10)
         release.set()
 
-    def it_keeps_its_lock_file_in_the_temp_dir(tempdir: Path) -> None:
-        with build_lock("an-agent:latest"):
-            pass
-        [path] = tempdir.iterdir()
-        digest = hashlib.sha256(b"an-agent:latest").hexdigest()[:12]
-        assert path.name == f"botbox-build-{digest}.lock"
+    def it_locks_the_file_build_lock_path_names(lock_dir: Path) -> None:
+        with build_lock("an-agent:latest"), (lock_dir / "an-agent:latest.lock").open() as f:
+            assert not try_lock(f)
+        with (lock_dir / "an-agent:latest.lock").open() as f:
+            assert try_lock(f)
+
+
+def try_lock(f: IO[str]) -> bool:
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    return True
