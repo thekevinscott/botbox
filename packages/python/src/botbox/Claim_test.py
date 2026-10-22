@@ -1,13 +1,12 @@
-import fcntl
 import os
 from collections.abc import Iterator
+from io import BufferedWriter
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from botbox.Claim import Claim
-from botbox.close_held import HELD
 
 TOKEN = "0123456789ab"
 
@@ -18,16 +17,17 @@ def runs(tmp_path: Path) -> Iterator[Path]:
         yield tmp_path
 
 
-def locked(lock: Path) -> bool:
-    """Whether another open of `lock` finds it held, as a sweep would."""
-    fd = os.open(lock, os.O_RDONLY)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    finally:
-        os.close(fd)
-    return False
+@pytest.fixture(autouse=True)
+def fcntl() -> Iterator[MagicMock]:
+    with patch("botbox.Claim.fcntl") as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def held() -> Iterator[set[BufferedWriter]]:
+    held: set[BufferedWriter] = set()
+    with patch("botbox.Claim.HELD", held):
+        yield held
 
 
 def describe_claim() -> None:
@@ -37,31 +37,44 @@ def describe_claim() -> None:
         assert claim.path.stat().st_mode & 0o777 == 0o700
         claim.cleanup()
 
-    def it_holds_the_lock_beside_it_for_as_long_as_it_lives(runs: Path) -> None:
+    def it_locks_the_lock_file_beside_it_without_blocking(runs: Path, fcntl: MagicMock) -> None:
         claim = Claim(TOKEN)
         assert sorted(p.name for p in runs.iterdir()) == [TOKEN, f"{TOKEN}.lock"]
-        assert locked(runs / f"{TOKEN}.lock")
+        [(lock, flags)] = [c.args for c in fcntl.flock.call_args_list]
+        assert flags == fcntl.LOCK_EX | fcntl.LOCK_NB
+        assert os.fstat(lock.fileno()).st_ino == (runs / f"{TOKEN}.lock").stat().st_ino
+        assert not lock.closed
         claim.cleanup()
 
-    def it_locks_before_the_lock_file_has_its_name() -> None:
-        seen: list[bool] = []
+    def it_locks_before_the_lock_file_has_its_name(fcntl: MagicMock) -> None:
+        seen: list[int] = []
         hardlink_to = Path.hardlink_to
 
         def check(self: Path, target: Path) -> None:
-            seen.append(locked(target))
+            seen.append(fcntl.flock.call_count)
             hardlink_to(self, target)
 
         with patch.object(Path, "hardlink_to", check):
             Claim(TOKEN).cleanup()
-        assert seen == [True]
+        assert seen == [1]
 
-    def it_removes_the_dir_then_the_lock_and_lets_go(runs: Path) -> None:
+    def it_is_closed_in_forked_children_until_it_lets_go(held: set[BufferedWriter]) -> None:
+        claim = Claim(TOKEN)
+        [lock] = held
+        claim.cleanup()
+        assert held == set()
+        assert lock.closed
+
+    def it_removes_the_dir_then_the_lock_and_lets_go(runs: Path, fcntl: MagicMock) -> None:
         claim = Claim(TOKEN)
         (claim.path / "home").mkdir()
         claim.cleanup()
         assert list(runs.iterdir()) == []
+        assert fcntl.flock.call_args.args[0].closed
 
-    def it_keeps_the_lock_file_for_a_sweep_when_the_dir_will_not_go(runs: Path) -> None:
+    def it_keeps_the_lock_file_for_a_sweep_when_the_dir_will_not_go(
+        runs: Path, fcntl: MagicMock, held: set[BufferedWriter]
+    ) -> None:
         claim = Claim(TOKEN)
         with (
             patch("botbox.Claim.remove_tree", side_effect=PermissionError("agent's")),
@@ -69,23 +82,26 @@ def describe_claim() -> None:
         ):
             claim.cleanup()
         assert (runs / f"{TOKEN}.lock").exists()
-        assert not locked(runs / f"{TOKEN}.lock")
+        assert fcntl.flock.call_args.args[0].closed
+        assert held == set()
 
-    def it_refuses_a_token_already_claimed() -> None:
+    def it_refuses_a_lock_file_left_half_made(runs: Path) -> None:
+        (runs / f".{TOKEN}.pending").touch()
+        with pytest.raises(FileExistsError):
+            Claim(TOKEN)
+
+    def it_refuses_a_token_already_claimed(runs: Path) -> None:
         claim = Claim(TOKEN)
         with pytest.raises(FileExistsError):
             Claim(TOKEN)
+        assert sorted(p.name for p in runs.iterdir()) == [TOKEN, f"{TOKEN}.lock"]
         claim.cleanup()
 
-    def it_lets_go_when_it_cannot_make_the_dir(runs: Path) -> None:
+    def it_lets_go_when_it_cannot_make_the_dir(
+        runs: Path, fcntl: MagicMock, held: set[BufferedWriter]
+    ) -> None:
         (runs / TOKEN).mkdir()
         with pytest.raises(FileExistsError):
             Claim(TOKEN)
-        assert not locked(runs / f"{TOKEN}.lock")
-
-    def it_is_closed_in_forked_children_until_it_lets_go() -> None:
-        claim = Claim(TOKEN)
-        assert claim._held in HELD  # noqa: SLF001
-        claim.cleanup()
-        assert claim._held not in HELD  # noqa: SLF001
-        assert claim._held.closed  # noqa: SLF001
+        assert fcntl.flock.call_args.args[0].closed
+        assert held == set()

@@ -1,4 +1,5 @@
 import shutil
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,10 @@ def remove_tree(path: Path) -> None:
         entry = Path(name)
         for directory in (entry.parent, entry):
             if directory.is_dir() and not directory.is_symlink():
-                directory.chmod(0o700)
+                directory.chmod(stat.S_IRWXU)
         if entry.is_dir() and not entry.is_symlink():
             shutil.rmtree(entry, onexc=reopen)
         else:
-            entry.unlink(missing_ok=True)
+            entry.unlink()
 
     shutil.rmtree(path, onexc=reopen)

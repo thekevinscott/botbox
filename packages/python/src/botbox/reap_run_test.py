@@ -1,8 +1,7 @@
-import fcntl
 import os
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -30,10 +29,11 @@ def run_docker() -> Iterator[AsyncMock]:
         yield m
 
 
-def held(lock: Path) -> int:
-    fd = os.open(lock, os.O_RDONLY)
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    return fd
+@pytest.fixture(autouse=True)
+def fcntl() -> Iterator[MagicMock]:
+    with patch("botbox.reap_run.fcntl") as m:
+        m.flock.return_value = None
+        yield m
 
 
 def describe_reap_run() -> None:
@@ -62,8 +62,9 @@ def describe_reap_run() -> None:
             run_docker.side_effect = OSError("daemon gone")
             with pytest.warns(
                 RuntimeWarning, match=f"^botbox could not reap run {TOKEN}: daemon gone$"
-            ):
+            ) as w:
                 assert await reap_run(lock) is False
+            assert w[0].filename == __file__
             assert lock.exists()
             assert (lock.parent / TOKEN / "home" / ".credentials").exists()
 
@@ -75,18 +76,25 @@ def describe_reap_run() -> None:
                 assert await reap_run(lock) is False
             assert lock.exists()
 
-        async def it_lets_go_of_the_lock(lock: Path) -> None:
+        async def it_takes_the_lock_without_blocking(lock: Path, fcntl: MagicMock) -> None:
             await reap_run(lock)
-            lock.touch()
-            os.close(held(lock))
+            [(_, flags)] = [c.args for c in fcntl.flock.call_args_list]
+            assert flags == fcntl.LOCK_EX | fcntl.LOCK_NB
+
+        async def it_lets_go_of_the_lock(lock: Path, fcntl: MagicMock) -> None:
+            with patch("botbox.reap_run.os.close", side_effect=os.close) as close:
+                await reap_run(lock)
+            [(fd, _)] = [c.args for c in fcntl.flock.call_args_list]
+            assert call(fd) in close.call_args_list
 
     def describe_when_the_owner_lives() -> None:
-        async def it_leaves_the_run_alone(lock: Path, run_docker: AsyncMock) -> None:
-            fd = held(lock)
-            try:
+        async def it_leaves_the_run_alone(
+            lock: Path, run_docker: AsyncMock, fcntl: MagicMock
+        ) -> None:
+            fcntl.flock.side_effect = BlockingIOError
+            with patch("botbox.reap_run.os.close", side_effect=os.close) as close:
                 assert await reap_run(lock) is False
-            finally:
-                os.close(fd)
+            close.assert_called_once()
             run_docker.assert_not_awaited()
             assert (lock.parent / TOKEN / "home" / ".credentials").exists()
             assert lock.exists()

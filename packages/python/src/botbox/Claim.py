@@ -1,5 +1,4 @@
 import fcntl
-import os
 
 from botbox.close_held import HELD
 from botbox.remove_tree import remove_tree
@@ -20,7 +19,7 @@ class Claim:
         self.path = root / token
         self.lock = root / f"{token}.lock"
         pending = root / f".{token}.pending"
-        self._held = os.fdopen(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb")
+        self._held = pending.open("xb")
         try:
             fcntl.flock(self._held, fcntl.LOCK_EX | fcntl.LOCK_NB)
             try:

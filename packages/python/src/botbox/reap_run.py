@@ -25,7 +25,7 @@ async def reap_run(lock: Path) -> bool:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return False
-        if os.fstat(fd).st_nlink == 0:
+        if not os.fstat(fd).st_nlink:
             return False
         try:
             found = await run_docker(

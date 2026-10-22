@@ -26,9 +26,10 @@ def describe_run_dir() -> None:
         (run_dir() / "kept").touch()
         assert (run_dir() / "kept").exists()
 
-    def it_refuses_one_others_can_open(temp: Path) -> None:
-        (temp / f"botbox-{os.getuid()}").mkdir(mode=0o755)
-        (temp / f"botbox-{os.getuid()}").chmod(0o755)
+    @pytest.mark.parametrize("mode", [0o755, 0o701, 0o720])
+    def it_refuses_one_others_can_open(temp: Path, mode: int) -> None:
+        (temp / f"botbox-{os.getuid()}").mkdir()
+        (temp / f"botbox-{os.getuid()}").chmod(mode)
         with pytest.raises(PermissionError, match="only you can open"):
             run_dir()
 
@@ -39,8 +40,9 @@ def describe_run_dir() -> None:
         with pytest.raises(PermissionError):
             run_dir()
 
-    def it_refuses_one_another_user_owns(temp: Path) -> None:
-        other = os.getuid() + 1
+    @pytest.mark.parametrize("offset", [1, -1])
+    def it_refuses_one_another_user_owns(temp: Path, offset: int) -> None:
+        other = os.getuid() + offset
         (temp / f"botbox-{other}").mkdir(mode=0o700)
         with (
             patch("botbox.run_dir.os.getuid", return_value=other),

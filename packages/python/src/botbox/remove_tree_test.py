@@ -1,4 +1,6 @@
+import shutil
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -51,3 +53,21 @@ def describe_remove_tree() -> None:
             remove_tree(tree)
         monkeypatch.undo()
         (tree / "a").chmod(0o700)
+
+    def it_gives_up_on_a_dir_that_stays_shut_once_opened(
+        tree: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tree / "a").chmod(0o000)
+        monkeypatch.setattr(Path, "chmod", lambda *_args, **_kwargs: None)
+        with pytest.raises(PermissionError):
+            remove_tree(tree)
+        monkeypatch.undo()
+        (tree / "a").chmod(0o700)
+
+    def it_raises_anything_but_a_permission_error(tree: Path) -> None:
+        with (
+            patch("botbox.remove_tree.shutil.rmtree", wraps=shutil.rmtree) as rmtree,
+            pytest.raises(OSError, match="disk on fire"),
+        ):
+            rmtree.side_effect = lambda path, onexc: onexc(None, str(path), OSError("disk on fire"))
+            remove_tree(tree)
