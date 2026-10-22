@@ -1,4 +1,3 @@
-import hashlib
 import signal
 import subprocess
 import threading
@@ -16,8 +15,9 @@ from python_on_whales.exceptions import DockerException
 from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
+from botbox.build_steps import build_steps
 from botbox.collect import collect
-from botbox.lockdown import RELAY, RELAY_DIR, SOCKET_DIR, Lockdown, lockdown
+from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.RunResult import RunResult
 from botbox.Session import Session, read_transcript
 
@@ -69,22 +69,17 @@ class Botbox:
         Built on every call; Docker's layer cache keeps an unchanged build fast. Concurrent
         builds of one tag, from any process, take turns.
         """
-        agent = self.agent
-        with build_lock(agent.image):
-            docker.build(
-                agent.dockerfile.parent,
-                tags=agent.image,
-                file=agent.dockerfile,
-                build_contexts={"botbox": RELAY_DIR},
-                progress=False,
-            )
-        if self.dockerfile is None:
-            return agent.image
-        digest = hashlib.sha256(str(self.dockerfile).encode()).hexdigest()[:12]
-        tag = f"{agent.image.split(':')[0]}-{digest}:latest"
-        with build_lock(tag):
-            docker.build(self.dockerfile.parent, tags=tag, file=self.dockerfile, progress=False)
-        return tag
+        steps = build_steps(self.agent, self.dockerfile)
+        for step in steps:
+            with build_lock(step.tag):
+                docker.build(
+                    step.context,
+                    tags=step.tag,
+                    file=step.file,
+                    build_contexts=step.contexts,
+                    progress=False,
+                )
+        return steps[-1].tag
 
     def run(
         self,
