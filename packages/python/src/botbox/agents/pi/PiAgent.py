@@ -11,7 +11,7 @@ AUTH = "auth.json"
 MODELS = "models.json"
 
 
-def resolve_allow(provider: str, models: Path, *, staged: bool) -> tuple[str, ...]:
+def resolve_allow(provider: str, models: Path, staged: bool) -> tuple[str, ...]:
     if provider in PROVIDER_HOSTS:
         return PROVIDER_HOSTS[provider]
     if not staged:
