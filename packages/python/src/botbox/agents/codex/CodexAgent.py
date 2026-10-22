@@ -31,7 +31,7 @@ class CodexAgent:
         self.model = model
         self.effort = effort
         self.api_key = api_key
-        self.allow = ("chatgpt.com",) if api_key is None else ("api.openai.com",)
+        self.allow: tuple[str, ...] = ("chatgpt.com",) if api_key is None else ("api.openai.com",)
         self.host_home = Path.home() / ".codex" if host_home is None else host_home
 
     def command(self, prompt: str) -> str:
