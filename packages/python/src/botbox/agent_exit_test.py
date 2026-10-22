@@ -48,7 +48,21 @@ def describe_agent_exit() -> None:
 
     async def it_believes_the_container_over_the_client(state: dict[str, Any]) -> None:
         state["ExitCode"] = 7
-        assert await agent_exit("botbox-agent-1", COMMAND, -9, "") == 7
+        assert await agent_exit("botbox-agent-1", COMMAND, 125, "") == 7
+
+    @pytest.mark.parametrize("client", [-9, -15, -1])
+    async def it_raises_with_a_killed_client_even_though_the_container_exited(
+        client: int,
+    ) -> None:
+        with pytest.raises(DockerException) as raised:
+            await agent_exit("botbox-agent-1", COMMAND, client, "trunc")
+        assert raised.value.docker_command == COMMAND
+        assert raised.value.return_code == client
+        assert raised.value.stderr == "trunc"
+
+    async def it_takes_a_client_exit_of_zero(state: dict[str, Any]) -> None:
+        state["ExitCode"] = 0
+        assert await agent_exit("botbox-agent-1", COMMAND, 0, "") == 0
 
     @pytest.mark.parametrize("status", ["running", "created", "dead"])
     async def it_raises_with_the_client_when_the_container_never_exited(
@@ -67,6 +81,13 @@ def describe_agent_exit() -> None:
         inspect.side_effect = DockerException(["docker", "container", "inspect"], 1, "")
         version.side_effect = DockerException(["docker", "version"], 1, "Cannot connect")
         assert await agent_exit("botbox-agent-1", COMMAND, 125, "") == -1
+
+    async def it_returns_minus_one_when_the_daemon_went_away_with_a_killed_client(
+        inspect: AsyncMock, version: AsyncMock
+    ) -> None:
+        inspect.side_effect = DockerException(["docker", "container", "inspect"], 1, "")
+        version.side_effect = DockerException(["docker", "version"], 1, "Cannot connect")
+        assert await agent_exit("botbox-agent-1", COMMAND, -9, "") == -1
 
     async def it_raises_with_the_client_when_there_is_no_such_container(
         inspect: AsyncMock, version: AsyncMock

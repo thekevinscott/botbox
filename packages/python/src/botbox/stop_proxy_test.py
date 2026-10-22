@@ -21,7 +21,7 @@ def stdin(steps: list[str]) -> Mock:
 
 @pytest.fixture(autouse=True)
 def remove() -> Iterator[Mock]:
-    with patch("botbox.stop_proxy.remove", Mock(return_value="removal")) as m:
+    with patch("botbox.stop_proxy.remove_within", Mock(return_value="removal")) as m:
         yield m
 
 

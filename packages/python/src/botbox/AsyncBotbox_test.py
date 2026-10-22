@@ -300,7 +300,7 @@ def remove(steps: list[str]) -> Iterator[Mock]:
         steps.append(f"remove {name}")
         return f"removal of {name}"
 
-    with patch("botbox.AsyncBotbox.remove", Mock(side_effect=removal)) as m:
+    with patch("botbox.AsyncBotbox.remove_within", Mock(side_effect=removal)) as m:
         yield m
 
 

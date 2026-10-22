@@ -71,7 +71,11 @@ elif option("--name").startswith("botbox-proxy-"):
     if plan.get("proxy_fails"):
         fail("tinyproxy: bad config\\n")
     settle(name, "running")
-    (volume("/var/log/tinyproxy") / "tinyproxy.log").write_text(plan.get("proxy_log", ""))
+    log = volume("/var/log/tinyproxy") / "tinyproxy.log"
+    log.write_bytes(plan.get("proxy_log", "").encode("latin-1"))
+    if plan.get("proxy_log_unreadable"):
+        log.unlink()
+        log.mkdir()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
     settle(name, "exited")
@@ -96,6 +100,9 @@ else:
         (state / "down").touch()
         sys.exit(125)
     if mode == "client_dies":
+        os.kill(os.getpid(), signal.SIGKILL)
+    if mode == "client_dies_after_exit":
+        settle(name, "exited", 0)
         os.kill(os.getpid(), signal.SIGKILL)
     settle(name, "exited", agent.get("exit", 0))
     sys.exit(agent.get("exit", 0))
@@ -213,6 +220,21 @@ def describe_async_run() -> None:
                 image="botbox-claude:latest",
             )
 
+        async def it_replaces_proxy_log_bytes_that_are_not_utf8(
+            box: AsyncBotbox, daemon: Daemon
+        ) -> None:
+            daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
+            assert (await box.run("true")).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
+
+        async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
+            box: AsyncBotbox, daemon: Daemon
+        ) -> None:
+            daemon.agent("true", stdout="out\n")
+            daemon.set(proxy_log_unreadable=True)
+            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: "):
+                result = await box.run("true")
+            assert (result.stdout, result.exit_code, result.proxy) == ("out\n", 0, "")
+
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: AsyncBotbox, daemon: Daemon
         ) -> None:
@@ -284,6 +306,15 @@ def describe_async_run() -> None:
             assert raised.value.stderr == "lost\n"
             assert daemon.containers == []
 
+        async def it_raises_when_the_client_is_killed_after_the_container_exits(
+            box: AsyncBotbox, daemon: Daemon
+        ) -> None:
+            daemon.agent("true", stdout="trunc", mode="client_dies_after_exit")
+            with pytest.raises(DockerException) as raised:
+                await box.run("true")
+            assert raised.value.return_code == -9
+            assert daemon.containers == []
+
         async def it_raises_when_the_container_never_ran(box: AsyncBotbox, daemon: Daemon) -> None:
             daemon.agent("true", missing=True)
             with pytest.raises(DockerException) as raised:
@@ -300,6 +331,18 @@ def describe_async_run() -> None:
                 await box.run("true")
             assert daemon.runs("botbox-agent-") == []
             assert homes(temp) == []
+
+        async def it_keeps_the_error_and_warns_when_the_proxy_log_will_not_read(
+            box: AsyncBotbox, daemon: Daemon
+        ) -> None:
+            daemon.agent("true", missing=True)
+            daemon.set(proxy_log_unreadable=True)
+            with (
+                pytest.warns(RuntimeWarning, match="could not read its proxy log"),
+                pytest.raises(DockerException) as raised,
+            ):
+                await box.run("true")
+            assert raised.value.return_code == 125
 
         async def it_returns_the_result_and_warns_when_teardown_fails(
             box: AsyncBotbox, daemon: Daemon
