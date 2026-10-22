@@ -156,7 +156,9 @@ def describe_run() -> None:
             assert homes(temp) == []
 
         @pytest.mark.parametrize("agent_class", [ClaudeAgent, CodexAgent, PiAgent])
-        def it_ships_the_relay_into_every_agent_image(agent_class: type) -> None:
+        def it_ships_the_relay_into_every_agent_image(
+            agent_class: type[ClaudeAgent | CodexAgent | PiAgent],
+        ) -> None:
             text = agent_class.dockerfile.read_text()
             assert RELAY_COPY in text
             assert "socat" in text

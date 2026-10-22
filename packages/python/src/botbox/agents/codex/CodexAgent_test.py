@@ -1,9 +1,13 @@
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from botbox.agents.codex.CodexAgent import CodexAgent
+
+if TYPE_CHECKING:
+    from botbox.agents.agent import Agent
 
 
 @pytest.fixture
@@ -52,6 +56,10 @@ def describe_the_container() -> None:
 
     def it_allows_only_the_openai_api_with_a_key() -> None:
         assert CodexAgent(api_key="k").allow == ("api.openai.com",)
+
+    def it_satisfies_the_agent_protocol(agent: CodexAgent) -> None:
+        typed: Agent = agent
+        assert typed.allow == ("chatgpt.com",)
 
 
 def describe_host_home() -> None:
