@@ -157,14 +157,19 @@ def describe_session() -> None:
             talker: Botbox, daemon: Daemon, temp: Path
         ) -> None:
             heard: list[object] = []
+            spoke = asyncio.Event()
 
             async def talk() -> None:
                 async with talker.session() as live:
                     async for event in live.stream("hang"):
                         heard.append(event)
+                        spoke.set()
 
             task = asyncio.ensure_future(talk())
             await daemon.hanging()
+            # The fake flags itself hanging before the loop may have read the event it printed.
+            async with asyncio.timeout(10):
+                await spoke.wait()
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
