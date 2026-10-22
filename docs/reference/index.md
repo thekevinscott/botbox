@@ -1,6 +1,6 @@
 # Reference
 
-The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session`, `build()` and `AsyncBotbox`. The agent classes are on the [harness pages](../harnesses/).
+The Python API: `Botbox`, `run()`, `RunResult`, `session()`, `Session`, `build()`, `AsyncBotbox` and `AsyncSession`. The agent classes are on the [harness pages](../harnesses/).
 
 ## `Botbox`
 
@@ -88,9 +88,10 @@ Concurrent builds of one tag, from any process, take turns. Safe to call from pa
 AsyncBotbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[str] = ())
 await box.build() -> str
 await box.run(command: str, *, mounts: Sequence[Mount] = (), workdir: str | Path | None = None) -> RunResult
+async with box.session(*, mounts: Sequence[Mount] = (), workdir: str | Path | None = None) as live: ...
 ```
 
-`Botbox` for asyncio, with the same arguments. It has `build()` and `run()`. `session()` comes later.
+`Botbox` for asyncio, with the same arguments. It has `build()`, `run()` and `session()`.
 
 `await box.build()` builds the same images as `build()` and returns the same tag. Concurrent builds of one tag take turns with each other and with sync `build()`s, from any process, without blocking the event loop. Cancelling the task, or an `asyncio.timeout` firing, stops the build in progress. A failed build raises `DockerException` with the build's error in `stderr`.
 
@@ -110,5 +111,30 @@ tag = await AsyncBotbox(ClaudeAgent(), dockerfile="./Dockerfile").build()
 async with asyncio.timeout(600):
     result = await AsyncBotbox(ClaudeAgent()).run("claude -p 'fix the failing test'")
 ```
+
+`async with box.session() as live` is [`session()`](#session) for asyncio. It yields an [`AsyncSession`](#asyncsession). The lockdown, labels, temp home and teardown are the same as for `run()`. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp home. Then the `RunResult` is in `live.result`. Where it differs from `Botbox.session()`:
+
+- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` stays `None`.
+- There is no `close()`. The block's end is the close.
+- A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends. `run()` raises in the same cases.
+- `session()` raises `TypeError` for an agent with no session mode, and `CodexAgent` raises `NotImplementedError`, both before anything is built.
+
+```python
+async with AsyncBotbox(ClaudeAgent()).session() as live:
+    async for event in live.stream("Fix the failing test."):
+        print(event["type"])
+    events = await live.message("Now run the whole suite.")
+print(live.result.exit_code)
+```
+
+## `AsyncSession`
+
+```python
+async for event in live.stream(text: str): ...
+await live.message(text: str) -> list[dict[str, Any]]
+live.result -> RunResult | None
+```
+
+`live.stream(text)` sends `text` and yields each event as the CLI prints it. It ends after the event that ends the agent's turn. Lines that aren't JSON objects are skipped, and stay in the result's `stdout`. If the CLI exits mid-turn, the stream ends with what arrived. Leave the loop early and the rest of that turn is read and dropped before the next message is sent. `await live.message(text)` collects a whole turn into a list. Run one turn at a time. There is no timeout; wrap a turn in `asyncio.timeout` to bound it, which ends the session.
 
 See also: [Guides](../guide/), [How It Works](../explanation/).
