@@ -138,7 +138,7 @@ def jail(scratch: Path, allow: tuple[str, ...] = ALLOW) -> Any:
 RUN = argparse.ArgumentParser()
 for flag in ("--interactive", "--init"):
     RUN.add_argument(flag, action="store_true")
-for flag in ("--name", "--user", "--pids-limit", "--label"):
+for flag in ("--name", "--user", "--pids-limit", "--label", "--log-driver"):
     RUN.add_argument(flag)
 for flag in ("--network", "--cap-drop", "--security-opt", "--volume"):
     RUN.add_argument(flag, action="append", default=[])
@@ -219,6 +219,7 @@ def describe_lockdown() -> None:
             assert options["network"] == ["bridge"]
             assert options["user"] == "100:101"
             assert options["pids_limit"] == "256"
+            assert options["log_driver"] == "none"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
 
