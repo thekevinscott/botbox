@@ -9,3 +9,8 @@ path = "src/botbox/collect.py"
 rules = ["mutation"]
 lines = ["38"]
 reason = "== -> is is equivalent: CPython caches small ints, so 125 is always the same object"
+
+[[python.exempt]]
+path = "tests/integration/docker_cli/fake_cli.py"
+rules = ["mutation"]
+reason = "the integration tests' fake docker, a test double: the tests that use it are its check"
