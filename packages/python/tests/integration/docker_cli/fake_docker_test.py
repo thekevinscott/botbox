@@ -1,4 +1,7 @@
-"""A fake `docker` on PATH that keeps each container's state; `conftest` puts it there."""
+"""A fake `docker` on PATH that keeps each container's state; `conftest` puts it there.
+
+Named `_test` so the checks treat it as test code, not source.
+"""
 
 import asyncio
 import json

@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from fake_cli import CREDENTIALS, FAKE_DOCKER, Daemon
+from fake_docker_test import CREDENTIALS, FAKE_DOCKER, Daemon
 
 from botbox import AsyncBotbox, ClaudeAgent
 

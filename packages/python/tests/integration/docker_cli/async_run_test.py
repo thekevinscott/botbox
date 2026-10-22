@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from fake_cli import REFUSAL, Daemon, homes, option, token
+from fake_docker_test import REFUSAL, Daemon, homes, option, token
 
 from botbox import AsyncBotbox, DockerException, RunResult
 
