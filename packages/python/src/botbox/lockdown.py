@@ -1,4 +1,3 @@
-import ipaddress
 import os
 import re
 import subprocess
@@ -10,6 +9,7 @@ from uuid import uuid4
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
 
+from botbox.authority import authority
 from botbox.owner_only import owner_only
 from botbox.stop_attached import stop_attached
 from botbox.wait_for_socket import wait_for_socket
@@ -39,15 +39,6 @@ class Lockdown:
         self.sockets = sockets
         self.envs = envs
         self.log = ""
-
-
-def authority(host: str) -> str:
-    """The host as a request URL writes it: an IPv6 literal in brackets."""
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        return host
-    return f"[{host}]" if isinstance(address, ipaddress.IPv6Address) else host
 
 
 @contextmanager
