@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/transcript_test.py tests/e2e/session_artifacts_test.py tests/e2e/run_test.py tests/e2e/daemon_test.py tests/e2e/claude_test.py tests/e2e/codex_test.py tests/e2e/pi_openrouter_test.py tests/e2e/session_test.py tests/e2e/api_key_test.py tests/e2e/network_test.py tests/e2e/layer_test.py ",
+  "ran_at": 1792707110,
+  "exit_code": 0,
+  "commit": "a2f5b9f3c0aac7f6c1394206ca73da93e822cfdd",
+  "branch": "run-files"
+}
