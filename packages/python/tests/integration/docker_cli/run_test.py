@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -343,3 +344,11 @@ def describe_run() -> None:
             assert isinstance(error, DockerException)
             assert daemon.containers == []
             assert homes(temp) == []
+
+
+def describe_the_agent_user() -> None:
+    async def it_is_the_host_user_with_the_staged_home(box: Botbox, daemon: Daemon) -> None:
+        await Botbox(box.agent).run("true")
+        [agent] = daemon.runs("botbox-agent-")
+        assert option(agent, "--user") == f"{os.getuid()}:{os.getgid()}"
+        assert "HOME=/home/user" in agent
