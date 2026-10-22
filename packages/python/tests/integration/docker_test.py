@@ -51,13 +51,18 @@ with open(os.environ["PIDS"], "w") as f:
 time.sleep(60)
 """
 
-# Leaves a child that ignores SIGTERM holding its output, reports both pids, and exits.
+# Leaves a child that ignores SIGTERM holding its output, and exits. The child reports both
+# pids once it is deaf, so no test signals it before then.
 ORPHAN = """
-import os, signal, subprocess, sys
-deaf = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
-child = subprocess.Popen([sys.executable, "-c", deaf])
+import os, subprocess, sys
+deaf = '''
+import os, signal, sys, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
 with open(os.environ["PIDS"], "w") as f:
-    f.write(f"{os.getpid()} {child.pid}")
+    f.write(f"{sys.argv[1]} {os.getpid()}")
+time.sleep(60)
+'''
+subprocess.Popen([sys.executable, "-c", deaf, str(os.getpid())])
 """
 
 # A plugin-like child in the group, marked so a test can find it however early it is cancelled.
