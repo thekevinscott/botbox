@@ -35,6 +35,9 @@ class Botbox:
     `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
     program set itself is left alone, and so is SIGTERM off the main thread.
 
+    Set `user` to a Docker user specifier (for example the host UID:GID) when bind mounts
+    belong to a different user than the image default. HOME stays at the staged agent home.
+
     Don't fork while a run is in progress: a forked child shares the loop's state and holds
     the run's pipes.
     """
@@ -45,7 +48,9 @@ class Botbox:
         *,
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
+        user: str = "user",
     ) -> None:
+        self.user = user
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         if isinstance(allow, str):
@@ -253,6 +258,8 @@ class Botbox:
         return [
             "--label",
             f"botbox.run={token}",
+            "--env",
+            f"HOME={agent.home}",
             *[flag for k, v in jail.envs.items() for flag in ("--env", f"{k}={v}")],
             *[flag for m in mounts for flag in ("--volume", ":".join(m))],
             "--workdir",
@@ -262,7 +269,7 @@ class Botbox:
             "--pid",
             f"container:{jail.proxy}",
             "--user",
-            "user",
+            self.user,
             "--cap-drop",
             "ALL",
             "--security-opt",

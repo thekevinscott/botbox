@@ -343,3 +343,13 @@ def describe_run() -> None:
             assert isinstance(error, DockerException)
             assert daemon.containers == []
             assert homes(temp) == []
+
+
+def describe_explicit_container_user() -> None:
+    @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
+    async def it_preserves_identity_and_home(box: Botbox, daemon: Daemon, user: str) -> None:
+        custom = Botbox(box.agent, user=user)
+        await custom.run("true")
+        [agent] = daemon.runs("botbox-agent-")
+        assert option(agent, "--user") == user
+        assert "HOME=/home/user" in agent

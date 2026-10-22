@@ -257,3 +257,14 @@ def describe_session() -> None:
                     await live.message("hang")
             assert daemon.containers == []
             assert homes(temp) == []
+
+
+def describe_explicit_container_user() -> None:
+    @pytest.mark.parametrize("user", ["1003:1005", "2456:3456"])
+    async def it_preserves_identity_and_home(talker: Botbox, daemon: Daemon, user: str) -> None:
+        custom = Botbox(talker.agent, user=user)
+        async with custom.session() as live:
+            await live.message("hi")
+        [agent] = daemon.runs("botbox-agent-")
+        assert option(agent, "--user") == user
+        assert "HOME=/home/user" in agent

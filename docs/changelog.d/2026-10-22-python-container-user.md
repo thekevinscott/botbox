@@ -1,0 +1,1 @@
+Added: `Botbox(..., user="UID:GID")` selects the container identity for both runs and sessions. Pass the host UID/GID to access host-owned bind mounts. The default remains `user`. HOME is explicitly set to the staged agent home, including for numeric users without a passwd entry.

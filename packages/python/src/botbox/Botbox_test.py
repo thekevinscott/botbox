@@ -634,7 +634,7 @@ def describe_run() -> None:
             assert options["user"] == "user"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
-            assert options["env"] == ["HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
 
         async def it_mounts_the_home_the_sockets_and_the_callers_mounts(
             runner: Mock, docker_run: Mock, scratch: Path
@@ -914,7 +914,7 @@ def describe_session() -> None:
             assert options["user"] == "user"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
-            assert options["env"] == ["HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
             assert options["workdir"] == "/home/user/src"
             assert options["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",
