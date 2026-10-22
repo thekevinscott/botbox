@@ -50,5 +50,4 @@ class Capture(asyncio.Protocol):
             del self.into[: max(len(self.into) - self.limit, 0)]
 
     def connection_lost(self, _error: Exception | None) -> None:
-        if not self.eof.done():
-            self.eof.set_result(None)
+        self.eof.set_result(None)
