@@ -138,7 +138,8 @@ class Botbox:
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         try:
             home = Path(scratch.name) / "home"
-            home.mkdir()
+            # Owner-only, so an agent under another uid can't leave files the host can't delete.
+            home.mkdir(mode=0o700)
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
             async with lockdown(allow, Path(scratch.name), token) as jail:
@@ -177,7 +178,7 @@ class Botbox:
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         try:
             home = Path(scratch.name) / "home"
-            home.mkdir()
+            home.mkdir(mode=0o700)
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
             async with lockdown(allow, Path(scratch.name), token) as jail:
