@@ -55,6 +55,7 @@ class AsyncBotbox:
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
         self._unwinding: asyncio.Task[Any] | None = None
+        self._entry: object | None = None
         self._terminated = False
 
     async def __aenter__(self) -> Self:
@@ -64,8 +65,9 @@ class AsyncBotbox:
         ):
             # Never None: __aenter__ only runs inside a task.
             self._unwinding = cast("asyncio.Task[Any]", asyncio.current_task())
+            self._entry = object()
             loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGTERM, self._terminate, self._unwinding)
+            loop.add_signal_handler(signal.SIGTERM, self._terminate, self._entry, self._unwinding)
         return self
 
     async def __aexit__(
@@ -79,13 +81,20 @@ class AsyncBotbox:
             return
         asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
         self._unwinding = None
+        self._entry = None
         if self._terminated:
             self._terminated = False
             task.uncancel()
             raise SystemExit(143) from exc  # 128 + SIGTERM, as a shell reports it
 
-    def _terminate(self, task: asyncio.Task[Any]) -> None:
-        """Cancel `task`, the one inside the block, on SIGTERM; leaving it raises `SystemExit`."""
+    def _terminate(self, entry: object, task: asyncio.Task[Any]) -> None:
+        """Cancel `task`, the one inside the block, on SIGTERM; leaving it raises `SystemExit`.
+
+        Once per entry, and only while `entry` is the block still open: removing the handler
+        doesn't drop a call the loop has already queued.
+        """
+        if entry is not self._entry or self._terminated:
+            return
         self._terminated = True
         task.cancel()
 
