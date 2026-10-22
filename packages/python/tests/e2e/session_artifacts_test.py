@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent
+from botbox import Botbox, ClaudeAgent, Session
 
 
 class ArtifactAgent(ClaudeAgent):
@@ -32,6 +32,7 @@ def describe_session_artifacts() -> None:
         agent = ArtifactAgent()
         box = Botbox(agent)
         error = ValueError("caller failed")
+        live: Session | None = None
 
         async def run() -> None:
             nonlocal live
@@ -42,7 +43,6 @@ def describe_session_artifacts() -> None:
                 if outcome == "cancel":
                     raise asyncio.CancelledError
 
-        live = None
         if outcome == "normal":
             await run()
         else:
