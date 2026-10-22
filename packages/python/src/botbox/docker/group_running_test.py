@@ -31,7 +31,10 @@ def describe_group_running() -> None:
         assert group_running(4242) is True
 
     def it_ignores_other_groups(proc: Mock) -> None:
-        proc.return_value = [stat("4243 (docker-buildx) S 1 4241 4241 0")]
+        proc.return_value = [
+            stat("4243 (docker-buildx) S 1 4241 4241 0"),
+            stat("4244 (docker-buildx) S 1 4243 4243 0"),
+        ]
         assert group_running(4242) is False
 
     def it_does_not_count_zombies_or_the_dead(proc: Mock) -> None:

@@ -23,8 +23,11 @@ def describe_stop() -> None:
 
     async def it_warns_instead_of_raising_when_the_reap_fails(reap: AsyncMock) -> None:
         reap.side_effect = TimeoutError
-        with pytest.warns(RuntimeWarning, match="docker's process group 4242 did not stop"):
+        with pytest.warns(
+            RuntimeWarning, match="docker's process group 4242 did not stop"
+        ) as warned:
             await stop(PROCESS)
+        assert warned[0].filename == __file__
 
     async def it_finishes_the_reap_through_repeated_cancels(reap: AsyncMock) -> None:
         finished = asyncio.Event()
