@@ -1,0 +1,7 @@
+{
+  "command": "true",
+  "ran_at": 1792688073,
+  "exit_code": 0,
+  "commit": "298538d31b85ecb5710ffd9cd5ee0559ddfbc27f",
+  "branch": "flaky-cancel"
+}
