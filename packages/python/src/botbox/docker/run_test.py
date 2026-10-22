@@ -14,6 +14,10 @@ def spawn() -> Iterator[AsyncMock]:
 
 
 def describe_run() -> None:
+    async def it_takes_its_streams_by_keyword_only(spawn: AsyncMock) -> None:
+        with pytest.raises(TypeError):
+            await run([], None, None, None)  # type: ignore[misc]
+
     async def it_runs_attached_with_the_streams_it_is_given(spawn: AsyncMock) -> None:
         await run(
             ["--interactive", "busybox", "cat"],

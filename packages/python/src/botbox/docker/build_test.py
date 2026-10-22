@@ -14,6 +14,10 @@ def run_docker() -> Iterator[AsyncMock]:
 
 
 def describe_build() -> None:
+    async def it_takes_its_options_by_keyword_only(run_docker: AsyncMock) -> None:
+        with pytest.raises(TypeError):
+            await build(Path("/ctx"), "a:latest", Path("/ctx/D"))  # type: ignore[misc]
+
     async def it_loads_a_quiet_buildx_build_of_the_context(run_docker: AsyncMock) -> None:
         await build(Path("/ctx"), tag="a:latest", file=Path("/ctx/Dockerfile"))
         run_docker.assert_awaited_once_with(
