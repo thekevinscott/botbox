@@ -69,10 +69,15 @@ def describe_reap() -> None:
         await reap(PROCESS, grace=0.01)
         assert timeout.call_args_list == [call(0.01), call(0.01)]
 
-    async def it_gives_up_on_a_group_that_outlives_the_kill(group: Group, killpg: Mock) -> None:
+    async def it_warns_and_gives_up_on_a_group_that_outlives_the_kill(
+        group: Group, killpg: Mock
+    ) -> None:
         group.ends_on = set()
-        with pytest.raises(TimeoutError):
+        with pytest.warns(
+            RuntimeWarning, match="docker's process group 4242 did not stop"
+        ) as warned:
             await reap(PROCESS, grace=0.01)
+        assert warned[0].filename == __file__
         assert killpg.call_args_list == [call(4242, TERM), call(4242, KILL)]
 
     async def it_terminates_the_process_group(killpg: Mock) -> None:

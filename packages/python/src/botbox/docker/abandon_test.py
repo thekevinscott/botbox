@@ -7,16 +7,17 @@ import pytest
 from botbox.docker.abandon import abandon
 
 
-def stream(data: bytes) -> asyncio.StreamReader:
+def stream(data: bytes, *, eof: bool = True) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
     reader.feed_data(data)
-    reader.feed_eof()
+    if eof:
+        reader.feed_eof()
     return reader
 
 
 @pytest.fixture(autouse=True)
-def stop() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.abandon.stop", autospec=True) as m:
+def reap() -> Iterator[AsyncMock]:
+    with patch("botbox.docker.abandon.reap", autospec=True) as m:
         yield m
 
 
@@ -27,30 +28,42 @@ def started(process: object) -> asyncio.Future[object]:
 
 
 def describe_abandon() -> None:
-    async def it_stops_what_the_spawn_started_while_draining_its_pipes(stop: AsyncMock) -> None:
+    async def it_reaps_what_the_spawn_started_while_draining_its_pipes(reap: AsyncMock) -> None:
         process = Mock(stdout=stream(b"out"), stderr=stream(b"err"))
         await abandon(started(process))  # type: ignore[arg-type]
-        stopped, *drains = stop.await_args_list[0].args
-        assert stopped is process
-        assert [await drain for drain in drains] == [b"out", b"err"]
+        reaped, *drains = reap.await_args_list[0].args
+        assert reaped is process
+        assert len(drains) == 2
 
-    async def it_drains_only_the_pipes_there_are(stop: AsyncMock) -> None:
+    async def it_drains_only_the_pipes_there_are(reap: AsyncMock) -> None:
         process = Mock(stdout=None, stderr=stream(b"err"))
         await abandon(started(process))  # type: ignore[arg-type]
-        _, *drains = stop.await_args_list[0].args
-        assert [await drain for drain in drains] == [b"err"]
+        _, *drains = reap.await_args_list[0].args
+        assert len(drains) == 1
 
-    async def it_waits_for_the_spawn_to_finish(stop: AsyncMock) -> None:
+    async def it_keeps_none_of_what_it_drains() -> None:
+        stdout = stream(b"x" * 1024)
+        await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
+        assert stdout.at_eof()
+
+    async def it_then_stops_its_readers_and_closes_its_pipes(reap: AsyncMock) -> None:
+        process = Mock(stdout=stream(b"open", eof=False), stderr=None)
+        await abandon(started(process))  # type: ignore[arg-type]
+        _, drain = reap.await_args_list[0].args
+        assert drain.cancelled()
+        process._transport.close.assert_called_once_with()
+
+    async def it_waits_for_the_spawn_to_finish(reap: AsyncMock) -> None:
         starting: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         task = asyncio.create_task(abandon(starting))  # type: ignore[arg-type]
         await asyncio.sleep(0.01)
-        stop.assert_not_awaited()
+        reap.assert_not_awaited()
         starting.set_result(Mock(stdout=None, stderr=None))
         await task
-        stop.assert_awaited_once()
+        reap.assert_awaited_once()
 
-    async def it_has_nothing_to_stop_when_the_spawn_failed(stop: AsyncMock) -> None:
+    async def it_has_nothing_to_reap_when_the_spawn_failed(reap: AsyncMock) -> None:
         starting: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         starting.set_exception(FileNotFoundError("docker"))
         await abandon(starting)  # type: ignore[arg-type]
-        stop.assert_not_awaited()
+        reap.assert_not_awaited()

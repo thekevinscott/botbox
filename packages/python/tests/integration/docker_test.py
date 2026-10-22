@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import signal
 import sys
 import time
 from collections.abc import Callable, Iterator
@@ -80,6 +81,18 @@ print("built")
 sys.exit(int(sys.argv[-2]))
 """
 
+# Prints to both pipes and exits with the code it is given, leaving a child that holds them open
+# from a session of its own, out of reach of any signal to the client's group.
+ESCAPE = """
+import subprocess, sys
+subprocess.Popen(
+    [sys.executable, "-c", "import time; time.sleep(60)", sys.argv[-1]], start_new_session=True
+)
+print("built")
+print("said this", file=sys.stderr)
+sys.exit(int(sys.argv[-2]))
+"""
+
 # A subreaper that never reaps orphans, so a killed group is left as zombies. Reaps a client
 # whose deaf child outlives it, and says when it is done.
 ZOMBIES = """
@@ -132,6 +145,22 @@ def install(tmp_path: Path) -> Iterator[Install]:
 
     with patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}):
         yield install
+
+
+@pytest.fixture
+def escaped() -> Iterator[str]:
+    """A marker for a child that escapes its group, killed after the test; reaping is quick."""
+    marker = f"sdk-{uuid4().hex}"
+    with patch.dict(reap.__kwdefaults__, {"grace": 0.2}):
+        yield marker
+    for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
+        with suppress(OSError):
+            if marker.encode() in cmdline.read_bytes():
+                os.kill(int(cmdline.parent.name), signal.SIGKILL)
+
+
+def open_fds() -> set[str]:
+    return {fd.name for fd in Path("/proc/self/fd").iterdir()}
 
 
 async def gone(pid: int) -> bool:
@@ -344,3 +373,39 @@ def describe_docker() -> None:
                 task.result()
             assert raised.value.return_code == 3
             assert await unmarked(marker)
+
+    def describe_escaped() -> None:
+        async def it_returns_what_a_client_printed_though_its_pipes_never_close(
+            install: Install, escaped: str
+        ) -> None:
+            install(ESCAPE)
+            with pytest.warns(RuntimeWarning, match="did not stop"):
+                assert await run_docker("buildx", "0", escaped) == "built\n"
+
+        async def it_raises_what_a_failed_client_said_though_its_pipes_never_close(
+            install: Install, escaped: str
+        ) -> None:
+            install(ESCAPE)
+            with pytest.warns(RuntimeWarning), pytest.raises(DockerException) as raised:
+                await run_docker("buildx", "3", escaped)
+            assert raised.value.stderr == "said this\n"
+
+        async def it_leaves_no_readers_or_pipes_behind(install: Install, escaped: str) -> None:
+            install(ESCAPE)
+            before = open_fds()
+            with pytest.warns(RuntimeWarning):
+                await run_docker("buildx", "0", escaped)
+            await asyncio.sleep(0.05)
+            assert asyncio.all_tasks() == {asyncio.current_task()}
+            assert open_fds() <= before
+
+        async def it_keeps_a_cancel_that_lands_while_cleanup_gives_up(
+            install: Install, escaped: str
+        ) -> None:
+            install(ESCAPE)
+            task = asyncio.ensure_future(run_docker("buildx", "0", escaped))
+            await asyncio.sleep(2.1)
+            task.cancel()
+            with pytest.warns(RuntimeWarning):
+                await asyncio.wait({task}, timeout=10)
+            assert task.cancelled()
