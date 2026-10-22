@@ -25,7 +25,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.12'
-      - uses: extractions/setup-just@v3
+      - uses: taiki-e/install-action@just
       - run: just lint
 
   typecheck:
@@ -36,7 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.12'
-      - uses: extractions/setup-just@v3
+      - uses: taiki-e/install-action@just
       - run: just typecheck
 
   unit:
@@ -51,7 +51,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: extractions/setup-just@v3
+      - uses: taiki-e/install-action@just
       - run: just test-unit
 
   integration:
@@ -66,5 +66,5 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: extractions/setup-just@v3
+      - uses: taiki-e/install-action@just
       - run: just test-integration
