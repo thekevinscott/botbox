@@ -84,6 +84,11 @@ def describe_reap() -> None:
         await reap(PROCESS)
         assert killpg.call_args_list == [call(4242, TERM)]
 
+    async def it_starts_with_the_signal_it_is_given(group: Group, killpg: Mock) -> None:
+        group.ends_on = {KILL}
+        await reap(PROCESS, signum=KILL)
+        assert killpg.call_args_list == [call(4242, KILL)]
+
     async def it_waits_for_the_process_its_drains_and_its_group(ended: AsyncMock) -> None:
         await reap(PROCESS, *DRAINS)
         ended.assert_awaited_once_with(PROCESS, DRAINS)

@@ -87,14 +87,28 @@ Concurrent builds of one tag, from any process, take turns. Safe to call from pa
 ```python
 AsyncBotbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[str] = ())
 await box.build() -> str
+await box.run(command: str, *, mounts: Sequence[Mount] = (), workdir: str | Path | None = None) -> RunResult
 ```
 
-`Botbox` for asyncio, with the same arguments. So far it has only `build()`. `run()` and `session()` come later.
+`Botbox` for asyncio, with the same arguments. It has `build()` and `run()`. `session()` comes later.
 
 `await box.build()` builds the same images as `build()` and returns the same tag. Concurrent builds of one tag take turns with each other and with sync `build()`s, from any process, without blocking the event loop. Cancelling the task, or an `asyncio.timeout` firing, stops the build in progress. A failed build raises `DockerException` with the build's error in `stderr`.
 
 ```python
 tag = await AsyncBotbox(ClaudeAgent(), dockerfile="./Dockerfile").build()
+```
+
+`await box.run(command)` is [`run()`](#run) for asyncio: the same lockdown, home, mounts and `RunResult`. Where it differs:
+
+- Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.
+- The containers don't remove themselves. The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`, and the temp home is named `botbox-<token>-*`. A process killed outright (SIGKILL) leaves them stopped, for a sweep to remove.
+- If the Docker client dies or is killed while the daemon is still up, `run()` raises `DockerException` instead of returning. So does a container that never started: an image the daemon can't find raises `DockerException` with `return_code` 125, where `Botbox.run()` returns a `RunResult` with `exit_code` 125. If the daemon goes away mid-run, `exit_code` is -1, as for `run()`.
+- A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back. So is a container removal the daemon hasn't finished within 30 seconds, and a proxy log that can't be read, which leaves `proxy` empty.
+- Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.
+
+```python
+async with asyncio.timeout(600):
+    result = await AsyncBotbox(ClaudeAgent()).run("claude -p 'fix the failing test'")
 ```
 
 See also: [Guides](../guide/), [How It Works](../explanation/).
