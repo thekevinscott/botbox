@@ -20,6 +20,8 @@ Conventions, supervision rules, and per-language style live under
 ## Workflow
 
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
+- `just test-e2e` reads `.env` from the checkout root. In a worktree under
+  `.worktrees/<name>/`, symlink it first: `ln -s ../../.env .env`.
 - Unit tests are **colocated** with their source (`foo.py` ↔ `foo_test.py`).
   This is the
   [testing-conventions](https://github.com/thekevinscott/testing-conventions)
