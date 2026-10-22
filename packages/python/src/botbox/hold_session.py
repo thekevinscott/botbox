@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from botbox.agents.agent import SessionAgent
 from botbox.AsyncSession import AsyncSession
+from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
 from botbox.docker.settle import settle
@@ -29,17 +30,24 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[As
                 asyncio.streams.FlowControlMixin, pipe
             )
             stdin = asyncio.StreamWriter(transport, protocol, None, loop)
-            async with Capture(bytearray()) as out, Capture(bytearray()) as err:
-                # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
-                client = asyncio.ensure_future(
-                    execute(
-                        ["run", *args], stdin=read, stdout=out, stderr=err, signum=signal.SIGKILL
+            try:
+                async with Capture(bytearray()) as out, Capture(bytearray()) as err:
+                    # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
+                    client = asyncio.ensure_future(
+                        execute(
+                            ["run", *args],
+                            stdin=read,
+                            stdout=out,
+                            stderr=err,
+                            signum=signal.SIGKILL,
+                        )
                     )
-                )
-                try:
-                    yield AsyncSession(agent, stdin, out, err.into, client)
-                finally:
-                    client.cancel()
-                    await settle(asyncio.gather(client, return_exceptions=True))
+                    try:
+                        yield AsyncSession(agent, stdin, out, err.into, client)
+                    finally:
+                        client.cancel()
+                        await settle(asyncio.gather(client, return_exceptions=True))
+            finally:
+                abort_writer(stdin)
     finally:
         os.close(read)

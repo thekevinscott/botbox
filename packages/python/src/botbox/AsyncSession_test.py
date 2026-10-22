@@ -182,8 +182,11 @@ def describe_AsyncSession() -> None:
             assert live.sent == b"<one>\n<two>\n"
 
         async def it_skips_the_rest_of_a_turn_whose_send_was_cut_short(live: Live) -> None:
-            stuck = asyncio.Event()
-            live.stdin.drain.side_effect = [stuck.wait(), None]
+            async def drain() -> None:
+                if live.stdin.write.call_count == 1:
+                    await asyncio.Event().wait()
+
+            live.stdin.drain.side_effect = drain
             sending = asyncio.ensure_future(live.session.message("one"))
             await asyncio.sleep(0.01)
             sending.cancel()

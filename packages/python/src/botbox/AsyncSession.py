@@ -5,6 +5,7 @@ from contextlib import suppress
 from typing import Any
 
 from botbox.agents.agent import SessionAgent
+from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.RunResult import RunResult
 
@@ -39,7 +40,7 @@ class AsyncSession:
     def ended(self, _client: asyncio.Future[int]) -> None:
         """Wake a waiting turn, and drop input nothing will read so a write can't stall."""
         self.stdout.grew.set()
-        self.stdin.transport.abort()
+        abort_writer(self.stdin)
 
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
@@ -50,10 +51,11 @@ class AsyncSession:
         """
         while self.turn and (event := await self.event()) is not None:
             self.turn = not self.agent.turn_ended(event)
-        with suppress(ConnectionError):
-            self.stdin.write((self.agent.encode(text) + "\n").encode())
-            await self.stdin.drain()
+        self.stdin.write((self.agent.encode(text) + "\n").encode())
+        # Before the drain: a cancel there still leaves the message queued to send.
         self.turn = True
+        with suppress(ConnectionError):
+            await self.stdin.drain()
         while self.turn and (event := await self.event()) is not None:
             self.turn = not self.agent.turn_ended(event)
             yield event
@@ -69,12 +71,14 @@ class AsyncSession:
             grew.clear()
             end = printed.find(b"\n", self.read)
             if end < 0:
-                if self.client.done():
+                if not self.client.done():
+                    await grew.wait()
+                    continue
+                if self.read == len(printed):
                     return None
-                await grew.wait()
-                continue
+                end = len(printed)
             line = bytes(printed[self.read : end])
-            self.read = end + 1
+            self.read = min(end + 1, len(printed))
             with suppress(ValueError):
                 event = json.loads(line)
                 if isinstance(event, dict):
