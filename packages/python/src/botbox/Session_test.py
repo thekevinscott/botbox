@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.OutputLimitExceeded import OutputLimitExceeded
 from botbox.Session import Session
 
 # `botbox.Session` the attribute is the class; the limits live on the module.
@@ -42,6 +41,16 @@ class Live:
     @property
     def sent(self) -> bytes:
         return b"".join(c.args[0] for c in self.stdin.write.call_args_list)
+
+
+class OutputLimitExceeded(Exception):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def output_limit_exceeded() -> Iterator[None]:
+    with patch("botbox.Session.OutputLimitExceeded", OutputLimitExceeded):
+        yield
 
 
 @pytest.fixture(autouse=True)

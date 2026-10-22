@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import Botbox
-from botbox.OutputLimitExceeded import OutputLimitExceeded
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -815,8 +814,8 @@ def describe_session() -> None:
         assert result.image == "an-agent-123:latest"
 
     async def it_raises_what_draining_the_output_raises(talker: Mock, held: Mock) -> None:
-        held.drain.side_effect = OutputLimitExceeded("too long")
-        with pytest.raises(OutputLimitExceeded):
+        held.drain.side_effect = OverflowError("too long")
+        with pytest.raises(OverflowError):
             async with Botbox(talker).session() as live:
                 pass
         assert live.result is not None
