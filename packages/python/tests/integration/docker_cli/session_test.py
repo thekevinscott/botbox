@@ -1,7 +1,9 @@
 """`Botbox.session()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, token
@@ -16,6 +18,15 @@ def talker(box: Botbox, daemon: Daemon) -> Botbox:
     """The box, its agent's session planned to answer each message."""
     daemon.agent(SESSION, mode="session", stdout="booting\n")
     return box
+
+
+@pytest.fixture
+def unreadable_transcript() -> Iterator[Mock]:
+    with patch(
+        "botbox.session_result.read_transcript",
+        side_effect=OSError("unreadable transcript"),
+    ) as read:
+        yield read
 
 
 def describe_session() -> None:
@@ -146,12 +157,8 @@ def describe_session() -> None:
             talker: Botbox,
             daemon: Daemon,
             temp: Path,
-            monkeypatch: pytest.MonkeyPatch,
+            unreadable_transcript: Mock,
         ) -> None:
-            def fail_read(*_args: object) -> None:
-                raise OSError("unreadable transcript")
-
-            monkeypatch.setattr("botbox.session_result.read_transcript", fail_read)
             failed = ValueError("original failure")
             with (
                 pytest.warns(RuntimeWarning, match="read its session artifacts"),
@@ -161,6 +168,7 @@ def describe_session() -> None:
                     await live.message("hi")
                     raise failed
             assert raised.value is failed
+            unreadable_transcript.assert_called_once()
             assert daemon.containers == []
             assert homes(temp) == []
 
