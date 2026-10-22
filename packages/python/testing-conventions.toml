@@ -5,6 +5,12 @@ lines = ["59-60", "92"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["51"]
+reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
+
+[[python.exempt]]
 path = "src/botbox/Session.py"
 rules = ["mutation"]
 lines = ["77"]

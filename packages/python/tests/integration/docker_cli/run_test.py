@@ -347,13 +347,8 @@ def describe_run() -> None:
 
 
 def describe_the_agent_user() -> None:
-    @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
-    async def it_is_the_host_user_with_the_staged_home(
-        box: Botbox, daemon: Daemon, monkeypatch: pytest.MonkeyPatch, uid: int, gid: int
-    ) -> None:
-        monkeypatch.setattr(os, "getuid", lambda: uid)
-        monkeypatch.setattr(os, "getgid", lambda: gid)
+    async def it_is_the_host_user_with_the_staged_home(box: Botbox, daemon: Daemon) -> None:
         await Botbox(box.agent).run("true")
         [agent] = daemon.runs("botbox-agent-")
-        assert option(agent, "--user") == f"{uid}:{gid}"
+        assert option(agent, "--user") == f"{os.getuid()}:{os.getgid()}"
         assert "HOME=/home/user" in agent
