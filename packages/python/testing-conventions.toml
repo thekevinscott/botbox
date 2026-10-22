@@ -5,6 +5,12 @@ lines = ["49-50"]
 reason = "is -> == is equivalent: the main thread and SIG_DFL are singletons"
 
 [[python.exempt]]
+path = "src/botbox/AsyncBotbox.py"
+rules = ["mutation"]
+lines = ["62-63"]
+reason = "is -> == is equivalent: the main thread and SIG_DFL are singletons"
+
+[[python.exempt]]
 path = "src/botbox/collect.py"
 rules = ["mutation"]
 lines = ["38"]
