@@ -14,9 +14,10 @@ def exec_() -> Iterator[AsyncMock]:
 
 
 def describe_spawn() -> None:
-    async def it_takes_its_streams_by_keyword_only(exec_: AsyncMock) -> None:
+    @pytest.mark.usefixtures("exec_")
+    async def it_takes_its_streams_by_keyword_only() -> None:
         with pytest.raises(TypeError):
-            await spawn([], None, None, None)  # type: ignore[misc]
+            await spawn([], None, None, None)  # type: ignore[call-arg]
 
     async def it_runs_docker_with_the_args_in_a_session_of_its_own(exec_: AsyncMock) -> None:
         await spawn(
