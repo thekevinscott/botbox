@@ -1,12 +1,15 @@
 """`reap()` against real locks, held by this process or by an owner that dies."""
 
 import asyncio
+import json
 import os
 import signal
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
-from fake_docker_test import runs
+import pytest
+from fake_docker_test import Daemon, runs
 
 from botbox import reap
 from botbox.Claim import Claim
@@ -58,6 +61,27 @@ def describe_reap() -> None:
         await process.wait()
         assert await reap() == ["0123456789ab"]
         assert list(runs(temp).iterdir()) == []
+
+    async def it_gives_up_on_a_removal_that_hangs_and_retries_next_sweep(
+        temp: Path, daemon: Daemon
+    ) -> None:
+        container = daemon.state / "botbox-agent-0123456789ab.json"
+        container.write_text(json.dumps({"Labels": ["botbox.run=0123456789ab"]}))
+        process = await owner(temp, "0123456789ab", "plain")
+        process.kill()
+        await process.wait()
+        daemon.set(rm_seconds=600)
+        with (
+            patch("botbox.reap_run.REMOVE_SECONDS", 0.5),
+            pytest.warns(RuntimeWarning, match="did not remove its containers within 0.5s"),
+        ):
+            assert await reap() == []
+        with pytest.raises(ProcessLookupError):
+            os.kill(int((daemon.state / "rm.pid").read_text()), 0)
+        assert (runs(temp) / "0123456789ab.lock").exists()
+        daemon.set(rm_seconds=0)
+        assert await reap() == ["0123456789ab"]
+        assert daemon.containers == []
 
     async def it_is_not_kept_alive_by_a_child_the_owner_forked(temp: Path) -> None:
         process = await owner(temp, "0123456789ab", "fork")

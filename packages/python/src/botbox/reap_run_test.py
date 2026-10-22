@@ -1,3 +1,4 @@
+import asyncio
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -65,6 +66,37 @@ def describe_reap_run() -> None:
             ) as w:
                 assert await reap_run(lock) is False
             assert w[0].filename == __file__
+            assert lock.exists()
+            assert (lock.parent / TOKEN / "home" / ".credentials").exists()
+
+        @pytest.mark.parametrize("stalls", ["ps", "rm"])
+        async def it_gives_up_on_a_daemon_that_hangs_and_keeps_the_run_for_the_next_sweep(
+            lock: Path, run_docker: AsyncMock, stalls: str
+        ) -> None:
+            cancelled = asyncio.Event()
+
+            async def docker(*args: str) -> str:
+                if args[0] == stalls:
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        cancelled.set()
+                        raise
+                return "c1\n"
+
+            run_docker.side_effect = docker
+            with (
+                patch("botbox.reap_run.REMOVE_SECONDS", 0.01),
+                pytest.warns(
+                    RuntimeWarning,
+                    match=(
+                        f"^botbox could not reap run {TOKEN}: "
+                        r"the daemon did not remove its containers within 0\.01s$"
+                    ),
+                ),
+            ):
+                assert await reap_run(lock) is False
+            assert cancelled.is_set()
             assert lock.exists()
             assert (lock.parent / TOKEN / "home" / ".credentials").exists()
 
