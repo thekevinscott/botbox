@@ -50,6 +50,12 @@ def describe_async_build_lock() -> None:
         async with async_build_lock("an-agent:latest"):
             assert fcntl.flock.call_count == 3
 
+    async def it_sleeps_50ms_between_tries(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = [BlockingIOError, BlockingIOError, None]
+        with patch("botbox.async_build_lock.asyncio.sleep", autospec=True) as sleep:
+            async with async_build_lock("an-agent:latest"):
+                assert sleep.await_args_list == [call(0.05), call(0.05)]
+
     async def it_keeps_the_loop_running_while_it_waits(fcntl: MagicMock) -> None:
         fcntl.flock.side_effect = held_elsewhere_for(WAIT)
         ticks = 0

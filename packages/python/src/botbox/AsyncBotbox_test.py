@@ -97,6 +97,10 @@ def describe_build() -> None:
     async def it_returns_the_last_steps_tag(agent: Mock) -> None:
         assert await AsyncBotbox(agent).build() == "an-agent-123:latest"
 
+    async def it_returns_the_only_steps_tag(agent: Mock, build_steps: Mock) -> None:
+        build_steps.return_value = [AGENT_STEP]
+        assert await AsyncBotbox(agent).build() == "an-agent:latest"
+
     async def it_builds_each_step_with_buildx(agent: Mock, buildx: Mock) -> None:
         await AsyncBotbox(agent).build()
         assert buildx.call_args_list == [

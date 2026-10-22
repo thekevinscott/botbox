@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.buildx import STDERR_LIMIT, buildx
+from botbox.buildx import buildx
+
+STDERR_LIMIT = 64 * 1024
 
 ARGV = [
     "docker",
@@ -96,6 +98,20 @@ def describe_buildx() -> None:
             Path("/layer"), tag="a-layer:latest", file=Path("/layer/Dockerfile"), contexts={}
         )
         assert "--build-context" not in spawn.call_args.args
+
+    async def it_takes_its_options_by_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            await buildx(Path("/layer"), "a-layer:latest", Path("/layer/Dockerfile"), {})  # type: ignore[call-arg]
+
+    def describe_when_the_client_is_killed() -> None:
+        @pytest.fixture
+        async def process() -> Process:
+            return Process(code=-9)
+
+        async def it_raises() -> None:
+            with pytest.raises(DockerException) as error:
+                await build()
+            assert error.value.return_code == -9
 
     def describe_when_the_build_fails() -> None:
         @pytest.fixture
