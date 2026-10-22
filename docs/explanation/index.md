@@ -41,7 +41,7 @@ Every agent container runs with:
 - `--network none` and the proxy's PID namespace, with the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms) pointing at the run's proxy.
 - The temporary home mounted read-write at the harness's home, plus your mounts. The home is owner-only, so only your uid can write it. That keeps an agent from leaving files in it that you can't delete, credentials included.
 
-Your command runs as `botbox-relay sh -c <command>`. The relay is a script in each harness image; it starts a forwarder from the proxy port on the container's loopback to the proxy's socket, then runs your command.
+Your command runs as `botbox-relay sh -c <command>`. The relay is a script in each harness image; it starts a forwarder from the proxy port on the container's loopback to the proxy's socket, then runs your command. If your uid has no passwd entry in the image, the relay first adds one named `user`, so `whoami` and `git` work. The harness images make `/etc/passwd` writable for this.
 
 ## Network
 
