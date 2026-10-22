@@ -108,7 +108,7 @@ def cli(...):
 
 - `asyncio.run` fails inside a running loop (Jupyter, an async framework). There, `await` directly.
 - **Thread pools.** Each thread can `asyncio.run` its own loop. It works, but cancellation and timeouts stop at the thread boundary, which is what async is for. Replace the pool with a `TaskGroup`.
-- **Process pools.** Each worker calls `asyncio.run(...)` around its own work. Nothing else changes. Use this when you want the work in another process for reasons beyond botbox.
+- **Process pools.** Each worker calls `asyncio.run(...)` around its own work. Nothing else changes. Use this when you want the work in another process for reasons beyond botbox. Don't fork while a run is in progress: start the pool first, or use the `spawn` or `forkserver` start method.
 - **Your own blocking calls** (a `subprocess.run` test suite, `shutil.copytree`, a sync HTTP client) now block every concurrent run. Wrap them in `asyncio.to_thread`, or use `asyncio.create_subprocess_exec`.
 - Callbacks you pass in run on the loop. A slow `on_delta` stalls everything.
 
@@ -139,7 +139,7 @@ async with asyncio.timeout(600):
 - Ctrl-C under `asyncio.run` cancels the main task, so it tears down like any cancel.
 - Don't catch `CancelledError` without re-raising it.
 
-*Provisional:* SIGTERM handling. The sync `with Botbox` turns SIGTERM into `SystemExit` so cleanup runs. The async plan is `loop.add_signal_handler`, mapping SIGTERM to cancellation. Owner SIGKILL ending the run depends on #80.
+*Provisional:* SIGTERM handling. The sync `with Botbox` turns SIGTERM into `SystemExit` so cleanup runs. The async plan is `loop.add_signal_handler`, mapping SIGTERM to cancellation. Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`, for #60's sweep.
 
 ## Errors
 
