@@ -54,8 +54,8 @@ class AsyncBotbox:
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
-        self.unwinding: asyncio.Task[Any] | None = None
-        self.terminated = False
+        self._unwinding: asyncio.Task[Any] | None = None
+        self._terminated = False
 
     async def __aenter__(self) -> Self:
         if (
@@ -63,9 +63,9 @@ class AsyncBotbox:
             and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
         ):
             # Never None: __aenter__ only runs inside a task.
-            self.unwinding = cast("asyncio.Task[Any]", asyncio.current_task())
+            self._unwinding = cast("asyncio.Task[Any]", asyncio.current_task())
             loop = asyncio.get_running_loop()
-            loop.add_signal_handler(signal.SIGTERM, self.terminate, self.unwinding)
+            loop.add_signal_handler(signal.SIGTERM, self._terminate, self._unwinding)
         return self
 
     async def __aexit__(
@@ -74,19 +74,19 @@ class AsyncBotbox:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
-        task = self.unwinding
+        task = self._unwinding
         if task is None:
             return
         asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
-        self.unwinding = None
-        if self.terminated:
-            self.terminated = False
+        self._unwinding = None
+        if self._terminated:
+            self._terminated = False
             task.uncancel()
             raise SystemExit(143) from exc  # 128 + SIGTERM, as a shell reports it
 
-    def terminate(self, task: asyncio.Task[Any]) -> None:
+    def _terminate(self, task: asyncio.Task[Any]) -> None:
         """Cancel `task`, the one inside the block, on SIGTERM; leaving it raises `SystemExit`."""
-        self.terminated = True
+        self._terminated = True
         task.cancel()
 
     async def build(self) -> str:
