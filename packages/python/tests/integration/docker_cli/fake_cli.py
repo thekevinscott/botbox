@@ -9,7 +9,8 @@ CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 
 # Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
-# serves until its stdin closes; each agent does what the plan says for its command.
+# serves until its stdin closes; each agent does what the plan says for its command. A session
+# answers each message on its stdin with an event, a line that isn't JSON, and a result.
 FAKE_DOCKER = """
 import json, os, signal, sys, time
 from pathlib import Path
@@ -84,6 +85,17 @@ else:
     sys.stdout.flush()
     sys.stderr.flush()
     mode = agent.get("mode")
+    if mode == "session":
+        for line in sys.stdin:
+            said = json.loads(line)["message"]["content"]
+            print(json.dumps({"type": "assistant", "said": said}), flush=True)
+            if said == "hang":
+                (state / f"{name}.hanging").touch()
+                time.sleep(600)
+            if said == "die":
+                os.kill(os.getpid(), signal.SIGKILL)
+            print("not json")
+            print(json.dumps({"type": "result", "result": said.upper()}), flush=True)
     if mode == "hang":
         (state / f"{name}.hanging").touch()
         time.sleep(600)
