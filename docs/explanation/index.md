@@ -83,6 +83,8 @@ After the container exits, every file matching the harness's transcript pattern 
 
 Two `docker build`s of one tag at once fail: the loser looks up an image id that no longer exists. So each build takes a file lock keyed by the tag, in the system temp directory, and concurrent builds from any process take turns.
 
+`AsyncBotbox.build()` runs the same builds with `docker buildx build --load --progress=quiet`, as an asyncio subprocess, and keeps the last 64 KiB of its stderr for the error. It takes the same lock file. It polls for the lock every 50ms without blocking, so the event loop keeps running while it waits. A blocking `flock` in a thread would keep waiting after the task was cancelled. On cancel, it stops the buildx client and waits for it to exit. BuildKit drops a build when its client goes away.
+
 Each harness image stands alone, with no shared base. A harness is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to call the CLI. Adding one means one Dockerfile, one class, and one row in the [harness table](../harnesses/).
 
 ## Claude Code

@@ -1,0 +1,1 @@
+**Added**: `AsyncBotbox(agent, *, dockerfile=None, allow=())` and `await box.build()`, the async build. It builds the same images as `Botbox.build()` with `docker buildx build`, takes turns with sync and async builds of one tag from any process without blocking the event loop, and stops the build when cancelled.
