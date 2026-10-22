@@ -20,8 +20,8 @@ export default defineConfig({
       },
       {
         text: 'Harnesses',
-        link: '/harnesses/',
         items: [
+          { text: 'Overview', link: '/harnesses/' },
           { text: 'Claude Code', link: '/harnesses/claude' },
           { text: 'Codex', link: '/harnesses/codex' },
           { text: 'pi', link: '/harnesses/pi' },
@@ -39,9 +39,8 @@ export default defineConfig({
         ],
       },
       {
-        text: 'API',
         items: [
-          { text: 'Reference', link: '/reference/' },
+          { text: 'API Reference', link: '/reference/' },
           { text: 'Migrations', link: '/migrations' },
         ],
       },
