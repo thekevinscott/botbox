@@ -41,14 +41,21 @@ def docker_exception() -> Iterator[None]:
 
 
 class Process:
-    """The buildx client: writes `stderr`, then exits with `code`, unless it hangs mid-build."""
+    """The buildx client: writes `stderr`, then exits with `code`, unless it hangs mid-build.
 
-    def __init__(self, stderr: bytes = b"", code: int = 0, *, hangs: bool = False) -> None:
+    Terminated, it exits `stops_in` seconds later.
+    """
+
+    def __init__(
+        self, stderr: bytes = b"", code: int = 0, *, hangs: bool = False, stops_in: float = 0
+    ) -> None:
         self.stderr = asyncio.StreamReader()
         self.stderr.feed_data(stderr)
         self.returncode: int | None = None
         self.code = code
-        self.terminate = Mock(side_effect=self.exit)
+        self.terminate = Mock(
+            side_effect=lambda: asyncio.get_running_loop().call_later(stops_in, self.exit)
+        )
         if not hangs:
             self.exit()
 
@@ -91,6 +98,7 @@ def describe_buildx() -> None:
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
 
     async def it_passes_no_build_context_flag_without_contexts(spawn: AsyncMock) -> None:
@@ -142,6 +150,22 @@ def describe_buildx() -> None:
 
         async def it_terminates_the_client_and_waits_for_it(process: Process) -> None:
             task = asyncio.create_task(build())
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            process.terminate.assert_called_once_with()
+            assert process.returncode is not None
+
+    def describe_when_cancelled_again_while_the_client_stops() -> None:
+        @pytest.fixture
+        async def process() -> Process:
+            return Process(hangs=True, stops_in=0.2)
+
+        async def it_still_waits_for_the_client_to_exit(process: Process) -> None:
+            task = asyncio.create_task(build())
+            await asyncio.sleep(0.05)
+            task.cancel()
             await asyncio.sleep(0.05)
             task.cancel()
             with pytest.raises(asyncio.CancelledError):

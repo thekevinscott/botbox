@@ -148,3 +148,15 @@ def describe_async_build() -> None:
                     await build
             assert not processes(agent.image)
             await until(lambda: not processes(agent.step), timeout=5)
+
+        async def it_stops_the_build_when_cancelled_twice(agent: SlowAgent) -> None:
+            build = asyncio.create_task(AsyncBotbox(agent).build())
+            await until(lambda: processes(agent.step) and clients(agent))
+            build.cancel()
+            await asyncio.sleep(0)
+            build.cancel()
+            async with asyncio.timeout(5):
+                with pytest.raises(asyncio.CancelledError):
+                    await build
+            assert not processes(agent.image)
+            await until(lambda: not processes(agent.step), timeout=5)
