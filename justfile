@@ -19,8 +19,9 @@ test-unit:
 test-integration:
     cd packages/python && uv run pytest tests/integration
 
+# .env lives in the main checkout; worktrees share its git common dir.
 test-e2e:
-    cd packages/python && uv run --env-file ../../.env pytest tests/e2e
+    cd packages/python && uv run --env-file "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.env" pytest tests/e2e
 
 build:
     cd packages/python && uv build
