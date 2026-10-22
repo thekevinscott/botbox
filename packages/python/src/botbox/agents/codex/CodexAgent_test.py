@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-from botbox.agents.agent import Agent
 from botbox.agents.codex.CodexAgent import CodexAgent
+
+if TYPE_CHECKING:
+    from botbox.agents.agent import Agent
 
 
 @pytest.fixture
