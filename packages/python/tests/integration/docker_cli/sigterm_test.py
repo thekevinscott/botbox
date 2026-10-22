@@ -115,6 +115,7 @@ def describe_sigkill() -> None:
             [home] = homes(temp)
             assert (home / "home" / ".claude" / ".credentials.json").exists()
             assert await reap() == [token(daemon)]
+            await daemon.hung_clients_gone()
         finally:
             if holder.returncode is None:
                 holder.kill()

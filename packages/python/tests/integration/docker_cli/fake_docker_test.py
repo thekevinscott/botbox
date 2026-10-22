@@ -104,7 +104,7 @@ else:
             said = json.loads(line)["message"]["content"]
             print(json.dumps({"type": "assistant", "said": said}), flush=True)
             if said == "hang":
-                (state / f"{name}.hanging").touch()
+                (state / f"{name}.hanging").write_text(str(os.getpid()))
                 time.sleep(600)
             if said == "die":
                 os.kill(os.getpid(), signal.SIGKILL)
@@ -113,7 +113,7 @@ else:
     if mode == "hang":
         # Dies with its owner, as an agent in the proxy's PID namespace does.
         owner = os.getppid()
-        (state / f"{name}.hanging").touch()
+        (state / f"{name}.hanging").write_text(str(os.getpid()))
         while os.getppid() == owner:
             time.sleep(0.05)
         settle(name, "exited", 137)
@@ -173,6 +173,21 @@ class Daemon:
         async with asyncio.timeout(10):
             while len(list(self.state.glob("*.hanging"))) < count:
                 await asyncio.sleep(0.01)
+
+    async def hung_clients_gone(self) -> None:
+        """Wait for every client that hung to exit, as `docker run` does once its container goes."""
+        pids = [int(path.read_text()) for path in self.state.glob("*.hanging")]
+        async with asyncio.timeout(10):
+            while any(alive(pid) for pid in pids):
+                await asyncio.sleep(0.01)
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def token(daemon: Daemon) -> str:
