@@ -1,4 +1,5 @@
 import asyncio
+import importlib
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -8,6 +9,9 @@ import pytest
 
 from botbox.OutputLimitExceeded import OutputLimitExceeded
 from botbox.Session import Session
+
+# `botbox.Session` the attribute is the class; the limits live on the module.
+module = importlib.import_module("botbox.Session")
 
 
 def lines(*events: Any) -> bytes:
@@ -250,7 +254,7 @@ def describe_Session() -> None:
         async def it_keeps_the_tail_of_the_output(
             live: Live, monkeypatch: pytest.MonkeyPatch
         ) -> None:
-            monkeypatch.setattr("botbox.Session.OUTPUT_LIMIT", 8)
+            monkeypatch.setattr(module, "OUTPUT_LIMIT", 8)
             live.print(lines("first", "second", {"type": "end"}))
             await live.session.message("hi")
             assert live.session.output() == "\nsecond\n"
@@ -276,7 +280,7 @@ def describe_Session() -> None:
         async def it_ends_the_session_on_a_line_over_the_limit(
             live: Live, monkeypatch: pytest.MonkeyPatch
         ) -> None:
-            monkeypatch.setattr("botbox.Session.LINE_LIMIT", 10)
+            monkeypatch.setattr(module, "LINE_LIMIT", 10)
             live.print(lines({"n": 1}) + b"x" * 11)
             stream = live.session.stream("hi")
             assert await anext(stream) == {"n": 1}
@@ -289,10 +293,8 @@ def describe_Session() -> None:
             with pytest.raises(OutputLimitExceeded):
                 await live.session.drain()
 
-        async def it_reads_a_line_at_the_limit(
-            live: Live, monkeypatch: pytest.MonkeyPatch
-        ) -> None:
-            monkeypatch.setattr("botbox.Session.LINE_LIMIT", 15)
+        async def it_reads_a_line_at_the_limit(live: Live, monkeypatch: pytest.MonkeyPatch) -> None:
+            monkeypatch.setattr(module, "LINE_LIMIT", 15)
             live.print(b'{"type": "end"}')
             later = asyncio.ensure_future(live.session.message("hi"))
             await asyncio.sleep(0.01)

@@ -10,7 +10,7 @@ from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
 from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
-from botbox.Session import Session
+from botbox.Session import WINDOW, Session
 
 
 @asynccontextmanager
@@ -31,7 +31,7 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[Se
             )
             stdin = asyncio.StreamWriter(transport, protocol, None, loop)
             try:
-                async with Capture(bytearray()) as out, Capture(bytearray()) as err:
+                async with Capture(bytearray(), high=WINDOW) as out, Capture(bytearray()) as err:
                     # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
                     client = asyncio.ensure_future(
                         execute(

@@ -21,6 +21,7 @@ class ArtifactAgent(ClaudeAgent):
             "mkdir -p ~/.claude/projects; "
             "printf 'transcript\\n' > ~/.claude/projects/turn.jsonl; "
             "echo diagnostic >&2; "
+            "echo started; "
             "while read -r line; do "
             'echo \'{"type":"result","result":"ready"}\'; done'
         )
@@ -51,7 +52,7 @@ def describe_session_artifacts() -> None:
         assert live is not None
         assert live.result is not None
         assert live.result.transcript == {".claude/projects/turn.jsonl": "transcript\n"}
-        assert "ready" in live.result.stdout
+        assert live.result.stdout == "started\n"
         assert live.result.stderr == "diagnostic\n"
         assert live.result.exit_code == (0 if outcome == "normal" else -1)
         scratch = agent.staged_home.parent

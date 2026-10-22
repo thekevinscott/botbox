@@ -79,6 +79,18 @@ def describe_session() -> None:
             assert live.result is not None
             assert live.result.stdout == "booting\nnot json\n"
 
+        async def it_tears_down_promptly_with_output_left_unread(
+            talker: Botbox, daemon: Daemon, temp: Path
+        ) -> None:
+            with pytest.raises(ValueError, match="left"):
+                async with asyncio.timeout(5), talker.session() as live:
+                    async for _ in live.stream("think"):
+                        break
+                    await asyncio.sleep(0.5)
+                    raise ValueError("left")
+            assert daemon.containers == []
+            assert homes(temp) == []
+
     def describe_the_result() -> None:
         async def it_leaves_what_the_session_left_once_the_block_ends(
             talker: Botbox, daemon: Daemon

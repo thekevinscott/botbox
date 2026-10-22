@@ -20,7 +20,7 @@ def describe_session_result() -> None:
     async def it_retains_partial_output_and_reads_the_agents_transcripts(reader: Mock) -> None:
         live = Mock(
             agent=Mock(transcripts="*.jsonl"),
-            stdout=Mock(into=bytearray(b"partial\xff")),
+            output=Mock(return_value="partial\ufffd"),
             stderr=bytearray(b"error\xff"),
         )
         await session_result(live, Path("/home"), "proxy log", "image", -1)

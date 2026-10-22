@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from botbox.hold_session import hold_session
+from botbox.Session import WINDOW
 
 KILL = object()
 
@@ -110,7 +111,8 @@ def describe_hold_session() -> None:
             assert await live.message('{"type": "end"}') == [{"type": "end"}]
             live.stdin.close()
             assert await live.client == 7
-        assert live.stdout.into == b'{"type": "end"}\n'
+        assert live.stdout.into == b""
+        assert live.stdout.high == WINDOW
         assert live.stderr == b"bye\n"
 
     async def it_holds_the_input_for_this_process_alone(agent: Mock, owner_only: MagicMock) -> None:
