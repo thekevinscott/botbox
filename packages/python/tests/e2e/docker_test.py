@@ -1,6 +1,7 @@
 """botbox.docker against the real daemon. Every image and container is named `sdk-*`."""
 
 import asyncio
+import os
 import subprocess
 from collections.abc import Iterator
 from contextlib import suppress
@@ -70,13 +71,20 @@ def describe_docker() -> None:
             await build(tmp_path, tag=f"{name}:latest", file=file)
 
     async def it_runs_attached_then_waits_and_removes(name: str) -> None:
-        process = await run(
-            ["--interactive", "--name", name, "busybox:latest", "sh", "-c", "cat; exit 7"],
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await process.communicate(b"through stdin")
+        read, write = os.pipe()
+        os.write(write, b"through stdin")
+        os.close(write)
+        stdout, stderr = bytearray(), bytearray()
+        try:
+            code = await run(
+                ["--interactive", "--name", name, "busybox:latest", "sh", "-c", "cat; exit 7"],
+                stdin=read,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        finally:
+            os.close(read)
+        assert code == 7
         assert stdout == b"through stdin"
         assert await wait(name) == 7
         await remove(name)
