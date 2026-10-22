@@ -6,14 +6,16 @@ from pathlib import Path
 
 from botbox.docker.run_docker import run_docker
 from botbox.remove_tree import remove_tree
+from botbox.remove_within import REMOVE_SECONDS
 
 
 async def reap_run(lock: Path) -> bool:
     """Remove the run `lock` names, if its owner is dead, and say whether it did.
 
     Dead means the lock is free. Its containers go first, in any state, including one created
-    and never started; then its temp home; then the lock file. A step that fails is a warning,
-    and the lock file stays for the next sweep.
+    and never started; then its temp home; then the lock file. A step that fails, or a daemon
+    that takes longer than teardown allows, is a warning, and the lock file stays for the next
+    sweep.
     """
     token = lock.stem
     try:
@@ -28,11 +30,17 @@ async def reap_run(lock: Path) -> bool:
         if not os.fstat(fd).st_nlink:
             return False
         try:
-            found = await run_docker(
-                "ps", "--all", "--quiet", "--filter", f"label=botbox.run={token}"
-            )
-            if containers := found.split():
-                await run_docker("rm", "--force", *containers)
+            try:
+                async with asyncio.timeout(REMOVE_SECONDS):
+                    found = await run_docker(
+                        "ps", "--all", "--quiet", "--filter", f"label=botbox.run={token}"
+                    )
+                    if containers := found.split():
+                        await run_docker("rm", "--force", *containers)
+            except TimeoutError:
+                raise TimeoutError(
+                    f"the daemon did not remove its containers within {REMOVE_SECONDS:g}s"
+                ) from None
             await asyncio.to_thread(remove_tree, lock.with_suffix(""))
             lock.unlink()
         except Exception as error:
