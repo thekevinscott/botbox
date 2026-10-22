@@ -567,7 +567,12 @@ def describe_run() -> None:
             await Botbox(runner).run("true", ())  # type: ignore[call-arg]
 
     def describe_output_caps() -> None:
-        async def it_is_not_truncated_within_the_caps(runner: Mock) -> None:
+        async def it_is_not_truncated_under_the_caps(runner: Mock) -> None:
+            result = await Botbox(runner, stdout_limit=6, stderr_limit=5).run("true")
+            assert (result.stdout, result.stderr) == ("out\ufffd\n", "err\n")
+            assert result.truncated is False
+
+        async def it_is_not_truncated_at_the_caps(runner: Mock) -> None:
             result = await Botbox(runner, stdout_limit=5, stderr_limit=4).run("true")
             assert (result.stdout, result.stderr) == ("out\ufffd\n", "err\n")
             assert result.truncated is False
@@ -590,8 +595,8 @@ def describe_run() -> None:
         async def it_holds_one_byte_past_each_cap_to_see_a_trim(
             runner: Mock, docker_run: Mock
         ) -> None:
-            await Botbox(runner, stdout_limit=5, stderr_limit=0).run("true")
-            assert docker_run.call_args.kwargs["limits"] == (6, 1)
+            await Botbox(runner, stdout_limit=5, stderr_limit=1).run("true")
+            assert docker_run.call_args.kwargs["limits"] == (6, 2)
 
         async def it_reads_the_exit_code_with_the_kept_stderr(
             runner: Mock, agent_exit: Mock
