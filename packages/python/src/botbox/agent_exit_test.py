@@ -24,7 +24,8 @@ def docker_exception() -> Iterator[None]:
 
 @pytest.fixture
 def state() -> dict[str, Any]:
-    return {"Status": "exited", "ExitCode": 125}
+    # Built, not a literal: the status comes from parsed JSON, never an interned string.
+    return {"Status": "".join(["exit", "ed"]), "ExitCode": 125}
 
 
 @pytest.fixture(autouse=True)

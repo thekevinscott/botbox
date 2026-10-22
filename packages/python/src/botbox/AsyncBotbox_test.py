@@ -365,6 +365,10 @@ def describe_run() -> None:
         assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
+    async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
+        with pytest.raises(TypeError):
+            await AsyncBotbox(runner).run("true", ())  # type: ignore[call-arg]
+
     async def it_checks_the_mounts_before_building(
         runner: Mock, bind_mounts: Mock, docker_build: Mock
     ) -> None:

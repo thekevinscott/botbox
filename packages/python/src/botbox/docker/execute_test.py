@@ -98,6 +98,10 @@ def describe_execute() -> None:
     def it_lets_the_clients_descendants_outlive_it_by_two_seconds() -> None:
         assert LINGER == 2
 
+    async def it_takes_its_streams_by_keyword_only(captures: tuple[Capture, Capture]) -> None:
+        with pytest.raises(TypeError):
+            await execute(("version",), 7, *captures)  # type: ignore[call-arg, arg-type]
+
     async def it_returns_the_clients_exit_code(
         spawn: AsyncMock, captures: tuple[Capture, Capture]
     ) -> None:
