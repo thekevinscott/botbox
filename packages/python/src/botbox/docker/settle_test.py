@@ -14,6 +14,9 @@ def describe_settle() -> None:
     async def it_returns_what_the_coroutine_returns() -> None:
         assert await settle(slow(0)) == "done"
 
+    async def it_settles_a_future_too() -> None:
+        assert list(await settle(asyncio.gather(slow(0, "a"), slow(0, "b")))) == ["a", "b"]
+
     async def it_propagates_what_the_coroutine_raises() -> None:
         async def fail() -> None:
             raise ValueError("teardown failed")
