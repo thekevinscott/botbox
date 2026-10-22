@@ -1,10 +1,9 @@
 import asyncio
 
-from botbox.docker.collect import collect
+from botbox.docker.Capture import Capture
 from botbox.docker.DockerException import DockerException
 from botbox.docker.ended import ended
 from botbox.docker.exit_code import exit_code
-from botbox.docker.finish import finish
 from botbox.docker.reap import reap
 from botbox.docker.settle import settle
 from botbox.docker.spawn import spawn
@@ -20,30 +19,25 @@ async def run_docker(*args: str) -> str:
     Raise DockerException with the end of its stderr if it fails. If this is cancelled or
     fails first, the client's group is stopped and reaped before the error propagates.
     """
-    process = await spawn(
-        args,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    assert process.stdout is not None
-    assert process.stderr is not None
     out, err = bytearray(), bytearray()
-    readers = (
-        asyncio.ensure_future(collect(process.stdout, out)),
-        asyncio.ensure_future(collect(process.stderr, err, STDERR_LIMIT)),
-    )
-    try:
-        code = await exit_code(process)
-        async with asyncio.timeout(LINGER):
-            await ended(process, readers)
-    except TimeoutError:
-        await settle(reap(process, *readers))
-    except BaseException:
-        await settle(reap(process, *readers))
-        raise
-    finally:
-        await finish(process, readers)
+    async with Capture(out) as stdout, Capture(err, STDERR_LIMIT) as stderr:
+        try:
+            process = await spawn(
+                args, stdin=asyncio.subprocess.DEVNULL, stdout=stdout.write, stderr=stderr.write
+            )
+        finally:
+            stdout.release()
+            stderr.release()
+        eofs = (stdout.eof, stderr.eof)
+        try:
+            code = await exit_code(process)
+            async with asyncio.timeout(LINGER):
+                await ended(process, eofs)
+        except TimeoutError:
+            await settle(reap(process, *eofs))
+        except BaseException:
+            await settle(reap(process, *eofs))
+            raise
     if code != 0:
         raise DockerException(["docker", *args], code, err.decode(errors="replace"))
     return out.decode(errors="replace")

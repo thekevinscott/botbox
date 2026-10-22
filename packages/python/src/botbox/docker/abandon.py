@@ -1,7 +1,6 @@
 import asyncio
 
-from botbox.docker.collect import collect
-from botbox.docker.finish import finish
+from botbox.docker.discard import discard
 from botbox.docker.reap import reap
 
 
@@ -12,8 +11,10 @@ async def abandon(starting: asyncio.Future[asyncio.subprocess.Process]) -> None:
     except Exception:
         return
     pipes = (process.stdout, process.stderr)
-    readers = [asyncio.ensure_future(collect(pipe, bytearray(), 0)) for pipe in pipes if pipe]
+    readers = [asyncio.ensure_future(discard(pipe)) for pipe in pipes if pipe]
     try:
         await reap(process, *readers)
     finally:
-        await finish(process, readers)
+        for reader in readers:
+            reader.cancel()
+        await asyncio.gather(*readers, return_exceptions=True)
