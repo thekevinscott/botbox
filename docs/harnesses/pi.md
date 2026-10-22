@@ -23,7 +23,7 @@ async with Botbox(agent) as box:
 ## Providers
 
 - `openrouter`: OpenRouter. The proxy admits `openrouter.ai`.
-- Any other name: a provider defined in `~/.pi/agent/models.json`. The proxy admits the host of its `baseUrl`. If the provider isn't there, or has no `baseUrl`, `PiAgent` raises `ValueError`. With `api_key` no `models.json` is staged, so only `openrouter` works.
+- Any other name: a provider defined in `~/.pi/agent/models.json`. The proxy admits the host of the selected model's `baseUrl`, or the provider's if the model sets none. With no `model`, it admits every host the provider's models use. If the provider isn't there, or no `baseUrl` has a host, `PiAgent` raises `ValueError`. `models.json` may carry comments and trailing commas, as pi allows. With `api_key` no `models.json` is staged, so only `openrouter` works.
 
 ## Credentials
 
