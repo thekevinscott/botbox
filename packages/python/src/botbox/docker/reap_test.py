@@ -1,30 +1,29 @@
 import asyncio
 from collections.abc import Iterator
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
 from botbox.docker.reap import GRACE, reap
 
 TERM, KILL = 15, 9
+PROCESS = Mock(pid=4242)
+DRAINS = (Mock(name="stdout"), Mock(name="stderr"))
 
 
-class Process:
-    """A process group that exits on the first signal in `stops_on`."""
+class Group:
+    """A process group that ends on the first signal in `ends_on`."""
 
-    pid = 4242
+    def __init__(self, ends_on: set[int]) -> None:
+        self.ends_on = ends_on
+        self.over = asyncio.Event()
 
-    def __init__(self, stops_on: set[int]) -> None:
-        self.stops_on = stops_on
-        self.exited = asyncio.Event()
+    def signal(self, _pid: int, sig: int) -> None:
+        if sig in self.ends_on:
+            self.over.set()
 
-    def signal(self, sig: int) -> None:
-        if sig in self.stops_on:
-            self.exited.set()
-
-    async def wait(self) -> int:
-        await self.exited.wait()
-        return -15
+    async def ended(self, *_args: object) -> None:
+        await self.over.wait()
 
 
 @pytest.fixture(autouse=True)
@@ -35,8 +34,19 @@ def signal() -> Iterator[Mock]:
 
 
 @pytest.fixture
-def killpg() -> Iterator[Mock]:
-    with patch("botbox.docker.reap.os.killpg", autospec=True) as m:
+async def group() -> Group:
+    return Group({TERM})
+
+
+@pytest.fixture(autouse=True)
+def killpg(group: Group) -> Iterator[Mock]:
+    with patch("botbox.docker.reap.os.killpg", autospec=True, side_effect=group.signal) as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def ended(group: Group) -> Iterator[AsyncMock]:
+    with patch("botbox.docker.reap.ended", autospec=True, side_effect=group.ended) as m:
         yield m
 
 
@@ -46,64 +56,47 @@ def timeout() -> Iterator[Mock]:
         yield m
 
 
-@pytest.fixture
-async def process(killpg: Mock) -> Process:
-    process = Process({TERM})
-    killpg.side_effect = lambda _pid, sig: process.signal(sig)
-    return process
-
-
 def describe_reap() -> None:
     def it_gives_the_group_ten_seconds_by_default() -> None:
         assert GRACE == 10
 
-    async def it_waits_the_default_grace(process: Process, timeout: Mock) -> None:
-        await reap(process)  # type: ignore[arg-type]
+    async def it_waits_the_default_grace(timeout: Mock) -> None:
+        await reap(PROCESS)
         timeout.assert_called_once_with(GRACE)
 
-    async def it_terminates_the_process_group(process: Process, killpg: Mock) -> None:
-        await reap(process)  # type: ignore[arg-type]
+    async def it_terminates_the_process_group(killpg: Mock) -> None:
+        await reap(PROCESS)
         assert killpg.call_args_list == [call(4242, TERM)]
 
-    async def it_kills_the_group_when_it_outlives_the_grace(process: Process, killpg: Mock) -> None:
-        process.stops_on = {KILL}
-        await reap(process, grace=0.01)  # type: ignore[arg-type]
-        assert killpg.call_args_list == [call(4242, TERM), call(4242, KILL)]
+    async def it_waits_for_the_process_its_drains_and_its_group(ended: AsyncMock) -> None:
+        await reap(PROCESS, *DRAINS)
+        ended.assert_awaited_once_with(PROCESS, DRAINS)
 
-    async def it_waits_the_grace_before_killing(process: Process, killpg: Mock) -> None:
-        process.stops_on = {KILL}
-        task = asyncio.create_task(reap(process, grace=0.2))  # type: ignore[arg-type]
+    async def it_kills_the_group_when_it_outlives_the_grace(
+        group: Group, killpg: Mock, ended: AsyncMock
+    ) -> None:
+        group.ends_on = {KILL}
+        await reap(PROCESS, *DRAINS, grace=0.01)
+        assert killpg.call_args_list == [call(4242, TERM), call(4242, KILL)]
+        assert ended.await_args_list == [call(PROCESS, DRAINS), call(PROCESS, DRAINS)]
+
+    async def it_waits_the_grace_before_killing(group: Group, killpg: Mock) -> None:
+        group.ends_on = {KILL}
+        task = asyncio.create_task(reap(PROCESS, grace=0.2))
         await asyncio.sleep(0.1)
         assert killpg.call_args_list == [call(4242, TERM)]
         await task
 
-    async def it_tolerates_a_group_that_is_already_gone(process: Process, killpg: Mock) -> None:
+    async def it_tolerates_a_group_that_is_already_gone(group: Group, killpg: Mock) -> None:
         killpg.side_effect = ProcessLookupError
-        process.exited.set()
-        await reap(process)  # type: ignore[arg-type]
+        group.over.set()
+        await reap(PROCESS)
 
-    async def it_tolerates_a_group_gone_before_the_kill(process: Process, killpg: Mock) -> None:
+    async def it_tolerates_a_group_gone_before_the_kill(group: Group, killpg: Mock) -> None:
         def gone(_pid: int, sig: int) -> None:
             if sig == KILL:
-                process.exited.set()
+                group.over.set()
                 raise ProcessLookupError
 
         killpg.side_effect = gone
-        await reap(process, grace=0.01)  # type: ignore[arg-type]
-
-    async def it_waits_for_the_drains_to_finish(process: Process) -> None:
-        drained = asyncio.Event()
-
-        async def drain() -> None:
-            await process.exited.wait()
-            await asyncio.sleep(0.01)
-            drained.set()
-
-        await reap(process, asyncio.ensure_future(drain()))  # type: ignore[arg-type]
-        assert drained.is_set()
-
-    async def it_swallows_a_failed_drain(process: Process) -> None:
-        async def drain() -> None:
-            raise OSError("pipe broke")
-
-        await reap(process, asyncio.ensure_future(drain()))  # type: ignore[arg-type]
+        await reap(PROCESS, grace=0.01)

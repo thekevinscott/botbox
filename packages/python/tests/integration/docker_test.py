@@ -4,9 +4,11 @@ import asyncio
 import json
 import os
 import sys
+import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 
@@ -45,6 +47,22 @@ import os, signal, time
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
 with open(os.environ["PIDS"], "w") as f:
     f.write(f"{os.getpid()}")
+time.sleep(60)
+"""
+
+# Leaves a child that ignores SIGTERM holding its output, reports both pids, and exits.
+ORPHAN = """
+import os, signal, subprocess, sys
+deaf = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)"
+child = subprocess.Popen([sys.executable, "-c", deaf])
+with open(os.environ["PIDS"], "w") as f:
+    f.write(f"{os.getpid()} {child.pid}")
+"""
+
+# A plugin-like child in the group, marked so a test can find it however early it is cancelled.
+PLUGIN = """
+import subprocess, sys, time
+subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", sys.argv[-1]])
 time.sleep(60)
 """
 
@@ -89,6 +107,22 @@ async def started(pids: Path) -> list[int]:
         while not pids.exists() or not pids.read_text():
             await asyncio.sleep(0.01)
     return [int(pid) for pid in pids.read_text().split()]
+
+
+def marked(marker: str) -> bool:
+    for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            if marker.encode() in cmdline.read_bytes():
+                return True
+        except OSError:
+            pass
+    return False
+
+
+async def exited(process: asyncio.subprocess.Process) -> None:
+    async with asyncio.timeout(10):
+        while process.returncode is None:
+            await asyncio.sleep(0.01)
 
 
 async def cancel_twice(task: asyncio.Task[object]) -> None:
@@ -170,3 +204,47 @@ def describe_docker() -> None:
             (client,) = await started(pids)
             await reap(process, grace=0.2)
             assert await gone(client)
+
+        async def it_kills_a_group_that_outlives_its_leader_while_holding_the_pipes(
+            install: Install, pids: Path
+        ) -> None:
+            install(ORPHAN)
+            process = await run(
+                [], stdin=None, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            assert process.stdout is not None
+            assert process.stderr is not None
+            drains = [asyncio.ensure_future(s.read()) for s in (process.stdout, process.stderr)]
+            _, child = await started(pids)
+            await exited(process)
+            reaping = asyncio.ensure_future(reap(process, *drains, grace=0.2))
+            await asyncio.wait({reaping}, timeout=5)
+            assert reaping.done()
+            assert await gone(child)
+
+        async def it_kills_a_group_that_outlives_its_leader_with_no_pipes(
+            install: Install, pids: Path
+        ) -> None:
+            install(ORPHAN)
+            process = await run([], stdin=None, stdout=None, stderr=None)
+            _, child = await started(pids)
+            await exited(process)
+            await reap(process, grace=0.2)
+            assert await gone(child)
+
+        async def it_reaps_the_group_when_cancelled_before_spawn_returns(
+            install: Install,
+        ) -> None:
+            install(PLUGIN)
+            marker = f"sdk-{uuid4().hex}"
+            task = asyncio.create_task(run_docker("buildx", "build", marker))
+            await asyncio.sleep(0)
+            # Blocks the loop, so spawn is still connecting the pipes when the cancel lands.
+            deadline = time.monotonic() + 10
+            while not marked(marker) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert marked(marker)
+            await cancel_twice(task)
+            async with asyncio.timeout(2):
+                while marked(marker):
+                    await asyncio.sleep(0.01)
