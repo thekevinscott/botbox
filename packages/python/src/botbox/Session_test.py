@@ -1,232 +1,215 @@
-import io
+import asyncio
 import json
-import threading
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.Session import Session, read_transcript
+from botbox.Session import Session
 
 
-class Stdin(io.StringIO):
-    """Keeps what was written after it's closed, and records each flush."""
+def lines(*events: Any) -> bytes:
+    return "".join((e if isinstance(e, str) else json.dumps(e)) + "\n" for e in events).encode()
+
+
+class Live:
+    """A session over fake pipes: `print` is the CLI writing, `exit` its client exiting."""
 
     def __init__(self) -> None:
-        super().__init__()
-        self.written = ""
-        self.flushed: list[str] = []
+        self.agent = Mock(
+            encode=lambda message: f"<{message}>",
+            turn_ended=lambda event: event.get("type") == "end",
+        )
+        self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
+        self.stdout = Mock(into=bytearray(), grew=asyncio.Event())
+        self.stderr = bytearray()
+        self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+        self.session = Session(self.agent, self.stdin, self.stdout, self.stderr, self.client)
 
-    def write(self, text: str) -> int:
-        self.written += text
-        return len(text)
+    def print(self, data: bytes) -> None:
+        self.stdout.into.extend(data)
+        self.stdout.grew.set()
 
-    def flush(self) -> None:
-        self.flushed.append(self.written)
+    def exit(self, code: int = 0) -> None:
+        self.client.set_result(code)
 
-
-class BrokenStdin(Stdin):
-    """Raises on the first close, the way a pipe to an exited process does."""
-
-    def close(self) -> None:
-        if not self.closed:
-            super().close()
-            raise BrokenPipeError
-
-
-def lines(*events: Any) -> str:
-    return "".join((e if isinstance(e, str) else json.dumps(e)) + "\n" for e in events)
-
-
-@pytest.fixture
-def agent() -> Mock:
-    return Mock(
-        transcripts="sessions/*.jsonl",
-        encode=lambda message: f"<{message}>",
-        turn_ended=lambda event: event.get("type") == "end",
-    )
-
-
-def process(stdout: str = "", stderr: str = "", exit_code: int = 0) -> Mock:
-    return Mock(
-        stdin=Stdin(),
-        stdout=io.StringIO(stdout),
-        stderr=io.StringIO(stderr),
-        wait=Mock(return_value=exit_code),
-    )
+    @property
+    def sent(self) -> bytes:
+        return b"".join(c.args[0] for c in self.stdin.write.call_args_list)
 
 
 @pytest.fixture(autouse=True)
-def run_result() -> Iterator[MagicMock]:
-    with patch("botbox.Session.RunResult", autospec=True) as m:
+def abort_writer() -> Iterator[Mock]:
+    with patch("botbox.Session.abort_writer", autospec=True) as m:
         yield m
 
 
 @pytest.fixture
-def finish() -> Mock:
-    return Mock(return_value=({"sessions/a.jsonl": "{}"}, "a proxy log"))
+async def live() -> Live:
+    return Live()
 
 
-def session_of(agent: Mock, proc: Mock, finish: Mock) -> Session:
-    return Session(agent, proc, "an-image:latest", finish)
+async def soon(live: Live, *chunks: bytes) -> None:
+    """Print `chunks` one loop pass apart, after the turn has started waiting."""
+    for chunk in chunks:
+        await asyncio.sleep(0)
+        live.print(chunk)
 
 
-def describe_init() -> None:
-    def it_drains_stderr_on_a_thread_that_cant_hold_up_exit(agent: Mock, finish: Mock) -> None:
-        with patch("botbox.Session.threading.Thread", wraps=threading.Thread) as thread:
-            session_of(agent, process(), finish)
-        assert thread.call_args.kwargs["daemon"] is True
+def describe_Session() -> None:
+    async def it_keeps_its_agent_and_pipes(live: Live) -> None:
+        session = live.session
+        assert session.agent is live.agent
+        assert session.stdin is live.stdin
+        assert session.stdout is live.stdout
+        assert session.stderr is live.stderr
+        assert session.client is live.client
 
+    async def it_has_no_result_until_the_session_is_left(live: Live) -> None:
+        assert live.session.result is None
 
-def describe_message() -> None:
-    def it_writes_the_encoded_message_as_one_line(agent: Mock, finish: Mock) -> None:
-        proc = process(lines({"type": "end"}))
-        session_of(agent, proc, finish).message("hi")
-        assert proc.stdin.written == "<hi>\n"
-
-    def it_flushes_the_line_before_reading(agent: Mock, finish: Mock) -> None:
-        proc = process(lines({"type": "end"}))
-        session_of(agent, proc, finish).message("hi")
-        assert proc.stdin.flushed == ["<hi>\n"]
-
-    def it_returns_the_turns_events_through_the_last(agent: Mock, finish: Mock) -> None:
-        proc = process(lines({"type": "start"}, {"type": "end"}, {"type": "next"}))
-        assert session_of(agent, proc, finish).message("hi") == [{"type": "start"}, {"type": "end"}]
-
-    def it_leaves_the_next_turns_events_for_the_next_message(agent: Mock, finish: Mock) -> None:
-        proc = process(lines({"type": "end", "n": 1}, {"type": "end", "n": 2}))
-        session = session_of(agent, proc, finish)
-        session.message("one")
-        assert session.message("two") == [{"type": "end", "n": 2}]
-
-    def it_skips_lines_that_are_not_json_objects(agent: Mock, finish: Mock) -> None:
-        proc = process(lines("not json", [1, 2], {"type": "end"}))
-        assert session_of(agent, proc, finish).message("hi") == [{"type": "end"}]
-
-    def it_returns_what_arrived_when_the_cli_exits_mid_turn(agent: Mock, finish: Mock) -> None:
-        proc = process(lines({"type": "start"}))
-        assert session_of(agent, proc, finish).message("hi") == [{"type": "start"}]
-
-
-def describe_close() -> None:
-    def it_ends_the_clis_input(agent: Mock, finish: Mock) -> None:
-        proc = process()
-        session_of(agent, proc, finish).close()
-        assert proc.stdin.closed
-
-    def it_returns_what_the_session_left(agent: Mock, finish: Mock, run_result: MagicMock) -> None:
-        proc = process(lines({"type": "end"}, "trailing"), stderr="a warning\n", exit_code=3)
-        session = session_of(agent, proc, finish)
-        session.message("hi")
-        assert session.close() is run_result.return_value
-        run_result.assert_called_once_with(
-            lines({"type": "end"}, "trailing"),
-            "a warning\n",
-            3,
-            {"sessions/a.jsonl": "{}"},
-            "a proxy log",
-            "an-image:latest",
-        )
-
-    def it_keeps_the_lines_that_were_not_events_in_stdout(
-        agent: Mock, finish: Mock, run_result: MagicMock
+    async def it_wakes_a_waiting_turn_and_drops_its_input_once_the_client_exits(
+        live: Live, abort_writer: Mock
     ) -> None:
-        proc = process(lines("noise", {"type": "end"}))
-        session = session_of(agent, proc, finish)
-        session.message("hi")
-        session.close()
-        assert run_result.call_args.args[0] == lines("noise", {"type": "end"})
+        live.exit()
+        await asyncio.sleep(0)
+        assert live.stdout.grew.is_set()
+        abort_writer.assert_called_once_with(live.stdin)
 
-    def it_keeps_the_result(agent: Mock, finish: Mock) -> None:
-        session = session_of(agent, process(), finish)
-        assert session.result is None
-        assert session.close() is session.result
+    def describe_stream() -> None:
+        async def it_sends_the_encoded_message_on_its_own_line(live: Live) -> None:
+            live.print(lines({"type": "end"}))
+            [event async for event in live.session.stream("hi")]
+            assert live.sent == b"<hi>\n"
+            live.stdin.drain.assert_awaited_once_with()
 
-    def it_tears_down_once(agent: Mock, finish: Mock) -> None:
-        session = session_of(agent, process(), finish)
-        first = session.close()
-        assert session.close() is first
-        finish.assert_called_once_with()
+        async def it_yields_events_as_they_arrive_up_to_the_turns_end(live: Live) -> None:
+            arriving = asyncio.ensure_future(
+                soon(live, lines({"n": 1}), b'{"n"', b': 2}\n{"type": "end"}\n{"n": 3}\n')
+            )
+            events = [event async for event in live.session.stream("hi")]
+            await arriving
+            assert events == [{"n": 1}, {"n": 2}, {"type": "end"}]
 
-    def it_tolerates_a_cli_that_already_exited(
-        agent: Mock, finish: Mock, run_result: MagicMock
-    ) -> None:
-        proc = process(exit_code=1)
-        proc.stdin = BrokenStdin()
-        session_of(agent, proc, finish).close()
-        assert run_result.call_args.args[2] == 1
+        async def it_yields_each_event_before_the_next_arrives(live: Live) -> None:
+            stream = live.session.stream("hi")
+            live.print(lines({"n": 1}))
+            assert await anext(stream) == {"n": 1}
+            later = asyncio.ensure_future(anext(stream))
+            await asyncio.sleep(0.01)
+            assert not later.done()
+            live.print(lines({"type": "end"}))
+            assert await later == {"type": "end"}
+            with pytest.raises(StopAsyncIteration):
+                await anext(stream)
 
+        async def it_skips_lines_that_are_not_json_objects(live: Live) -> None:
+            live.print(lines("starting", "[1, 2]", "\xff", "", {"n": 1}, {"type": "end"}))
+            events = [event async for event in live.session.stream("hi")]
+            assert events == [{"n": 1}, {"type": "end"}]
 
-def describe_with() -> None:
-    def it_is_the_session(agent: Mock, finish: Mock) -> None:
-        session = session_of(agent, process(), finish)
-        with session as entered:
-            assert entered is session
+        async def it_reads_past_an_empty_first_line(live: Live) -> None:
+            live.print(b"\n" + lines({"type": "end"}))
+            events = await asyncio.wait_for(live.session.message("hi"), 1)
+            assert events == [{"type": "end"}]
 
-    def it_closes_on_exit(agent: Mock, finish: Mock) -> None:
-        with session_of(agent, process(), finish) as session:
-            pass
-        assert session.result is not None
+        async def it_skips_bytes_that_are_not_utf8(live: Live) -> None:
+            live.print(b"\xff\xfe\n" + lines({"type": "end"}))
+            events = [event async for event in live.session.stream("hi")]
+            assert events == [{"type": "end"}]
 
-    def it_closes_when_the_block_raises(agent: Mock, finish: Mock) -> None:
-        session = session_of(agent, process(), finish)
-        with pytest.raises(RuntimeError), session:
-            raise RuntimeError
-        finish.assert_called_once_with()
+        async def it_ends_with_what_arrived_if_the_cli_exits_mid_turn(live: Live) -> None:
+            live.print(lines({"n": 1}) + b'{"n": 2')
+            live.exit()
+            events = [event async for event in live.session.stream("hi")]
+            assert events == [{"n": 1}]
 
+        async def it_yields_a_last_line_the_cli_left_unterminated(live: Live) -> None:
+            live.print(lines({"n": 1}) + b'{"type": "end"}')
+            live.exit()
+            assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
+            assert await live.session.message("again") == []
 
-def describe_read_transcript() -> None:
-    def it_reads_matching_files_by_path_relative_to_the_home(tmp_path: Path) -> None:
-        (tmp_path / "sessions").mkdir()
-        (tmp_path / "sessions" / "b.jsonl").write_text("b")
-        (tmp_path / "sessions" / "a.jsonl").write_text("a")
-        (tmp_path / "sessions" / "notes.txt").write_text("x")
-        assert read_transcript(tmp_path, "sessions/*.jsonl") == {
-            "sessions/a.jsonl": "a",
-            "sessions/b.jsonl": "b",
-        }
+        async def it_waits_for_the_end_of_a_line_while_the_cli_runs(live: Live) -> None:
+            live.print(b'{"type": "end"}')
+            later = asyncio.ensure_future(live.session.message("hi"))
+            await asyncio.sleep(0.01)
+            assert not later.done()
+            live.print(b"\n")
+            assert await later == [{"type": "end"}]
 
-    def it_skips_directories_that_match(tmp_path: Path) -> None:
-        (tmp_path / "sessions" / "dir.jsonl").mkdir(parents=True)
-        assert read_transcript(tmp_path, "sessions/*.jsonl") == {}
+        async def it_wakes_when_the_cli_exits_while_it_waits(live: Live) -> None:
+            stream = live.session.stream("hi")
+            later = asyncio.ensure_future(anext(stream))
+            await asyncio.sleep(0.01)
+            live.exit()
+            with pytest.raises(StopAsyncIteration):
+                await asyncio.wait_for(later, 1)
 
-    def it_replaces_bytes_that_are_not_utf8(tmp_path: Path) -> None:
-        (tmp_path / "a.jsonl").write_bytes(b"ok \xff\xfe")
-        assert read_transcript(tmp_path, "*.jsonl") == {"a.jsonl": "ok ��"}
+        async def it_reads_the_rest_of_the_output_once_the_cli_has_exited(live: Live) -> None:
+            live.print(lines({"n": 1}, {"n": 2}, {"type": "end"}))
+            live.exit()
+            events = [event async for event in live.session.stream("hi")]
+            assert events == [{"n": 1}, {"n": 2}, {"type": "end"}]
 
-    def it_skips_a_file_it_cannot_open(tmp_path: Path) -> None:
-        (tmp_path / "a.jsonl").write_text("a")
-        (tmp_path / "b.jsonl").write_text("b")
-        (tmp_path / "b.jsonl").chmod(0)
-        assert read_transcript(tmp_path, "*.jsonl") == {"a.jsonl": "a"}
+        @pytest.mark.parametrize("error", [BrokenPipeError, ConnectionResetError])
+        async def it_ends_empty_when_the_cli_is_gone_before_the_message(
+            live: Live, error: type[Exception]
+        ) -> None:
+            live.stdin.drain.side_effect = error
+            live.exit()
+            assert [event async for event in live.session.stream("hi")] == []
 
-    def describe_a_symlink_planted_by_the_agent() -> None:
-        @pytest.fixture
-        def home(tmp_path: Path) -> Path:
-            (tmp_path / "home" / "sessions").mkdir(parents=True)
-            return tmp_path / "home"
+        async def it_picks_up_the_next_turn_where_the_last_one_ended(live: Live) -> None:
+            live.print(lines({"type": "end"}, {"n": 2}, {"type": "end"}))
+            first = [event async for event in live.session.stream("one")]
+            second = [event async for event in live.session.stream("two")]
+            assert (first, second) == ([{"type": "end"}], [{"n": 2}, {"type": "end"}])
 
-        @pytest.fixture
-        def secret(tmp_path: Path) -> Path:
-            secret = tmp_path / "host" / "secret.jsonl"
-            secret.parent.mkdir()
-            secret.write_text("host secret")
-            return secret
+        async def it_skips_the_rest_of_a_turn_left_early_before_sending_the_next(
+            live: Live,
+        ) -> None:
+            live.print(lines({"n": 1}))
+            async for _ in live.session.stream("one"):
+                break
+            assert live.sent == b"<one>\n"
+            following = asyncio.ensure_future(live.session.message("two"))
+            await asyncio.sleep(0.01)
+            assert live.sent == b"<one>\n"
+            live.print(lines({"n": 2}, {"type": "end"}, {"n": 3}, {"type": "end"}))
+            assert await following == [{"n": 3}, {"type": "end"}]
+            assert live.sent == b"<one>\n<two>\n"
 
-        def it_skips_a_file_link_out_of_the_home(home: Path, secret: Path) -> None:
-            (home / "sessions" / "a.jsonl").symlink_to(secret)
-            assert read_transcript(home, "sessions/*.jsonl") == {}
+        async def it_skips_the_rest_of_a_turn_whose_send_was_cut_short(live: Live) -> None:
+            async def drain() -> None:
+                if live.stdin.write.call_count == 1:
+                    await asyncio.Event().wait()
 
-        def it_skips_a_directory_link_out_of_the_home(home: Path, secret: Path) -> None:
-            (home / "sessions" / "host").symlink_to(secret.parent)
-            assert read_transcript(home, "sessions/*/*.jsonl") == {}
+            live.stdin.drain.side_effect = drain
+            sending = asyncio.ensure_future(live.session.message("one"))
+            await asyncio.sleep(0.01)
+            sending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await sending
+            live.print(lines({"n": 1}, {"type": "end"}, {"n": 2}, {"type": "end"}))
+            assert await live.session.message("two") == [{"n": 2}, {"type": "end"}]
 
-        def it_reads_a_link_that_stays_in_the_home(home: Path) -> None:
-            (home / "sessions" / "a.jsonl").write_text("a")
-            (home / "sessions" / "b.jsonl").symlink_to(home / "sessions" / "a.jsonl")
-            assert read_transcript(home, "sessions/*.jsonl") == {
-                "sessions/a.jsonl": "a",
-                "sessions/b.jsonl": "a",
-            }
+        async def it_skips_nothing_after_a_turn_left_at_its_end(live: Live) -> None:
+            live.print(lines({"type": "end"}, {"n": 2}, {"type": "end"}))
+            async for _ in live.session.stream("one"):
+                break
+            assert await live.session.message("two") == [{"n": 2}, {"type": "end"}]
+
+        async def it_sends_the_next_message_after_a_turn_the_cli_cut_short(live: Live) -> None:
+            live.print(lines({"n": 1}))
+            live.exit()
+            assert await live.session.message("one") == [{"n": 1}]
+            assert await live.session.message("two") == []
+            assert live.sent == b"<one>\n<two>\n"
+
+    def describe_message() -> None:
+        async def it_collects_the_turns_events(live: Live) -> None:
+            live.print(lines({"n": 1}, "noise", {"type": "end"}))
+            assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
+            assert live.sent == b"<hi>\n"

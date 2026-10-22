@@ -1,4 +1,4 @@
-"""The async API against a fake `docker` on PATH, run as a real subprocess."""
+"""The API against a fake `docker` on PATH, run as a real subprocess."""
 
 import os
 import sys
@@ -10,14 +10,7 @@ from unittest.mock import patch
 import pytest
 from fake_docker_test import CREDENTIALS, FAKE_DOCKER, Daemon
 
-from botbox import AsyncBotbox, ClaudeAgent
-
-
-@pytest.fixture(autouse=True)
-def docker() -> Iterator[None]:
-    """Overrides the parent conftest's: asyncio spawns through the `subprocess.Popen` it patches."""
-    with patch("python_on_whales.utils.run", autospec=True):
-        yield
+from botbox import Botbox, ClaudeAgent
 
 
 @pytest.fixture(autouse=True)
@@ -44,8 +37,8 @@ def temp(tmp_path: Path) -> Iterator[Path]:
 
 
 @pytest.fixture
-def box(tmp_path: Path) -> AsyncBotbox:
+def box(tmp_path: Path) -> Botbox:
     home = tmp_path / "claude-home"
     home.mkdir()
     (home / ".credentials.json").write_text(CREDENTIALS)
-    return AsyncBotbox(ClaudeAgent(host_home=home))
+    return Botbox(ClaudeAgent(host_home=home))

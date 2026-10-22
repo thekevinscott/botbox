@@ -2,14 +2,12 @@
 
 How code that calls botbox moves from the sync `Botbox` (0.0.x) to the async `Botbox` (0.1.0). The plan is epic #79.
 
-This was written before the spikes (#80, #81, #82) reported. Anything marked *provisional* may still change.
-
 ## Timeline and pinning
 
 - **Until 0.1.0:** 0.0.x patches, sync `Botbox` only. botbox is alpha, so these patches can still break things (#74, agent `--rm`). Read the migration fragments when you bump.
 - **0.1.0 (#86):** `Botbox` is async. The sync API is gone. python-on-whales is no longer a dependency.
 
-The async work lands on main while it's built, but nothing is released until the switch. You migrate once, from sync 0.0.x straight to async 0.1.0. There is no release where both APIs exist.
+Nothing async was released before the switch. You migrate once, from sync 0.0.x straight to async 0.1.0. There is no release where both APIs exist.
 
 What to do:
 
@@ -23,8 +21,6 @@ What to do:
 - `Botbox` arguments: `dockerfile`, `allow`. `run()` and `session()` arguments: `mounts`, `workdir`.
 - `RunResult` is still a frozen dataclass. `asdict(result)` works. Fixtures that build one by keyword or by position keep working.
 - `exit_code == -1` (the daemon went away mid-run) is still a normal result, not an exception.
-
-*Provisional:* what `RunResult.container` holds once agent containers run with `--rm` (the follow-up to #74). Don't build on removing that container yourself.
 
 ## build
 
@@ -70,7 +66,7 @@ async with Botbox(agent) as box:
 
 `await live.message(text)` still collects one turn and returns its events.
 
-*Provisional:* how you get the session's `RunResult`. The sync `close()` returned it. The async shape (`live.result` after the block, or `await live.aclose()`) is settled in #85.
+There is no `close()`. Leaving the block ends the session and sets `live.result`. If the block raises or is cancelled, `live.result` stays `None`.
 
 A session opened without `with` and closed in a `finally` (a session held open across a generator) becomes an `@asynccontextmanager`:
 
@@ -95,7 +91,7 @@ async with box.session() as live:
 
 The iterator ends at the agent's turn end. `turn_ended()` goes back to being only the turn terminator. Don't use it for side effects.
 
-Breaking out of the `async for` early is *provisional*: whether the rest of the turn is drained or the session is torn down is settled in #85. Until then, consume the whole turn.
+Breaking out of the `async for` early keeps the session. The rest of that turn is read and dropped before the next message is sent.
 
 ## Calling from sync code
 
@@ -138,7 +134,7 @@ async with asyncio.timeout(600):
 - Teardown is shielded from a second cancel and takes a moment. Cancellation is not instant.
 - Ctrl-C under `asyncio.run` cancels the main task, so it tears down like any cancel.
 - Don't catch `CancelledError` without re-raising it.
-- SIGTERM inside `async with AsyncBotbox(...)` cancels the task that entered the block, then raises `SystemExit(143)` once teardown is done, as `with Botbox` does. Outside the block, SIGTERM keeps Python's default and exits without teardown.
+- SIGTERM inside `async with Botbox(...)` cancels the task that entered the block, then raises `SystemExit(143)` once teardown is done. Outside the block, SIGTERM keeps Python's default and exits without teardown.
 
 Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`, for #60's sweep.
 
@@ -156,11 +152,11 @@ except* DockerException as group:
     ...
 ```
 
-*Provisional:* `DockerException`. Today `botbox.DockerException` is python_on_whales' class, with its constructor `DockerException(command, return_code)`. After 0.1.0 it will be botbox's own. Catch `botbox.DockerException`, never `python_on_whales.exceptions.DockerException`. Tests that construct one with the python_on_whales signature will need a change.
+`botbox.DockerException` is botbox's own class: `DockerException(docker_command, return_code, stderr)`, with `stderr` as text. It is no longer python_on_whales' class, so `except python_on_whales.exceptions.DockerException` stops catching it. Catch `botbox.DockerException`. Tests that construct one with the python_on_whales signature need the new one.
 
 ## Testing
 
-Integration tests that patch `python_on_whales.docker.*` to fake the daemon stop working at 0.1.0. botbox no longer calls those functions, so the patches miss and the tests try to reach a real daemon. Don't port them to patch aiodocker either. botbox's Docker boundary is internal, and the spikes may route builds and attaches through the `docker` CLI. Delete them.
+Integration tests that patch `python_on_whales.docker.*` to fake the daemon stop working at 0.1.0. botbox no longer calls those functions, so the patches miss and the tests try to reach a real daemon. Don't port them to patch botbox's Docker calls either; that boundary is internal. Delete them.
 
 Replace them with two layers:
 
@@ -184,7 +180,7 @@ Async tests need a pytest plugin. Set `asyncio_mode = "auto"` with pytest-asynci
 
 ## botbox internals
 
-Only names in `botbox.__all__` are public. `botbox.lockdown`, `botbox.collect`, `botbox.build_lock`, `botbox.Session.read_transcript` and the `botbox.Botbox` module path are internal. They are rewritten during the port, and no migration note covers them. If you import one, stop now, or open an issue for what you need.
+Only names in `botbox.__all__` are public. `botbox.lockdown`, `botbox.build_lock`, `botbox.read_transcript`, `botbox.docker` and the `botbox.Botbox` module path are internal. `botbox.collect` is gone, and `read_transcript` moved out of `botbox.Session`. No migration note covers them. If you import one, stop, or open an issue for what you need.
 
 A vendored copy of botbox's lockdown in your own code keeps working, since it carries its own python_on_whales calls. It won't get botbox's fixes.
 

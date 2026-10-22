@@ -4,6 +4,7 @@ Every test drives `botbox` through its public entry point. Docker is only ever r
 through its own CLI, to see what a run left behind.
 """
 
+import asyncio
 import os
 import subprocess
 import tempfile
@@ -51,7 +52,7 @@ def leftovers() -> set[str]:
 def box() -> Botbox:
     """A plain Claude box. Its image is built once up front so `leftovers()` can name it."""
     box = Botbox(ClaudeAgent())
-    box.build()
+    asyncio.run(box.build())
     return box
 
 
@@ -61,7 +62,7 @@ def probe(box: Botbox) -> Probe:
 
     def run(probes: Mapping[str, str], **options: Any) -> tuple[RunResult, dict[str, str]]:
         script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-        result = box.run(script, **options)
+        result = asyncio.run(box.run(script, **options))
         fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
         return result, {name: value.strip() for name, value in fields}
 

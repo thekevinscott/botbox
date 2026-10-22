@@ -37,26 +37,33 @@ Requires Docker.
 `botbox` exposes a Python and (planned, not yet built) Node SDK.
 
 ```python
+import asyncio
+
 from botbox import Botbox, ClaudeAgent
 
-agent = ClaudeAgent(model="claude-opus-5", effort="high")
-box = Botbox(agent)
 
-result = box.run(
-    command=agent.command("Make the failing tests pass please"),
-    mounts=[
-        ("./tests", "/tests", "ro"),
-        ("./work", "/work", "rw"),
-    ],
-    workdir="/work", # optional; where the command starts. Must be a mounted path.
-)
+async def main() -> None:
+    agent = ClaudeAgent(model="claude-opus-5", effort="high")
+    async with Botbox(agent) as box:
+        result = await box.run(
+            command=agent.command("Make the failing tests pass please"),
+            mounts=[
+                ("./tests", "/tests", "ro"),
+                ("./work", "/work", "rw"),
+            ],
+            workdir="/work", # optional; where the command starts. Must be a mounted path.
+        )
+    print(result.stdout)
+    print(result.proxy)
 
-print(result.stdout)
-print(result.proxy)
+
+asyncio.run(main())
 ```
 
 
 `run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, stops the proxy, and returns.
+
+The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
 ## Usage
 
@@ -72,10 +79,12 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 | `dockerfile` | Your layer on top of the agent's image. See [Extending the image](#extending-the-image). |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 
+`Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run in progress tears down, then the block raises `SystemExit(143)`. `build()`, `run()` and `session()` work without the block too.
+
 ### `run()`
 
 ```python
-box.run(
+await box.run(
     command: str,
     *,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
@@ -97,14 +106,14 @@ box.run(
 | `proxy`      | `str`: the proxy log.                                                           |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
-The container removes itself when it exits (`--rm`). Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
+The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist. `run()` raises only when setup fails or the run is interrupted. Docker failures in setup raise `botbox.DockerException`. If the daemon refuses the agent's container itself, the result carries the Docker client's exit code (125, 126 or 127) and the daemon's error in `stderr`.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 
 ```python
-box.build() -> str
+await box.build() -> str
 ```
 
 Builds the agent's image, then your `dockerfile` on top, and returns the tag. `run()` calls this every time.
@@ -205,7 +214,7 @@ Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-fo
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")
-box.run(agent.command("Fix the tests"))
+await box.run(agent.command("Fix the tests"))
 ```
 
 ## Sample consumer Dockerfile extension
@@ -235,7 +244,7 @@ USER user
 agent = ClaudeAgent(model=model, effort=effort)
 box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
-result = box.run(
+result = await box.run(
     command=agent.command(prompt),
     mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
     workdir="/target",

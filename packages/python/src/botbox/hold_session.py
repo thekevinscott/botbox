@@ -5,16 +5,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from botbox.agents.agent import SessionAgent
-from botbox.AsyncSession import AsyncSession
 from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
 from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
+from botbox.Session import Session
 
 
 @asynccontextmanager
-async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[AsyncSession]:
+async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[Session]:
     """Start an attached `docker run` with `args` and yield a session on the agent's CLI in it.
 
     The client runs as the session's `client` task. Leaving the block kills it if it is still
@@ -43,7 +43,7 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[As
                         )
                     )
                     try:
-                        yield AsyncSession(agent, stdin, out, err.into, client)
+                        yield Session(agent, stdin, out, err.into, client)
                     finally:
                         client.cancel()
                         await settle(asyncio.gather(client, return_exceptions=True))

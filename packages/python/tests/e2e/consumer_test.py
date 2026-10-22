@@ -4,6 +4,7 @@ The Dockerfile is read out of the root README at test time, so the test follows 
 It is written to a stable path: the layer's tag is derived from the Dockerfile's path.
 """
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -26,7 +27,7 @@ def result(pytestconfig: pytest.Config) -> RunResult:
     dockerfile = pytestconfig.cache.mkdir("consumer") / "Dockerfile"
     dockerfile.write_text(sample_dockerfile())
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
-    return box.run("uv --version && pytest --version && vitest --version")
+    return asyncio.run(box.run("uv --version && pytest --version && vitest --version"))
 
 
 def describe_the_sample_consumer_dockerfile() -> None:

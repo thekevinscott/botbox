@@ -6,8 +6,10 @@ The raw CONNECT probe reads the proxy's own answer. Two kinds of probe, because 
 admitted everything would still pass every direct one.
 """
 
+import asyncio
 import secrets
 import subprocess
+import threading
 import time
 from collections.abc import Iterator
 
@@ -142,17 +144,30 @@ def describe_the_proxy_log() -> None:
 
 def describe_allow() -> None:
     def it_admits_an_extra_host() -> None:
-        with Botbox(ClaudeAgent(), allow=["example.com"]) as box:
-            result = box.run(f"{CONNECT} example.com {PROXY}")
+        box = Botbox(ClaudeAgent(), allow=["example.com"])
+        result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}"))
         assert result.stdout.strip() == "200"
         assert 'Established connection to host "example.com"' in result.proxy
 
 
 @pytest.fixture(scope="module")
 def other_run() -> Iterator[str]:
-    """Another run's proxy, live, admitting example.com: its address on the default bridge."""
+    """Another run's proxy, live, admitting example.com: its address on the default bridge.
+
+    The session is held open on a thread of its own, with its own event loop, for the module.
+    """
     before = set(docker_lines("ps", "--format", "{{.Names}}"))
-    with Botbox(ClaudeAgent(), allow=["example.com"]) as box, box.session() as live:
+    up, done = threading.Event(), threading.Event()
+
+    async def hold() -> None:
+        async with Botbox(ClaudeAgent(), allow=["example.com"]).session():
+            up.set()
+            await asyncio.to_thread(done.wait)
+
+    holder = threading.Thread(target=asyncio.run, args=(hold(),))
+    holder.start()
+    try:
+        assert up.wait(120)
         (proxy,) = {
             n
             for n in docker_lines("ps", "--format", "{{.Names}}")
@@ -162,12 +177,14 @@ def other_run() -> Iterator[str]:
             "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", proxy
         )
         yield ip
-        live.close()
+    finally:
+        done.set()
+        holder.join()
 
 
 def describe_another_runs_proxy() -> None:
     def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str) -> None:
-        result = box.run(f"{CONNECT} example.com {other_run}:8888")
+        result = asyncio.run(box.run(f"{CONNECT} example.com {other_run}:8888"))
         assert result.stdout.strip() == "error ENETUNREACH", result.stdout
 
 
@@ -197,7 +214,7 @@ def upstream(box: Botbox) -> Iterator[tuple[str, str]]:
     name = f"botbox-e2e-upstream-{secrets.token_hex(6)}"
     server = [
         *("docker", "run", "--detach", "--rm", "--name", name, "--network", "bridge"),
-        *("--user", "root", "--entrypoint", "node", box.build(), "-e", UPSTREAM),
+        *("--user", "root", "--entrypoint", "node", asyncio.run(box.build()), "-e", UPSTREAM),
     ]
     subprocess.run(server, check=True, capture_output=True)
     try:
@@ -227,8 +244,7 @@ def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
         "other port by host": f'{REQUEST} {PROXY} "GET / HTTP/1.0|Host: {ip}:8022||"',
     }
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-    with Botbox(ClaudeAgent(), allow=[ip]) as box:
-        result = box.run(script)
+    result = asyncio.run(Botbox(ClaudeAgent(), allow=[ip]).run(script))
     fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
     return {n: v.strip() for n, v in fields}, upstream_log(name)
 

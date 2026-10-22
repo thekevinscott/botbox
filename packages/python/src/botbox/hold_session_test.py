@@ -99,6 +99,12 @@ def describe_hold_session() -> None:
             live.stdin.close()
             await live.client
 
+    async def it_yields_a_session_on_the_agent(agent: Mock) -> None:
+        with patch("botbox.hold_session.Session") as session:
+            async with hold_session(agent, []) as live:
+                assert live is session.return_value
+        assert session.call_args.args[0] is agent
+
     async def it_streams_the_clis_output_back_to_the_session(agent: Mock) -> None:
         async with hold_session(agent, []) as live:
             assert await live.message('{"type": "end"}') == [{"type": "end"}]

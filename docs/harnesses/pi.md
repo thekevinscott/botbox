@@ -16,8 +16,8 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 
 ```python
 agent = PiAgent("openrouter", "qwen/qwen3-coder")
-with Botbox(agent) as box:
-    result = box.run(agent.command("Fix the tests"))
+async with Botbox(agent) as box:
+    result = await box.run(agent.command("Fix the tests"))
 ```
 
 ## Providers

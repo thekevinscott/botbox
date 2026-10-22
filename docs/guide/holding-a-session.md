@@ -5,16 +5,17 @@ Keep one agent process alive across several messages with `session()`. Context c
 ```python
 agent = PiAgent("openrouter", "openai/gpt-4o-mini")
 
-with Botbox(agent) as box:
-    with box.session(mounts=[("./work", "/work", "rw")], workdir="/work") as session:
-        events = session.message("Start the dev server in the background")
-        events = session.message("Now run the tests against it")
-    result = session.result
+async with Botbox(agent) as box:
+    async with box.session(mounts=[("./work", "/work", "rw")], workdir="/work") as live:
+        events = await live.message("Start the dev server in the background")
+        async for event in live.stream("Now run the tests against it"):
+            print(event["type"])
+    result = live.result
 ```
 
-`message()` blocks until the agent ends its turn, then returns that turn's events: the CLI's JSON lines, parsed. The events are the CLI's own format; for pi, the reply is the last `message_end` whose `message.role` is `assistant`.
+`await live.message(text)` returns when the agent ends its turn, with that turn's events: the CLI's JSON lines, parsed. `live.stream(text)` yields the same events as they arrive. The events are the CLI's own format; for pi, the reply is the last `message_end` whose `message.role` is `assistant`.
 
-Closing the session ends the CLI's input, waits for it to exit, and returns a [`RunResult`](../reference/#runresult). Leaving the `with` block closes it; `session.result` holds the same `RunResult`.
+Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../reference/#runresult). If the block raises or is cancelled, `live.result` stays `None`.
 
 `ClaudeAgent` and `PiAgent` have a session mode. `CodexAgent` does not: to hold a session with a Codex model, run it through pi on OpenRouter, `PiAgent("openrouter", "openai/<model>")`.
 

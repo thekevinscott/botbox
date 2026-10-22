@@ -13,23 +13,30 @@ You need Docker, and Claude Code logged in on the host. To use an API key instea
 ## Your first run
 
 ```python
+import asyncio
+
 from botbox import Botbox, ClaudeAgent
 
-agent = ClaudeAgent(model="claude-opus-5", effort="high")
-box = Botbox(agent)
 
-result = box.run(
-    command=agent.command("Make the failing tests pass please"),
-    mounts=[
-        ("./tests", "/tests", "ro"),
-        ("./work", "/work", "rw"),
-    ],
-    workdir="/work", # optional; where the command starts. Must be a mounted path.
-)
+async def main() -> None:
+    agent = ClaudeAgent(model="claude-opus-5", effort="high")
+    async with Botbox(agent) as box:
+        result = await box.run(
+            command=agent.command("Make the failing tests pass please"),
+            mounts=[
+                ("./tests", "/tests", "ro"),
+                ("./work", "/work", "rw"),
+            ],
+            workdir="/work", # optional; where the command starts. Must be a mounted path.
+        )
+    print(result.stdout)
+    print(result.proxy)
 
-print(result.stdout)
-print(result.proxy)
+
+asyncio.run(main())
 ```
+
+The API is asyncio. From sync code, wrap each call in `asyncio.run(...)`.
 
 ## What came back
 

@@ -30,10 +30,10 @@ print(result.proxy)
 
 ## Keep what the run wrote
 
-The container removes itself when it exits, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
+The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
 
 ```python
-box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
+await box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
 ```
 
 Next: the [Reference](../reference/#runresult) for every field, or [how a run works](../explanation/#a-run).

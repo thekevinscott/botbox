@@ -14,22 +14,23 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 
 ## A Run
 
-`run()` does this, in order:
+`run()` does this, in order, through the `docker` CLI as asyncio subprocesses:
 
 1. Checks the mounts and `workdir`. A missing host path or a `workdir` outside every mount raises here, before anything is built: Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run --rm`. Its stdout and stderr stream to the host, and the client waits for it to exit and be removed.
-6. Reads the transcript and the proxy log out of the temporary directory, stops the proxy, and deletes the directory.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
+6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
+7. Reads the transcript and the proxy log out of the temporary directory, stops and removes the proxy, and deletes the directory.
 
-The client attaches before the container starts, so no output is missed. It also waits for the removal itself and reports the exit code it saw, so `--rm` can't race the result. There is no separate create step, so no container is left created but never started. Killing the client doesn't stop the container, so a run that raises removes it by name.
+The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the daemon refuses the container, say for a missing image or a mount it can't make, the client exits 125, 126 or 127 with the daemon's error on stderr, and that comes back as the result.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
 
-If the Docker daemon dies mid-run, the client exits 125 with its error on stderr. botbox then checks the daemon, and if it doesn't answer, `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets a sweep find it.
 
-Inside `with Botbox(...)`, SIGTERM raises `SystemExit`, so a run in progress unwinds and tears down. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone. Inside `async with AsyncBotbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done.
+Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
 
 ## The Container
 
@@ -54,11 +55,11 @@ The proxy runs with no capabilities, a cap on its process count, and a pinned ui
 
 ### Lifetime
 
-The owning Python process starts the proxy with one attached `docker run --interactive --rm` and holds its stdin. There is no separate create step, so an owner that dies mid-start leaves no container behind. The proxy runs under an init (`--init`). When stdin closes, the proxy exits and its init with it. The agent container joins the proxy's PID namespace (`--pid container:<proxy>`), and when a namespace's init exits the kernel kills every process in it. So the agent dies with the proxy, however the owner dies: a normal return, an exception, or SIGKILL. The agent can't prevent it by ignoring signals.
+The owning Python process starts the proxy with one attached `docker run --interactive` and holds its stdin. The proxy runs under an init (`--init`). When stdin closes, the proxy exits and its init with it. The agent container joins the proxy's PID namespace (`--pid container:<proxy>`), and when a namespace's init exits the kernel kills every process in it. So the agent dies with the proxy, however the owner dies: a normal return, an exception, or SIGKILL. The agent can't prevent it by ignoring signals.
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-Both containers run with `--rm`, so after SIGKILL of the owner no container is left. The host temporary directory stays.
+A normal end or a cancel removes both containers. After SIGKILL of the owner they stay, stopped and labelled `botbox.run=<token>`, for a sweep to remove. The host temporary directory stays too.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
@@ -73,21 +74,19 @@ After the container exits, every file matching the harness's transcript pattern 
 
 ## Sessions
 
-`session()` sets up the same way as `run()`, then runs the container attached with stdin open, in one `docker run --interactive --rm`. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
+`session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-`message()` writes one line to the CLI's stdin in the harness's input format, then reads stdout line by line, parsing each as JSON, until the harness's end-of-turn event. stderr is drained on a separate thread, so a chatty stderr can't fill its pipe and stall the CLI. `close()` ends stdin, waits for the CLI to exit, then reads the transcript and tears down as `run()` does.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+
+The block's end closes stdin, waits for the client, reads the exit code, removes the container and reads the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
 ## Images
 
 `build()` runs on every `run()` and `session()`. Docker's layer cache keeps an unchanged build fast. Your `dockerfile` is built on top of the harness image, tagged by a hash of the Dockerfile's path, for example `botbox-claude-<hash>:latest`.
 
-Two `docker build`s of one tag at once fail: the loser looks up an image id that no longer exists. So each build takes a file lock keyed by the tag, in the system temp directory, and concurrent builds from any process take turns.
+Each build runs `docker buildx build --load --progress=quiet` as an asyncio subprocess, and keeps the last 64 KiB of its stderr for the error. buildx runs in its own session, so Ctrl-C reaches it only as a cancel. On cancel, botbox stops the buildx client and waits for it to exit, even through a second cancel. BuildKit drops a build when its client goes away.
 
-`AsyncBotbox.build()` runs the same builds with `docker buildx build --load --progress=quiet`, as an asyncio subprocess, and keeps the last 64 KiB of its stderr for the error. It takes the same lock file. It polls for the lock every 50ms without blocking, so the event loop keeps running while it waits. A blocking `flock` in a thread would keep waiting after the task was cancelled. buildx runs in its own session, so Ctrl-C reaches it only as a cancel. On cancel, it stops the buildx client and waits for it to exit, even through a second cancel. BuildKit drops a build when its client goes away.
-
-`AsyncBotbox.run()` sets up the same proxy and home, through the `docker` CLI as asyncio subprocesses. The proxy is the same attached `docker run --interactive`, tethered to a pipe the process holds. Neither container has `--rm`. The agent's `docker run` runs attached to its exit, then `docker container inspect` reads the exit code from the stopped container. If the container isn't stopped, the client died while the daemon was up, and the run raises. If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. Then the run removes the agent, closes the proxy's stdin, waits for its client to exit and removes the proxy. Every step of the teardown runs shielded, so a second cancel can't cut it short. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets a sweep find it.
-
-`AsyncBotbox.session()` starts the agent's session command the same way, in a `docker run --interactive` that stays attached. The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. Each arrival on stdout wakes the turn waiting for its next line. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe. The block's end closes stdin, waits for the client, and reads the exit code and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
+Two `docker build`s of one tag at once fail: the loser looks up an image id that no longer exists. So each build takes a file lock keyed by the tag, in the system temp directory, and concurrent builds from any process take turns. It polls for the lock every 50ms without blocking, so the event loop keeps running while it waits. A blocking `flock` in a thread would keep waiting after the task was cancelled.
 
 Each harness image stands alone, with no shared base. A harness is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to call the CLI. Adding one means one Dockerfile, one class, and one row in the [harness table](../harnesses/).
 

@@ -1,5 +1,6 @@
 """A real Codex session, signed in with the host's ChatGPT login. Billed."""
 
+import asyncio
 import json
 
 import pytest
@@ -10,7 +11,7 @@ from botbox import Botbox, CodexAgent, RunResult
 @pytest.fixture(scope="module")
 def result() -> RunResult:
     agent = CodexAgent("gpt-5.6-luna", "low")
-    return Botbox(agent).run(agent.command("Reply with exactly: pong"))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
 
 
 def describe_a_codex_session() -> None:

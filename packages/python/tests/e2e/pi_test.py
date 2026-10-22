@@ -1,5 +1,7 @@
 """The pi image: what a command run in it can use."""
 
+import asyncio
+
 import pytest
 
 from botbox import Botbox, PiAgent, RunResult
@@ -8,7 +10,7 @@ from botbox import Botbox, PiAgent, RunResult
 @pytest.fixture(scope="module")
 def result() -> RunResult:
     box = Botbox(PiAgent("openrouter", api_key="unused"))
-    return box.run("python3 -c 'print(6 * 7)'")
+    return asyncio.run(box.run("python3 -c 'print(6 * 7)'"))
 
 
 def describe_the_pi_image() -> None:
