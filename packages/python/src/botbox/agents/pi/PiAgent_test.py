@@ -32,6 +32,26 @@ def custom_home(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def models_home(custom_home: Path) -> Path:
+    (custom_home / "models.json").write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "ollama": {
+                        "baseUrl": "https://default.example/v1",
+                        "models": [
+                            {"id": "special", "baseUrl": "https://special.example/v1"},
+                            {"id": "plain"},
+                        ],
+                    }
+                }
+            }
+        )
+    )
+    return custom_home
+
+
+@pytest.fixture
 def home(tmp_path: Path) -> Path:
     staged = tmp_path / "home"
     staged.mkdir()
@@ -73,6 +93,50 @@ def describe_the_provider() -> None:
 
     def it_allows_the_host_of_a_custom_providers_base_url(custom_home: Path) -> None:
         assert PiAgent("ollama", host_home=custom_home).allow == ("models.example",)
+
+    def it_reads_models_json_with_comments_and_trailing_commas(custom_home: Path) -> None:
+        (custom_home / "models.json").write_text(
+            '// providers\n{"providers": {"ollama": {\n'
+            '  /* local */ "baseUrl": "https://models.example/v1",\n},},}\n'
+        )
+        assert PiAgent("ollama", host_home=custom_home).allow == ("models.example",)
+
+    def it_allows_the_host_of_the_selected_models_own_base_url(models_home: Path) -> None:
+        assert PiAgent("ollama", "special", host_home=models_home).allow == ("special.example",)
+
+    def it_falls_back_to_the_providers_base_url_for_a_model_without_one(
+        models_home: Path,
+    ) -> None:
+        assert PiAgent("ollama", "plain", host_home=models_home).allow == ("default.example",)
+
+    def it_falls_back_to_the_providers_base_url_for_an_undefined_model(
+        models_home: Path,
+    ) -> None:
+        assert PiAgent("ollama", "other", host_home=models_home).allow == ("default.example",)
+
+    def it_allows_every_host_the_provider_may_use_when_no_model_is_set(
+        models_home: Path,
+    ) -> None:
+        assert PiAgent("ollama", host_home=models_home).allow == (
+            "default.example",
+            "special.example",
+        )
+
+    def it_takes_the_host_from_the_model_when_the_provider_has_no_base_url(
+        models_home: Path,
+    ) -> None:
+        (models_home / "models.json").write_text(
+            json.dumps(
+                {
+                    "providers": {
+                        "ollama": {
+                            "models": [{"id": "special", "baseUrl": "https://special.example"}]
+                        }
+                    }
+                }
+            )
+        )
+        assert PiAgent("ollama", "special", host_home=models_home).allow == ("special.example",)
 
     def it_refuses_a_provider_missing_from_models_json(custom_home: Path) -> None:
         with pytest.raises(ValueError, match=r"'vllm'.*models\.json"):
