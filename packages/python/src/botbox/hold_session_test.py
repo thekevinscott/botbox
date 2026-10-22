@@ -1,15 +1,15 @@
 import asyncio
 import os
-import signal
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from botbox.close_held import HELD
 from botbox.hold_session import hold_session
+
+KILL = object()
 
 
 def open_fds() -> set[str]:
@@ -59,6 +59,19 @@ def client() -> Iterator[Client]:
         yield client
 
 
+@pytest.fixture(autouse=True)
+def signal() -> Iterator[Mock]:
+    with patch("botbox.hold_session.signal", autospec=True) as m:
+        m.SIGKILL = KILL
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def owner_only() -> Iterator[MagicMock]:
+    with patch("botbox.hold_session.owner_only", autospec=True) as m:
+        yield m
+
+
 @pytest.fixture
 def agent() -> Mock:
     return Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
@@ -69,7 +82,7 @@ def describe_hold_session() -> None:
         async with hold_session(agent, ["--interactive", "img"]) as live:
             await asyncio.sleep(0.01)
             assert client.args == ["run", "--interactive", "img"]
-            assert client.options["signum"] == signal.SIGKILL
+            assert client.options["signum"] is KILL
             assert live.agent is agent
             assert client.options["stdout"] is live.stdout
             assert client.options["stderr"].into is live.stderr
@@ -84,11 +97,11 @@ def describe_hold_session() -> None:
         assert live.stdout.into == b'{"type": "end"}\n'
         assert live.stderr == b"bye\n"
 
-    async def it_holds_the_input_for_this_process_alone(agent: Mock) -> None:
+    async def it_holds_the_input_for_this_process_alone(agent: Mock, owner_only: MagicMock) -> None:
         async with hold_session(agent, []) as live:
-            [held] = HELD
-            assert held is live.stdin.transport.get_extra_info("pipe")
-        assert held not in HELD
+            owner_only.assert_called_once_with(live.stdin.transport.get_extra_info("pipe"))
+            owner_only.return_value.__exit__.assert_not_called()
+        owner_only.return_value.__exit__.assert_called_once()
 
     async def it_kills_the_client_if_it_is_still_running_on_leaving(
         client: Client, agent: Mock

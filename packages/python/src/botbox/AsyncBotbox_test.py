@@ -9,7 +9,6 @@ from unittest.mock import Mock, call, patch
 import pytest
 
 from botbox.AsyncBotbox import AsyncBotbox
-from botbox.RunResult import RunResult
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -610,14 +609,14 @@ def describe_session() -> None:
         async with AsyncBotbox(talker).session() as live:
             assert live is held
             assert live.result is None
-        assert live.result == RunResult(
-            "out�\n",
-            "err\n",
-            3,
-            {".claude/projects/a.jsonl": "{}\n"},
-            "CONNECT api.anthropic.com:443\n",
-            "an-agent-123:latest",
-        )
+        result = live.result
+        assert result is not None
+        assert result.stdout == "out�\n"
+        assert result.stderr == "err\n"
+        assert result.exit_code == 3
+        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+        assert result.proxy == "CONNECT api.anthropic.com:443\n"
+        assert result.image == "an-agent-123:latest"
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
         with pytest.raises(TypeError, match=r"^Mock has no session mode$"):
