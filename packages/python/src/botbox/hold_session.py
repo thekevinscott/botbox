@@ -1,0 +1,46 @@
+import asyncio
+import os
+import signal
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from botbox.agents.agent import SessionAgent
+from botbox.AsyncSession import AsyncSession
+from botbox.docker.Capture import Capture
+from botbox.docker.execute import execute
+from botbox.docker.settle import settle
+from botbox.owner_only import owner_only
+
+
+@asynccontextmanager
+async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[AsyncSession]:
+    """Start an attached `docker run` with `args` and yield a session on the agent's CLI in it.
+
+    The client runs as the session's `client` task. Leaving the block kills it if it is still
+    running, through any number of cancels; the container lives on for the caller to remove.
+    """
+    loop = asyncio.get_running_loop()
+    # Created here, not by the spawn, so the write end is owner-only before any fork can copy it.
+    read, write = os.pipe()
+    pipe = os.fdopen(write, "wb")
+    try:
+        with pipe, owner_only(pipe):
+            transport, protocol = await loop.connect_write_pipe(
+                asyncio.streams.FlowControlMixin, pipe
+            )
+            stdin = asyncio.StreamWriter(transport, protocol, None, loop)
+            async with Capture(bytearray()) as out, Capture(bytearray()) as err:
+                # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
+                client = asyncio.ensure_future(
+                    execute(
+                        ["run", *args], stdin=read, stdout=out, stderr=err, signum=signal.SIGKILL
+                    )
+                )
+                try:
+                    yield AsyncSession(agent, stdin, out, err.into, client)
+                finally:
+                    client.cancel()
+                    await settle(asyncio.gather(client, return_exceptions=True))
+    finally:
+        os.close(read)
+

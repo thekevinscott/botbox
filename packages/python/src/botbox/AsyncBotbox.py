@@ -1,5 +1,6 @@
 import asyncio
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -7,15 +8,17 @@ from uuid import uuid4
 from python_on_whales.exceptions import DockerException
 
 from botbox.agent_exit import agent_exit
-from botbox.agents.agent import Agent
+from botbox.agents.agent import Agent, SessionAgent
 from botbox.async_build_lock import async_build_lock
 from botbox.async_lockdown import async_lockdown
+from botbox.AsyncSession import AsyncSession
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.docker.build import build as docker_build
 from botbox.docker.DockerException import DockerException as CommandFailed
 from botbox.docker.run import run as docker_run
 from botbox.docker.settle import settle
+from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
@@ -107,6 +110,71 @@ class AsyncBotbox:
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
         return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
+
+    @asynccontextmanager
+    async def session(
+        self,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+    ) -> AsyncIterator[AsyncSession]:
+        """Start the agent's CLI in its session mode in the locked-down container and hold it open.
+
+        The same lockdown, home and mounts as `run()`, with the container labelled and its temp
+        home named the same way. Leaving the block ends the CLI's input, waits for it to exit,
+        removes the session's containers and temp home, and leaves the `RunResult` in the
+        session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
+        tears down the same way, through any number of further cancels. Raises `TypeError` for
+        an agent with no session mode, and `DockerException` as `run()` does.
+        """
+        agent = self.agent
+        if not isinstance(agent, SessionAgent):
+            raise TypeError(f"{type(agent).__name__} has no session mode")
+        command = agent.session_command()
+        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        image = await self.build()
+        token = uuid4().hex[:12]
+        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
+        try:
+            home = Path(scratch.name) / "home"
+            home.mkdir()
+            agent.stage_auth(home)
+            allow = (*agent.allow, *self.allow)
+            try:
+                async with async_lockdown(allow, Path(scratch.name), token) as jail:
+                    name = f"botbox-agent-{token}"
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    args = [
+                        "--interactive",
+                        "--name",
+                        name,
+                        *flags,
+                        image,
+                        RELAY,
+                        "sh",
+                        "-c",
+                        command,
+                    ]
+                    try:
+                        async with hold_session(agent, args) as live:
+                            yield live
+                            live.stdin.close()
+                            client = await live.client
+                        stderr = live.stderr.decode(errors="replace")
+                        exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
+                    finally:
+                        await settle(
+                            warned(remove_within(name), f"remove its agent container {name}")
+                        )
+                    transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+            except CommandFailed as error:
+                raise DockerException(
+                    error.docker_command, error.return_code, stderr=error.stderr.encode()
+                ) from error
+        finally:
+            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+        stdout = live.stdout.into.decode(errors="replace")
+        live.result = RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
 
     async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
         """Run the agent container to its exit, remove it, and return its output and exit code."""

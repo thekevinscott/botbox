@@ -1,9 +1,8 @@
 import asyncio
-from collections.abc import Coroutine
-from typing import Any
+from collections.abc import Awaitable
 
 
-async def settle[T](coro: Coroutine[Any, Any, T]) -> T:
+async def settle[T](coro: Awaitable[T]) -> T:
     """Run `coro` to the end through any number of cancels, then raise the cancel if one came.
 
     A cancel that came is raised even if `coro` failed, with the failure as its cause.
