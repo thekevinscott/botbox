@@ -221,6 +221,41 @@ def describe_async_botbox() -> None:
             async with box:
                 pass
 
+        async def it_cancels_once_however_many_sigterms_arrive(agent: Mock, handlers: Mock) -> None:
+            with pytest.raises(SystemExit) as raised:
+                async with AsyncBotbox(agent):
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    finally:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(0)
+            assert raised.value.code == 143
+            task = asyncio.current_task()
+            assert task is not None
+            assert task.cancelling() == 0
+
+        async def it_ignores_a_sigterm_queued_before_it_exited(agent: Mock, handlers: Mock) -> None:
+            box = AsyncBotbox(agent)
+            async with box:
+                pass
+            send_sigterm(handlers)
+            await asyncio.sleep(0)
+            handlers.add.reset_mock()
+            async with box:
+                await asyncio.sleep(0)
+
+        async def it_ignores_a_stale_sigterm_inside_a_later_block(
+            agent: Mock, handlers: Mock
+        ) -> None:
+            box = AsyncBotbox(agent)
+            async with box:
+                pass
+            [(_, stale, *args)] = [c.args for c in handlers.add.call_args_list]
+            async with box:
+                stale(*args)
+                await asyncio.sleep(0)
+
         async def it_leaves_a_programs_own_handler_alone(
             agent: Mock, signals: MagicMock, handlers: Mock
         ) -> None:
