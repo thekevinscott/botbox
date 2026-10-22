@@ -1,9 +1,17 @@
 """A run as a host uid the image has no passwd entry for."""
 
-import os
+import asyncio
 
 import pytest
-from conftest import Probe
+from conftest import LINE
+
+from botbox import Botbox, ClaudeAgent
+
+UNNAMED = """FROM botbox-claude:latest
+USER root
+RUN sed -i '/^user:/d' /etc/passwd
+USER 1000
+"""
 
 PROBES = {
     "whoami": "whoami 2>&1",
@@ -13,12 +21,14 @@ PROBES = {
 
 
 @pytest.fixture(scope="module")
-def report(probe: Probe) -> dict[str, str]:
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(os, "getuid", lambda: 1003)
-        patch.setattr(os, "getgid", lambda: 1005)
-        _, report = probe(PROBES)
-    return report
+def report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    dockerfile = tmp_path_factory.mktemp("unnamed") / "Dockerfile"
+    dockerfile.write_text(UNNAMED)
+    box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
+    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in PROBES.items())
+    result = asyncio.run(box.run(script))
+    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    return {name: value.strip() for name, value in fields}
 
 
 def describe_an_unnamed_host_uid() -> None:
