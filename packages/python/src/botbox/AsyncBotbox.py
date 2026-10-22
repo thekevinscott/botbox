@@ -1,8 +1,12 @@
 import asyncio
+import signal
+import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import TracebackType
+from typing import Any, Self, cast
 from uuid import uuid4
 
 from python_on_whales.exceptions import DockerException
@@ -29,6 +33,11 @@ from botbox.warned import warned
 class AsyncBotbox:
     """`Botbox` for asyncio: an agent, an optional image layer on top of it, and extra hosts.
 
+    Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
+    so a run or session in progress unwinds and tears down, then the block raises
+    `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
+    program set itself is left alone, and so is SIGTERM off the main thread.
+
     Don't fork while a run is in progress: a forked child shares the loop's state and holds
     the run's pipes.
     """
@@ -45,6 +54,49 @@ class AsyncBotbox:
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
+        self._unwinding: asyncio.Task[Any] | None = None
+        self._entry: object | None = None
+        self._terminated = False
+
+    async def __aenter__(self) -> Self:
+        if (
+            threading.current_thread() is threading.main_thread()
+            and signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+        ):
+            # Never None: __aenter__ only runs inside a task.
+            self._unwinding = cast("asyncio.Task[Any]", asyncio.current_task())
+            self._entry = object()
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(signal.SIGTERM, self._terminate, self._entry, self._unwinding)
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        task = self._unwinding
+        if task is None:
+            return
+        asyncio.get_running_loop().remove_signal_handler(signal.SIGTERM)
+        self._unwinding = None
+        self._entry = None
+        if self._terminated:
+            self._terminated = False
+            task.uncancel()
+            raise SystemExit(143) from exc  # 128 + SIGTERM, as a shell reports it
+
+    def _terminate(self, entry: object, task: asyncio.Task[Any]) -> None:
+        """Cancel `task`, the one inside the block, on SIGTERM; leaving it raises `SystemExit`.
+
+        Once per entry, and only while `entry` is the block still open: removing the handler
+        doesn't drop a call the loop has already queued.
+        """
+        if entry is not self._entry or self._terminated:
+            return
+        self._terminated = True
+        task.cancel()
 
     async def build(self) -> str:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.

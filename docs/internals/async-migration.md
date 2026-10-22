@@ -138,8 +138,9 @@ async with asyncio.timeout(600):
 - Teardown is shielded from a second cancel and takes a moment. Cancellation is not instant.
 - Ctrl-C under `asyncio.run` cancels the main task, so it tears down like any cancel.
 - Don't catch `CancelledError` without re-raising it.
+- SIGTERM inside `async with AsyncBotbox(...)` cancels the task that entered the block, then raises `SystemExit(143)` once teardown is done, as `with Botbox` does. Outside the block, SIGTERM keeps Python's default and exits without teardown.
 
-*Provisional:* SIGTERM handling. The sync `with Botbox` turns SIGTERM into `SystemExit` so cleanup runs. The async plan is `loop.add_signal_handler`, mapping SIGTERM to cancellation. Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`, for #60's sweep.
+Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`, for #60's sweep.
 
 ## Errors
 

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
@@ -92,6 +92,12 @@ def lock(steps: list[str]) -> Iterator[None]:
         yield
 
 
+def send_sigterm(handlers: Mock) -> None:
+    """Call the SIGTERM handler the box added to the loop."""
+    [(_, handler, *args)] = [c.args for c in handlers.add.call_args_list]
+    handler(*args)
+
+
 def describe_async_botbox() -> None:
     def it_keeps_the_agent(agent: Mock) -> None:
         assert AsyncBotbox(agent).agent is agent
@@ -112,6 +118,174 @@ def describe_async_botbox() -> None:
     def it_refuses_a_bare_string_that_would_split_into_characters(agent: Mock) -> None:
         with pytest.raises(TypeError, match=r"allow=\('github\.com',\)"):
             AsyncBotbox(agent, allow="github.com")
+
+    def describe_sigterm() -> None:
+        @pytest.fixture(autouse=True)
+        def threads() -> Iterator[MagicMock]:
+            with patch("botbox.AsyncBotbox.threading", autospec=True) as m:
+                m.current_thread.return_value = m.main_thread.return_value
+                yield m
+
+        @pytest.fixture(autouse=True)
+        def signals() -> Iterator[MagicMock]:
+            with patch("botbox.AsyncBotbox.signal", autospec=True) as m:
+                m.getsignal.return_value = m.SIG_DFL
+                yield m
+
+        @pytest.fixture(autouse=True)
+        async def handlers() -> AsyncIterator[Mock]:
+            """The running loop's signal handlers, added and removed."""
+            loop = asyncio.get_running_loop()
+            with (
+                patch.object(loop, "add_signal_handler") as add,
+                patch.object(loop, "remove_signal_handler") as remove,
+            ):
+                yield Mock(add=add, remove=remove)
+
+        async def it_is_its_own_context(agent: Mock) -> None:
+            box = AsyncBotbox(agent)
+            async with box as entered:
+                assert entered is box
+
+        async def it_handles_sigterm_inside_the_block(
+            agent: Mock, signals: MagicMock, handlers: Mock
+        ) -> None:
+            async with AsyncBotbox(agent):
+                [(signum, *_)] = [c.args for c in handlers.add.call_args_list]
+                assert signum is signals.SIGTERM
+                handlers.remove.assert_not_called()
+            handlers.remove.assert_called_once_with(signals.SIGTERM)
+
+        async def it_cancels_the_block_and_exits_143_on_sigterm(
+            agent: Mock, handlers: Mock
+        ) -> None:
+            reached = []
+            with pytest.raises(SystemExit) as raised:
+                async with AsyncBotbox(agent):
+                    send_sigterm(handlers)
+                    await asyncio.sleep(1)
+                    reached.append(True)
+            assert raised.value.code == 143
+            assert isinstance(raised.value.__cause__, asyncio.CancelledError)
+            assert reached == []
+            task = asyncio.current_task()
+            assert task is not None
+            assert task.cancelling() == 0
+
+        async def it_exits_143_on_a_sigterm_the_block_swallowed(
+            agent: Mock, handlers: Mock
+        ) -> None:
+            with pytest.raises(SystemExit) as raised:
+                async with AsyncBotbox(agent):
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        pass
+            assert raised.value.code == 143
+
+        async def it_exits_143_on_a_sigterm_over_another_error(agent: Mock, handlers: Mock) -> None:
+            with pytest.raises(SystemExit) as raised:
+                async with AsyncBotbox(agent):
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    finally:
+                        raise ValueError("teardown failed")
+            assert raised.value.code == 143
+            assert isinstance(raised.value.__cause__, ValueError)
+
+        async def it_lets_any_other_cancel_through(agent: Mock) -> None:
+            async def hold() -> None:
+                async with AsyncBotbox(agent):
+                    await asyncio.sleep(1)
+
+            task = asyncio.ensure_future(hold())
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        async def it_lets_an_error_through_without_a_sigterm(agent: Mock) -> None:
+            with pytest.raises(ValueError, match="boom"):
+                async with AsyncBotbox(agent):
+                    raise ValueError("boom")
+
+        async def it_forgets_a_sigterm_once_it_has_exited(agent: Mock, handlers: Mock) -> None:
+            box = AsyncBotbox(agent)
+            with pytest.raises(SystemExit):
+                async with box:
+                    send_sigterm(handlers)
+                    await asyncio.sleep(1)
+            handlers.add.reset_mock()
+            async with box:
+                pass
+
+        async def it_cancels_once_however_many_sigterms_arrive(agent: Mock, handlers: Mock) -> None:
+            with pytest.raises(SystemExit) as raised:
+                async with AsyncBotbox(agent):
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    finally:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(0)
+            assert raised.value.code == 143
+            task = asyncio.current_task()
+            assert task is not None
+            assert task.cancelling() == 0
+
+        async def it_ignores_a_sigterm_queued_before_it_exited(agent: Mock, handlers: Mock) -> None:
+            box = AsyncBotbox(agent)
+            async with box:
+                pass
+            send_sigterm(handlers)
+            await asyncio.sleep(0)
+            handlers.add.reset_mock()
+            async with box:
+                await asyncio.sleep(0)
+
+        async def it_ignores_a_stale_sigterm_inside_a_later_block(
+            agent: Mock, handlers: Mock
+        ) -> None:
+            box = AsyncBotbox(agent)
+            async with box:
+                pass
+            [(_, stale, *args)] = [c.args for c in handlers.add.call_args_list]
+            async with box:
+                stale(*args)
+                await asyncio.sleep(0)
+
+        async def it_leaves_a_programs_own_handler_alone(
+            agent: Mock, signals: MagicMock, handlers: Mock
+        ) -> None:
+            signals.getsignal.return_value = Mock()
+            async with AsyncBotbox(agent):
+                pass
+            signals.getsignal.assert_called_once_with(signals.SIGTERM)
+            handlers.add.assert_not_called()
+            handlers.remove.assert_not_called()
+
+        async def it_restores_only_what_it_installed(
+            agent: Mock, signals: MagicMock, handlers: Mock
+        ) -> None:
+            box = AsyncBotbox(agent)
+            async with box:
+                pass
+            signals.getsignal.return_value = Mock()
+            handlers.remove.reset_mock()
+            async with box:
+                pass
+            handlers.remove.assert_not_called()
+
+        async def it_does_nothing_off_the_main_thread(
+            agent: Mock, threads: MagicMock, handlers: Mock
+        ) -> None:
+            threads.current_thread.return_value = Mock()
+            async with AsyncBotbox(agent):
+                pass
+            handlers.add.assert_not_called()
+            handlers.remove.assert_not_called()
 
 
 def describe_build() -> None:

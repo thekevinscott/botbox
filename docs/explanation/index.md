@@ -29,7 +29,7 @@ If the daemon refuses the container, say for a missing image or a mount it can't
 
 If the Docker daemon dies mid-run, the client exits 125 with its error on stderr. botbox then checks the daemon, and if it doesn't answer, `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
 
-Inside `with Botbox(...)`, SIGTERM raises `SystemExit`, so a run in progress unwinds and tears down. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
+Inside `with Botbox(...)`, SIGTERM raises `SystemExit`, so a run in progress unwinds and tears down. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone. Inside `async with AsyncBotbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done.
 
 ## The Container
 

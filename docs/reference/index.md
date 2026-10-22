@@ -93,6 +93,8 @@ async with box.session(*, mounts: Sequence[Mount] = (), workdir: str | Path | No
 
 `Botbox` for asyncio, with the same arguments. It has `build()`, `run()` and `session()`.
 
+`AsyncBotbox` is an async context manager. Inside `async with AsyncBotbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. `run()` and `session()` work without the block too.
+
 `await box.build()` builds the same images as `build()` and returns the same tag. Concurrent builds of one tag take turns with each other and with sync `build()`s, from any process, without blocking the event loop. Cancelling the task, or an `asyncio.timeout` firing, stops the build in progress. A failed build raises `DockerException` with the build's error in `stderr`.
 
 ```python
