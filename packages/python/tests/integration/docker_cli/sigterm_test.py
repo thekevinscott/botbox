@@ -1,4 +1,4 @@
-"""SIGTERM to a process holding an `async with AsyncBotbox(...)` block, against the fake docker."""
+"""SIGTERM to a process holding an `async with Botbox(...)` block, against the fake docker."""
 
 import asyncio
 import os
@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 from fake_docker_test import Daemon, homes
 
-from botbox import AsyncBotbox, ClaudeAgent
+from botbox import Botbox, ClaudeAgent
 
 HOLDER = """
 import asyncio, signal, sys
 from pathlib import Path
-from botbox import AsyncBotbox, ClaudeAgent
+from botbox import Botbox, ClaudeAgent
 
 home, moment = Path(sys.argv[1]), sys.argv[2]
 
@@ -23,7 +23,7 @@ async def main():
         task = asyncio.current_task()
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
-        async with AsyncBotbox(ClaudeAgent(host_home=home)) as box:
+        async with Botbox(ClaudeAgent(host_home=home)) as box:
             if moment == "session":
                 async with box.session() as live:
                     await live.message("hang")
@@ -57,7 +57,7 @@ def plan(daemon: Daemon) -> None:
 def describe_sigterm() -> None:
     @pytest.mark.parametrize("moment", ["run", "session"])
     async def it_tears_down_and_exits_143(
-        box: AsyncBotbox,  # noqa: ARG001
+        box: Botbox,  # noqa: ARG001
         tmp_path: Path,
         daemon: Daemon,
         temp: Path,
@@ -77,7 +77,7 @@ def describe_sigterm() -> None:
         assert homes(temp) == []
 
     async def it_leaves_a_handler_the_program_set_alone(
-        box: AsyncBotbox,  # noqa: ARG001
+        box: Botbox,  # noqa: ARG001
         tmp_path: Path,
         daemon: Daemon,
         temp: Path,

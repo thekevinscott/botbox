@@ -1,7 +1,8 @@
-from collections.abc import Callable, Iterator
+import asyncio
+import time
+from collections.abc import Iterator
 from pathlib import Path
-from threading import Event, Thread
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -16,43 +17,74 @@ def lock_dir(tmp_path: Path) -> Iterator[Path]:
         yield tmp_path
 
 
-def holding(tag: str, held: Event, release: Event) -> Callable[[], None]:
-    def hold() -> None:
-        with build_lock(tag):
-            held.set()
-            release.wait()
-
-    return hold
+@pytest.fixture(autouse=True)
+def fcntl() -> Iterator[MagicMock]:
+    with patch("botbox.build_lock.fcntl") as m:
+        m.flock.return_value = None
+        yield m
 
 
-def acquires(tag: str) -> Event:
-    acquired = Event()
+def held_elsewhere_for(seconds: float) -> object:
+    """An `flock` that finds the lock taken until `seconds` from now."""
+    until = time.monotonic() + seconds
 
-    def take() -> None:
-        with build_lock(tag):
-            acquired.set()
+    def flock(*_args: object) -> None:
+        if time.monotonic() < until:
+            raise BlockingIOError
 
-    Thread(target=take, daemon=True).start()
-    return acquired
+    return flock
 
 
 def describe_build_lock() -> None:
-    def it_blocks_a_second_holder_of_the_same_tag_until_released() -> None:
-        held, release = Event(), Event()
-        Thread(target=holding("an-agent:latest", held, release), daemon=True).start()
-        assert held.wait(WAIT * 10)
-        acquired = acquires("an-agent:latest")
-        assert not acquired.wait(WAIT)
-        release.set()
-        assert acquired.wait(WAIT * 10)
+    async def it_locks_the_file_build_lock_path_names_without_blocking(
+        fcntl: MagicMock, lock_dir: Path
+    ) -> None:
+        async with build_lock("an-agent:latest"):
+            [(lock, flags)] = [c.args for c in fcntl.flock.call_args_list]
+            assert Path(lock.name) == lock_dir / "an-agent:latest.lock"
+            assert flags == fcntl.LOCK_EX | fcntl.LOCK_NB
+            assert not lock.closed
 
-    def it_does_not_block_a_different_tag() -> None:
-        held, release = Event(), Event()
-        Thread(target=holding("an-agent:latest", held, release), daemon=True).start()
-        assert held.wait(WAIT * 10)
-        assert acquires("another-agent:latest").wait(WAIT * 10)
-        release.set()
+    async def it_tries_again_until_the_lock_is_free(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = [BlockingIOError, BlockingIOError, None]
+        async with build_lock("an-agent:latest"):
+            assert fcntl.flock.call_count == 3
 
-    def it_locks_the_file_build_lock_path_names(lock_dir: Path) -> None:
-        with build_lock("an-agent:latest"):
-            assert (lock_dir / "an-agent:latest.lock").exists()
+    async def it_sleeps_50ms_between_tries(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = [BlockingIOError, BlockingIOError, None]
+        with patch("botbox.build_lock.asyncio.sleep", autospec=True) as sleep:
+            async with build_lock("an-agent:latest"):
+                assert sleep.await_args_list == [call(0.05), call(0.05)]
+
+    async def it_keeps_the_loop_running_while_it_waits(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = held_elsewhere_for(WAIT)
+        ticks = 0
+
+        async def tick() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        ticker = asyncio.create_task(tick())
+        async with build_lock("an-agent:latest"):
+            ticker.cancel()
+        assert ticks >= 5
+
+    async def it_closes_the_lock_file_when_cancelled_while_waiting(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = BlockingIOError
+        waiter = asyncio.create_task(build_lock("an-agent:latest").__aenter__())
+        await asyncio.sleep(WAIT)
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        assert fcntl.flock.call_args.args[0].closed
+
+    async def it_releases_by_closing_the_lock_file_when_the_body_raises(fcntl: MagicMock) -> None:
+        with pytest.raises(RuntimeError):
+            async with build_lock("an-agent:latest"):
+                raise RuntimeError("build failed")
+        assert fcntl.flock.call_args.args[0].closed
+        assert fcntl.flock.call_args_list == [
+            call(fcntl.flock.call_args.args[0], fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ]

@@ -1,18 +1,19 @@
+import asyncio
 import os
 import re
-import subprocess
-from collections.abc import Generator, Iterable
-from contextlib import contextmanager, suppress
+import warnings
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from pathlib import Path
-from uuid import uuid4
-
-from python_on_whales import docker
-from python_on_whales.exceptions import DockerException
 
 from botbox.authority import authority
+from botbox.build_lock import build_lock
+from botbox.docker.build import build
+from botbox.docker.run import run
+from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
-from botbox.stop_attached import stop_attached
-from botbox.wait_for_socket import wait_for_socket
+from botbox.stop_proxy import stop_proxy
+from botbox.wait_for_proxy import wait_for_proxy
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
@@ -29,6 +30,7 @@ RELAY_DIR = Path(__file__).with_name("relay")
 RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
+OUTPUT_LIMIT = 64 * 1024
 
 
 class Lockdown:
@@ -41,22 +43,26 @@ class Lockdown:
         self.log = ""
 
 
-@contextmanager
-def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
+@asynccontextmanager
+async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
     The container gets no network. Its only way out is a unix socket in `scratch`, served by
     a tinyproxy sidecar on Docker's default bridge that refuses anything outside `allow`.
     tinyproxy listens on the sidecar's loopback only, so nothing else on the bridge reaches it.
 
-    The sidecar runs under an init and lives while this process holds its stdin, which children
-    forked meanwhile close. If this process dies however it dies, stdin closes, the init exits,
-    and the kernel kills every process in the sidecar's PID namespace, which the agent joins.
-    tinyproxy writes its log into `scratch` as it runs; it is read into `Lockdown.log` on exit.
+    The sidecar runs under an init, attached, and lives while this process holds its stdin,
+    which children forked meanwhile close. When stdin closes the init exits, and the kernel
+    kills every process in the sidecar's PID namespace, which the agent joins. It doesn't
+    remove itself: leaving the block closes its stdin and removes it, through any number of
+    cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`. The
+    last 64 KiB of its output is the error if it won't start. tinyproxy writes its log into
+    `scratch` as it runs; it is read into `Lockdown.log` on exit.
     """
-    docker.build(PROXY_DIR, tags=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile", progress=False)
+    async with build_lock(PROXY_IMAGE):
+        await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
-    name = f"botbox-proxy-{uuid4().hex[:12]}"
+    name = f"botbox-proxy-{token}"
     url = f"http://127.0.0.1:{RELAY_PORT}"
     sockets = scratch / "sockets"
     sockets.mkdir()
@@ -85,18 +91,14 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     log = log_dir / "tinyproxy.log"
     log.touch()
     log.chmod(0o666)
-    output = scratch / "proxy.out"
 
-    # One attached `docker run`, not create then start: an owner dying in between would leave
-    # a created container that --rm never removes. An orphaned `docker run` still sees EOF.
-    command = [
-        "docker",
-        "run",
+    args = [
         "--interactive",
-        "--rm",
         "--init",
         "--name",
         name,
+        "--label",
+        f"botbox.run={token}",
         "--user",
         PROXY_USER,
         "--network",
@@ -115,29 +117,26 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
         f"{sockets}:{SOCKET_DIR}:rw",
         PROXY_IMAGE,
     ]
-    # Created here, not by Popen, so the write end is owner-only before any fork can copy it.
+    output = bytearray()
+    # Created here, not by the spawn, so the write end is owner-only before any fork can copy it.
     read, write = os.pipe()
     stdin = os.fdopen(write, "wb")
-    process = None
     try:
         with owner_only(stdin):
+            client = asyncio.ensure_future(
+                run(args, stdin=read, stdout=output, stderr=output, limit=OUTPUT_LIMIT)
+            )
             try:
-                try:
-                    with output.open("w") as out:
-                        process = subprocess.Popen(
-                            command, stdin=read, stdout=out, stderr=subprocess.STDOUT
-                        )
-                finally:
-                    os.close(read)
-                wait_for_socket(sockets / "proxy.sock", process, output, PROXY_READY_SECONDS)
+                await wait_for_proxy(sockets / "proxy.sock", client, output, PROXY_READY_SECONDS)
                 yield jail
             finally:
-                if process is None:
-                    stdin.close()
-                else:
-                    stop_attached(process, stdin, PROXY_EXIT_SECONDS)
+                await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
     finally:
-        # Never started, or wouldn't stop; otherwise it is already gone with --rm.
-        with suppress(DockerException):
-            docker.container.remove(name, force=True)
-        jail.log = log.read_text()
+        os.close(read)
+        try:
+            jail.log = log.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            # 3: past contextlib's __aexit__, to whoever entered the block.
+            warnings.warn(
+                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
+            )

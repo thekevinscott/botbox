@@ -1,8 +1,8 @@
-"""SIGTERM to a process holding an open box: nothing the box started may outlive it.
+"""SIGTERM to a process holding an `async with AsyncBotbox(...)` block: nothing may outlive it.
 
 The holder wraps the step that starts the agent container. It reports the names of what the
-box started, then either goes on (mid-run) or blocks on its stdin with the proxy up and the
-agent not yet started (mid-setup), so the signal lands at a known point instead of a race.
+box started, then either goes on (mid-run) or waits forever with the proxy up and the agent
+not yet started (mid-setup), so the signal lands at a known point instead of a race.
 """
 
 import shutil
@@ -20,26 +20,29 @@ from conftest import leftovers
 from botbox import Botbox
 
 HOLDER = """
-import importlib, sys
+import asyncio, importlib, sys
 from pathlib import Path
-from botbox import Botbox, ClaudeAgent
+from botbox import AsyncBotbox, ClaudeAgent
 
-module = importlib.import_module("botbox.Botbox")
+module = importlib.import_module("botbox.AsyncBotbox")
 
-collect = module.collect
+docker_run = module.docker_run
 
-def wrapped(command):
-    proxy = command[command.index("--pid") + 1].removeprefix("container:")
-    scratch = Path(command[command.index("--volume") + 1].split(":")[0]).parent
-    print(command[command.index("--name") + 1], proxy, scratch.name, flush=True)
+async def wrapped(args, **streams):
+    proxy = args[args.index("--pid") + 1].removeprefix("container:")
+    scratch = Path(args[args.index("--volume") + 1].split(":")[0]).parent
+    print(args[args.index("--name") + 1], proxy, scratch.name, flush=True)
     if sys.argv[1] == "mid_setup":
-        sys.stdin.read()
-    return collect(command)
+        await asyncio.Event().wait()
+    return await docker_run(args, **streams)
 
-module.collect = wrapped
+module.docker_run = wrapped
 
-with Botbox(ClaudeAgent()) as box:
-    box.run("sleep 600")
+async def main():
+    async with AsyncBotbox(ClaudeAgent()) as box:
+        await box.run("sleep 600")
+
+asyncio.run(main())
 """
 
 
@@ -73,7 +76,6 @@ def describe_sigterm() -> None:
     ) -> None:
         holder = subprocess.Popen(
             [sys.executable, "-c", HOLDER, moment],
-            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
         )

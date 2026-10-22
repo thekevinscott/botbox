@@ -1,23 +1,11 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["49-50"]
-reason = "is -> == is equivalent: the main thread and SIG_DFL are singletons"
-
-[[python.exempt]]
-path = "src/botbox/AsyncBotbox.py"
-rules = ["mutation"]
-lines = ["63-64", "96"]
+lines = ["59-60", "92"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
-path = "src/botbox/collect.py"
-rules = ["mutation"]
-lines = ["38"]
-reason = "== -> is is equivalent: CPython caches small ints, so 125 is always the same object"
-
-[[python.exempt]]
-path = "src/botbox/AsyncSession.py"
+path = "src/botbox/Session.py"
 rules = ["mutation"]
 lines = ["77"]
 reason = "== -> >= is equivalent: read is capped at len(printed). == -> is only differs past CPython's small-int cache, where it loops without yielding, so only a timeout could catch it"

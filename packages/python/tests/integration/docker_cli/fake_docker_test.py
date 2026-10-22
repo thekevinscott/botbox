@@ -45,6 +45,8 @@ def settle(name, status, code=0):
 
 command = argv[0]
 if command == "buildx":
+    if option("--tag") in plan.get("builds_fail", ()):
+        fail("ERROR: failed to solve\\n")
     sys.exit(0)
 if (state / "down").exists():
     fail("Cannot connect to the Docker daemon\\n")
@@ -171,3 +173,9 @@ def homes(temp: Path) -> list[Path]:
 
 def option(run: list[str], name: str) -> str:
     return run[run.index(name) + 1]
+
+
+def volume(run: list[str], target: str) -> tuple[str, str]:
+    """The host path and mode `run` mounts at `target`."""
+    mounts = (run[i + 1].split(":") for i, arg in enumerate(run) if arg == "--volume")
+    return next((source, mode) for source, t, mode in mounts if t == target)
