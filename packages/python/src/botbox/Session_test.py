@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from botbox.OutputLimitExceeded import OutputLimitExceeded
 from botbox.Session import Session
 
 
@@ -22,7 +23,7 @@ class Live:
             turn_ended=lambda event: event.get("type") == "end",
         )
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
-        self.stdout = Mock(into=bytearray(), grew=asyncio.Event())
+        self.stdout = Mock(into=bytearray(), grew=asyncio.Event(), resume=Mock())
         self.stderr = bytearray()
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         self.session = Session(self.agent, self.stdin, self.stdout, self.stderr, self.client)
@@ -213,3 +214,88 @@ def describe_Session() -> None:
             live.print(lines({"n": 1}, "noise", {"type": "end"}))
             assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
             assert live.sent == b"<hi>\n"
+
+    def describe_retention() -> None:
+        async def it_releases_each_line_once_read(live: Live) -> None:
+            def update(n: int) -> dict[str, Any]:
+                partial = {"thinking": "x" * 16 * n}
+                return {"type": "update", "delta": "x" * 16, "partial": partial, "message": partial}
+
+            count = 400
+            longest = len(lines(update(count)))
+            held: list[int] = []
+            live.print(lines(update(1)))
+            async for event in live.session.stream("hi"):
+                held.append(len(live.stdout.into) + len(getattr(live.session, "stray", b"")))
+                if event["type"] == "update":
+                    n = len(event["partial"]["thinking"]) // 16
+                    live.print(lines(update(n + 1) if n < count else {"type": "end"}))
+            assert len(held) == count + 1
+            assert max(held) < longest
+
+        async def it_keeps_only_lines_that_are_not_events_as_output(live: Live) -> None:
+            live.print(lines("starting", {"n": 1}, "[1, 2]", "", {"type": "end"}))
+            await live.session.message("hi")
+            live.print(b"\xffbye")
+            live.exit()
+            assert live.session.output() == "starting\n[1, 2]\n\n\ufffdbye"
+            assert live.stdout.into == b""
+
+        async def it_sorts_output_nothing_read(live: Live) -> None:
+            live.print(lines({"n": 1}, "stray", {"type": "end"}))
+            live.exit()
+            assert live.session.output() == "stray\n"
+            assert live.stdout.into == b""
+
+        async def it_keeps_the_tail_of_the_output(
+            live: Live, monkeypatch: pytest.MonkeyPatch
+        ) -> None:
+            monkeypatch.setattr("botbox.Session.OUTPUT_LIMIT", 8)
+            live.print(lines("first", "second", {"type": "end"}))
+            await live.session.message("hi")
+            assert live.session.output() == "\nsecond\n"
+
+        async def it_drains_the_cli_to_its_exit(live: Live) -> None:
+            live.print(lines({"n": 1}, "stray"))
+            draining = asyncio.ensure_future(live.session.drain())
+            await asyncio.sleep(0.01)
+            assert not draining.done()
+            live.print(lines({"type": "end"}, "last"))
+            live.exit()
+            await asyncio.wait_for(draining, 1)
+            assert live.session.output() == "stray\nlast\n"
+
+        async def it_resumes_reading_while_it_waits_for_a_line(live: Live) -> None:
+            live.print(b'{"type": ')
+            later = asyncio.ensure_future(live.session.message("hi"))
+            await asyncio.sleep(0.01)
+            live.stdout.resume.assert_called_with()
+            live.print(b'"end"}\n')
+            assert await later == [{"type": "end"}]
+
+        async def it_ends_the_session_on_a_line_over_the_limit(
+            live: Live, monkeypatch: pytest.MonkeyPatch
+        ) -> None:
+            monkeypatch.setattr("botbox.Session.LINE_LIMIT", 10)
+            live.print(lines({"n": 1}) + b"x" * 11)
+            stream = live.session.stream("hi")
+            assert await anext(stream) == {"n": 1}
+            with pytest.raises(OutputLimitExceeded, match="10 bytes"):
+                await anext(stream)
+            assert live.client.cancelled()
+            assert live.stdout.into == b""
+            with pytest.raises(OutputLimitExceeded):
+                await live.session.message("again")
+            with pytest.raises(OutputLimitExceeded):
+                await live.session.drain()
+
+        async def it_reads_a_line_at_the_limit(
+            live: Live, monkeypatch: pytest.MonkeyPatch
+        ) -> None:
+            monkeypatch.setattr("botbox.Session.LINE_LIMIT", 15)
+            live.print(b'{"type": "end"}')
+            later = asyncio.ensure_future(live.session.message("hi"))
+            await asyncio.sleep(0.01)
+            assert not later.done()
+            live.print(b"\n")
+            assert await later == [{"type": "end"}]
