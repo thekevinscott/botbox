@@ -43,7 +43,10 @@ def describe_abandon() -> None:
 
     async def it_keeps_none_of_what_it_drains() -> None:
         stdout = stream(b"x" * 1024)
-        with patch("botbox.docker.abandon.collect", autospec=True) as collect:
+        # A plain Mock: an autospec of a coroutine function records the call only once it runs.
+        with patch(
+            "botbox.docker.abandon.collect", Mock(side_effect=lambda *_: asyncio.sleep(0))
+        ) as collect:
             await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
         collect.assert_called_once_with(stdout, bytearray(), 0)
 
