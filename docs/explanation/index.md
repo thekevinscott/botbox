@@ -46,7 +46,7 @@ Your command runs as `botbox-relay sh -c <command>`. The relay is a script in ea
 
 The container runs with `--network none`: a loopback interface and nothing else. No route out, no DNS. Its only way out is a unix socket, mounted read-only at `/run/botbox`. A tinyproxy container on Docker's default bridge serves that socket. The proxy variables point at `127.0.0.1:41893` inside the container, where the relay forwards to the socket. Nothing in the run creates a Docker network.
 
-The proxy denies by default. Its filter holds one exact-match pattern per allowed host: the harness's own hosts plus your `allow`. It tunnels CONNECT only to port 443.
+The proxy denies by default. It allows the harness's own hosts plus your `allow`, and it checks the whole request URL, port included. An allowed host is reachable by CONNECT on port 443 and by plain HTTP on port 80. Every other port is refused, whatever the method.
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
