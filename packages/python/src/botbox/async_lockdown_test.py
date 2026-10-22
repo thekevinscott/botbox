@@ -353,7 +353,7 @@ def describe_async_lockdown() -> None:
 
         async def it_reads_the_log_as_utf8_replacing_what_is_not(scratch: Path) -> None:
             async with jail(scratch) as net:
-                (scratch / "proxy" / "tinyproxy.log").write_bytes("GET /café \xff\n".encode())
+                (scratch / "proxy" / "tinyproxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
             assert net.log == "GET /café \ufffd\n"
 
         async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:

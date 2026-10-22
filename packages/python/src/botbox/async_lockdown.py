@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import warnings
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -114,4 +115,9 @@ async def async_lockdown(
                 await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
     finally:
         os.close(read)
-        jail.log = log.read_text()
+        try:
+            jail.log = log.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            warnings.warn(
+                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=2
+            )

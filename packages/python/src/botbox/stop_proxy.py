@@ -2,7 +2,7 @@ import asyncio
 from contextlib import suppress
 from typing import IO
 
-from botbox.docker.remove import remove
+from botbox.remove_within import remove_within
 from botbox.warned import warned
 
 
@@ -12,11 +12,11 @@ async def stop_proxy(
     """End the proxy `name` by closing its `stdin`, then remove it.
 
     Its attached `client` is cancelled if it outlives `grace`, which kills it. Removing the
-    container then stops it if it is still running.
+    container then stops it if it is still running; that gets `REMOVE_SECONDS`.
     """
     with suppress(OSError):
         stdin.close()
     await asyncio.wait({client}, timeout=grace)
     client.cancel()
     await asyncio.gather(client, return_exceptions=True)
-    await warned(remove(name), f"remove its proxy {name}")
+    await warned(remove_within(name), f"remove its proxy {name}")

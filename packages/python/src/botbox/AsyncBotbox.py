@@ -14,10 +14,10 @@ from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.docker.build import build as docker_build
 from botbox.docker.DockerException import DockerException as CommandFailed
-from botbox.docker.remove import remove
 from botbox.docker.run import run as docker_run
 from botbox.docker.settle import settle
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown
+from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import read_transcript
 from botbox.warned import warned
@@ -80,7 +80,8 @@ class AsyncBotbox:
         temp home before the cancel propagates, through any number of further cancels. Both
         containers are labelled `botbox.run=<token>`, and the temp home is named after the
         token. Raises `DockerException` if setup fails or the container never ran to its exit
-        while the daemon was up. A teardown step that fails is a warning, never the error.
+        while the daemon was up. A teardown step that fails, or a container removal that takes
+        longer than 30 seconds, is a warning, never the error.
         """
         agent = self.agent
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -119,7 +120,7 @@ class AsyncBotbox:
             stderr = err.decode(errors="replace")
             exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
         finally:
-            await settle(warned(remove(name), f"remove its agent container {name}"))
+            await settle(warned(remove_within(name), f"remove its agent container {name}"))
         return out.decode(errors="replace"), stderr, exit_code
 
     def _lockdown_flags(
