@@ -105,7 +105,9 @@ else:
             print(json.dumps({"type": "assistant", "said": said}), flush=True)
             if said == "hang":
                 (state / f"{name}.hanging").write_text(str(os.getpid()))
-                time.sleep(600)
+                while (state / f"{name}.json").exists():
+                    time.sleep(0.05)
+                sys.exit(137)
             if said == "die":
                 os.kill(os.getpid(), signal.SIGKILL)
             print("not json")
