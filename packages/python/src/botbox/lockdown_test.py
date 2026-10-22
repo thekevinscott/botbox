@@ -13,6 +13,7 @@ from botbox.lockdown import (
     OUTPUT_LIMIT,
     PROXY_CONF,
     PROXY_DIR,
+    PROXY_LOG_LIMIT,
     RELAY_DIR,
     RELAY_PORT,
     lockdown,
@@ -242,7 +243,7 @@ def describe_lockdown() -> None:
                 options = run.call_args.kwargs
             assert options["stdout"] is options["stderr"]
             assert isinstance(options["stdout"], bytearray)
-            assert options["limit"] == OUTPUT_LIMIT == 64 * 1024
+            assert options["stdout_limit"] == options["stderr_limit"] == OUTPUT_LIMIT == 64 * 1024
 
         async def it_waits_for_the_socket_with_the_client_and_its_output(
             scratch: Path, run: AsyncMock, wait: AsyncMock, steps: list[str]
@@ -399,6 +400,13 @@ def describe_lockdown() -> None:
             async with jail(scratch) as net:
                 (scratch / "proxy" / "tinyproxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
             assert net.log == "GET /café \ufffd\n"
+
+        async def it_reads_only_the_end_of_a_long_log(scratch: Path) -> None:
+            assert PROXY_LOG_LIMIT == 2**20
+            with patch("botbox.lockdown.PROXY_LOG_LIMIT", 4):
+                async with jail(scratch) as net:
+                    (scratch / "proxy" / "tinyproxy.log").write_text(REFUSAL)
+            assert net.log == REFUSAL[-4:]
 
         async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:
             with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: ") as w:

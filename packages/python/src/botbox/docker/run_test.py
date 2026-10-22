@@ -78,9 +78,16 @@ def describe_run() -> None:
         await run([], stdin=None, stdout=bytearray(), stderr=bytearray())
         assert [capture.limit for capture in captures] == [None, None]
 
-    async def it_keeps_the_end_of_each_stream_given_a_limit(captures: list[Capture]) -> None:
-        await run([], stdin=None, stdout=bytearray(), stderr=bytearray(), limit=64)
-        assert [capture.limit for capture in captures] == [64, 64]
+    async def it_keeps_the_end_of_each_stream_given_its_limit(captures: list[Capture]) -> None:
+        await run(
+            [],
+            stdin=None,
+            stdout=bytearray(),
+            stderr=bytearray(),
+            stdout_limit=64,
+            stderr_limit=8,
+        )
+        assert [capture.limit for capture in captures] == [64, 8]
 
     async def it_returns_the_clients_exit_code() -> None:
         assert await run([], stdin=None, stdout=bytearray(), stderr=bytearray()) == 5

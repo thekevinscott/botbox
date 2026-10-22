@@ -102,6 +102,19 @@ def describe_botbox() -> None:
         with pytest.raises(TypeError, match=r"allow=\('github\.com',\)"):
             Botbox(agent, allow="github.com")
 
+    def it_caps_each_output_stream_at_100_gib_by_default(agent: Mock) -> None:
+        box = Botbox(agent)
+        assert box.stdout_limit == box.stderr_limit == 100 * 2**30
+
+    def it_holds_the_output_caps_it_is_given(agent: Mock) -> None:
+        box = Botbox(agent, stdout_limit=2**20, stderr_limit=0)
+        assert (box.stdout_limit, box.stderr_limit) == (2**20, 0)
+
+    @pytest.mark.parametrize("cap", ["stdout_limit", "stderr_limit"])
+    def it_refuses_a_negative_output_cap(agent: Mock, cap: str) -> None:
+        with pytest.raises(ValueError, match=f"^{cap} must be at least 0, got -1$"):
+            Botbox(agent, **{cap: -1})
+
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
         def threads() -> Iterator[MagicMock]:
@@ -444,11 +457,19 @@ def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
 @pytest.fixture(autouse=True)
 def docker_run(steps: list[str]) -> Iterator[Mock]:
     async def attached(
-        _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
+        _args: list[str],
+        *,
+        stdout: bytearray,
+        stderr: bytearray,
+        stdout_limit: int | None = None,
+        stderr_limit: int | None = None,
+        **_options: Any,
     ) -> int:
         steps.append("run agent")
-        stdout.extend(b"out\xff\n")
-        stderr.extend(b"err\n")
+        for into, data, limit in ((stdout, b"out\xff\n", stdout_limit), (stderr, b"err\n", stderr_limit)):
+            into.extend(data)
+            if limit is not None:
+                del into[: max(len(into) - limit, 0)]
         return 3
 
     with patch("botbox.Botbox.docker_run", autospec=True, side_effect=attached) as m:
@@ -539,6 +560,33 @@ def describe_run() -> None:
     async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
         with pytest.raises(TypeError):
             await Botbox(runner).run("true", ())  # type: ignore[call-arg]
+
+    def describe_output_caps() -> None:
+        async def it_is_not_truncated_within_the_caps(runner: Mock) -> None:
+            result = await Botbox(runner, stdout_limit=5, stderr_limit=4).run("true")
+            assert (result.stdout, result.stderr) == ("out\ufffd\n", "err\n")
+            assert result.truncated is False
+
+        async def it_keeps_the_end_of_stdout_over_its_cap(runner: Mock) -> None:
+            result = await Botbox(runner, stdout_limit=2).run("true")
+            assert (result.stdout, result.stderr) == ("\ufffd\n", "err\n")
+            assert result.truncated is True
+
+        async def it_keeps_the_end_of_stderr_over_its_cap(runner: Mock) -> None:
+            result = await Botbox(runner, stderr_limit=2).run("true")
+            assert (result.stdout, result.stderr) == ("out\ufffd\n", "r\n")
+            assert result.truncated is True
+
+        async def it_keeps_nothing_with_a_cap_of_0(runner: Mock) -> None:
+            result = await Botbox(runner, stdout_limit=0, stderr_limit=0).run("true")
+            assert (result.stdout, result.stderr) == ("", "")
+            assert result.truncated is True
+
+        async def it_reads_the_exit_code_with_the_kept_stderr(
+            runner: Mock, agent_exit: Mock
+        ) -> None:
+            await Botbox(runner, stderr_limit=2).run("true")
+            assert agent_exit.call_args.args[3] == "r\n"
 
     async def it_checks_the_mounts_before_building(
         runner: Mock, bind_mounts: Mock, docker_build: Mock

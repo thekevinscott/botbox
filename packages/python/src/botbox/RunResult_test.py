@@ -19,6 +19,7 @@ def describe_run_result() -> None:
             {".claude/projects/p/s.jsonl": "{}"},
             "log",
             "an-image",
+            False,
         )
 
     def it_names_its_fields(result: RunResult) -> None:
@@ -29,7 +30,11 @@ def describe_run_result() -> None:
             "transcript",
             "proxy",
             "image",
+            "truncated",
         ]
+
+    def it_is_not_truncated_by_default(result: RunResult) -> None:
+        assert result.truncated is False
 
     def it_is_frozen(result: RunResult) -> None:
         with pytest.raises(dataclasses.FrozenInstanceError):
