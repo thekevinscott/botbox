@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -109,14 +110,22 @@ async def started(pids: Path) -> list[int]:
     return [int(pid) for pid in pids.read_text().split()]
 
 
-def marked(marker: str) -> bool:
+def marked(marker: str) -> int:
+    """How many processes have `marker` in their command line."""
+    count = 0
     for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
-        try:
-            if marker.encode() in cmdline.read_bytes():
-                return True
-        except OSError:
-            pass
-    return False
+        with suppress(OSError):
+            count += marker.encode() in cmdline.read_bytes()
+    return count
+
+
+def blocking_until(condition: Callable[[], bool], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+    return True
 
 
 async def exited(process: asyncio.subprocess.Process) -> None:
@@ -238,12 +247,13 @@ def describe_docker() -> None:
             install(PLUGIN)
             marker = f"sdk-{uuid4().hex}"
             task = asyncio.create_task(run_docker("buildx", "build", marker))
-            await asyncio.sleep(0)
-            # Blocks the loop, so spawn is still connecting the pipes when the cancel lands.
-            deadline = time.monotonic() + 10
-            while not marked(marker) and time.monotonic() < deadline:
-                time.sleep(0.01)
-            assert marked(marker)
+            # Blocks the loop once docker is forked, so spawn is still connecting its pipes
+            # when the cancel lands and the plugin is up.
+            for _ in range(10):
+                await asyncio.sleep(0)
+                if blocking_until(lambda: marked(marker) == 2, 1):
+                    break
+            assert marked(marker) == 2
             await cancel_twice(task)
             async with asyncio.timeout(2):
                 while marked(marker):
