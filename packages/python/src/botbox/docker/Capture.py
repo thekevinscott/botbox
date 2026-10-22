@@ -19,7 +19,7 @@ class Capture(asyncio.Protocol):
     async def __aenter__(self) -> "Capture":
         read, self.write = os.pipe()
         self.released = False
-        pipe = os.fdopen(read, "rb", buffering=0)
+        pipe = os.fdopen(read, "rb")
         try:
             self.transport, _ = await asyncio.get_running_loop().connect_read_pipe(
                 lambda: self, pipe

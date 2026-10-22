@@ -1,6 +1,7 @@
 import asyncio
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -61,4 +62,15 @@ def describe_Capture() -> None:
         async with Capture(bytearray()):
             pass
         await asyncio.sleep(0.01)
+        assert open_fds() <= before
+
+    async def it_closes_both_ends_when_it_cannot_watch_the_pipe() -> None:
+        before = open_fds()
+        loop = asyncio.get_running_loop()
+        with (
+            patch.object(loop, "connect_read_pipe", side_effect=OSError("no watch")),
+            pytest.raises(OSError, match="no watch"),
+        ):
+            async with Capture(bytearray()):
+                pass
         assert open_fds() <= before
