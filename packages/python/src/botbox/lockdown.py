@@ -1,3 +1,4 @@
+import ipaddress
 import os
 import re
 import subprocess
@@ -40,6 +41,15 @@ class Lockdown:
         self.log = ""
 
 
+def authority(host: str) -> str:
+    """The host as a request URL writes it: an IPv6 literal in brackets."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    return f"[{host}]" if isinstance(address, ipaddress.IPv6Address) else host
+
+
 @contextmanager
 def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
@@ -75,11 +85,8 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
 
     allowlist = scratch / "filter"
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
-    allowlist.write_text(
-        "".join(
-            f"^{re.escape(host)}(:443)?$\n^http://{re.escape(host)}(:80)?(/|$)\n" for host in allow
-        )
-    )
+    authorities = (re.escape(authority(host)) for host in allow)
+    allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
     allowlist.chmod(0o644)
     log_dir = scratch / "proxy"
     log_dir.mkdir()
