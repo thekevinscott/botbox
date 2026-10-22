@@ -12,10 +12,10 @@ GRACE = 10
 async def reap(
     process: asyncio.subprocess.Process, *drains: asyncio.Future[Any], grace: float = GRACE
 ) -> None:
-    """Stop `process`'s group and wait it out, killing the group after `grace` seconds.
+    """Stop `process`'s group and wait it out: SIGTERM, then SIGKILL, `grace` seconds each.
 
     `drains` read its pipes. They must keep running until the group is gone: a client blocked
-    writing to a full pipe never exits.
+    writing to a full pipe never exits. Raises TimeoutError if the group outlives the SIGKILL.
     """
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGTERM)
@@ -25,4 +25,5 @@ async def reap(
     except TimeoutError:
         with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        await ended(process, drains)
+        async with asyncio.timeout(grace):
+            await ended(process, drains)

@@ -4,8 +4,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from botbox.docker.ended import POLL
-from botbox.docker.exit_code import exit_code
+from botbox.docker.exit_code import POLL, exit_code
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +20,9 @@ def sleep() -> Iterator[Mock]:
 
 
 def describe_exit_code() -> None:
+    def it_polls_every_10ms() -> None:
+        assert POLL == 0.01
+
     async def it_returns_a_code_already_known(leader_exit: AsyncMock) -> None:
         assert await exit_code(Mock(pid=4242, returncode=3)) == 3
         leader_exit.assert_not_awaited()

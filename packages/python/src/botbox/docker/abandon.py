@@ -1,6 +1,6 @@
 import asyncio
 
-from botbox.docker.reap import reap
+from botbox.docker.stop import stop
 
 
 async def abandon(starting: asyncio.Future[asyncio.subprocess.Process]) -> None:
@@ -10,4 +10,4 @@ async def abandon(starting: asyncio.Future[asyncio.subprocess.Process]) -> None:
     except Exception:
         return
     pipes = (process.stdout, process.stderr)
-    await reap(process, *(asyncio.ensure_future(pipe.read()) for pipe in pipes if pipe))
+    await stop(process, *(asyncio.ensure_future(pipe.read()) for pipe in pipes if pipe))
