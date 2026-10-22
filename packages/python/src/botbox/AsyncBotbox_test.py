@@ -172,19 +172,26 @@ def describe_async_botbox() -> None:
             assert task is not None
             assert task.cancelling() == 0
 
-        async def it_exits_143_on_a_sigterm_the_block_never_awaited_past(
+        async def it_exits_143_on_a_sigterm_the_block_swallowed(
             agent: Mock, handlers: Mock
         ) -> None:
             with pytest.raises(SystemExit) as raised:
                 async with AsyncBotbox(agent):
-                    send_sigterm(handlers)
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    except asyncio.CancelledError:
+                        pass
             assert raised.value.code == 143
 
         async def it_exits_143_on_a_sigterm_over_another_error(agent: Mock, handlers: Mock) -> None:
             with pytest.raises(SystemExit) as raised:
                 async with AsyncBotbox(agent):
-                    send_sigterm(handlers)
-                    raise ValueError("teardown failed")
+                    try:
+                        send_sigterm(handlers)
+                        await asyncio.sleep(1)
+                    finally:
+                        raise ValueError("teardown failed")
             assert raised.value.code == 143
             assert isinstance(raised.value.__cause__, ValueError)
 
@@ -209,6 +216,7 @@ def describe_async_botbox() -> None:
             with pytest.raises(SystemExit):
                 async with box:
                     send_sigterm(handlers)
+                    await asyncio.sleep(1)
             handlers.add.reset_mock()
             async with box:
                 pass
