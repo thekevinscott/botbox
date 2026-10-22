@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, token
 
-from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult
+from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult, Session
 
 SESSION = ClaudeAgent().session_command()
 
@@ -137,7 +137,8 @@ def describe_session() -> None:
                     assert await live.message("hi") == []
             assert raised.value.return_code == 125
             assert "Unable to find image" in raised.value.stderr
-            assert live.result is None
+            assert live.result is not None
+            assert live.result.exit_code == -1
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -148,7 +149,10 @@ def describe_session() -> None:
                 async with talker.session() as live:
                     await live.message("hi")
                     raise ValueError("boom")
-            assert live.result is None
+            assert live.result is not None
+            assert live.result.exit_code == -1
+            assert live.result.transcript
+            assert '"said": "hi"' in live.result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -158,8 +162,11 @@ def describe_session() -> None:
         ) -> None:
             heard: list[object] = []
 
+            sessions: list[Session] = []
+
             async def talk() -> None:
                 async with talker.session() as live:
+                    sessions.append(live)
                     async for event in live.stream("hang"):
                         heard.append(event)
 
@@ -168,6 +175,11 @@ def describe_session() -> None:
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
+            result = sessions[0].result
+            assert result is not None
+            assert result.exit_code == -1
+            assert result.transcript
+            assert '"said": "hang"' in result.stdout
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
             assert homes(temp) == []
@@ -177,8 +189,11 @@ def describe_session() -> None:
         ) -> None:
             daemon.set(rm_seconds=0.3)
 
+            sessions: list[Session] = []
+
             async def talk() -> None:
                 async with talker.session() as live:
+                    sessions.append(live)
                     await live.message("hang")
 
             task = asyncio.ensure_future(talk())
@@ -188,6 +203,11 @@ def describe_session() -> None:
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
+            result = sessions[0].result
+            assert result is not None
+            assert result.exit_code == -1
+            assert result.transcript
+            assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
 

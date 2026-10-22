@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import Botbox
+from botbox.warned import warned as warn_failure
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -720,6 +721,7 @@ def held(steps: list[str]) -> Mock:
 def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
     async def hold(*_args: object) -> AsyncIterator[Mock]:
+        held.agent = _args[0]
         held.client = asyncio.get_running_loop().create_future()
         steps.append("hold session")
         try:
@@ -744,6 +746,11 @@ def session_options(hold_session: Mock) -> dict[str, Any]:
 
 
 def describe_session() -> None:
+    @pytest.fixture(autouse=True)
+    def session_reader(read_transcript: Mock) -> Iterator[None]:
+        with patch("botbox.session_result.read_transcript", read_transcript):
+            yield
+
     @pytest.fixture
     def talker(runner: Mock) -> Mock:
         # Set outright: the SessionAgent check looks attributes up statically, past Mock's magic.
@@ -822,8 +829,10 @@ def describe_session() -> None:
             f"remove {AGENT}",
             "settle",
             f"warned: remove its agent container {AGENT}",
-            "read transcript",
             "stop proxy",
+            "settle",
+            "read transcript",
+            "warned: read its session artifacts",
             "settle",
             "remove temp home",
             "warned: remove its temp home",
@@ -901,7 +910,33 @@ def describe_session() -> None:
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp home"
-            assert held.result is None
+            assert held.result is not None
+            assert held.result.exit_code == -1
+            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
+
+        async def it_keeps_the_original_error_when_artifact_reading_fails(
+            talker: Mock,
+            read_transcript: Mock,
+            steps: list[str],
+            warned: Mock,
+        ) -> None:
+            original = warned.side_effect
+            warned.side_effect = lambda step, what: (
+                warn_failure(step, what)
+                if what == "read its session artifacts"
+                else original(step, what)
+            )
+            read_transcript.side_effect = OSError("unreadable transcript")
+            failed = ValueError("original failure")
+            with (
+                pytest.warns(RuntimeWarning, match="read its session artifacts"),
+                pytest.raises(ValueError) as raised,
+            ):
+                async with Botbox(talker).session():
+                    raise failed
+            assert raised.value is failed
+            assert steps[-1] == "warned: remove its temp home"
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, held: Mock, steps: list[str]
@@ -918,10 +953,16 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
+                "read transcript",
+                "warned: read its session artifacts",
+                "settle",
                 "remove temp home",
                 "warned: remove its temp home",
             ]
-            assert held.result is None
+            assert held.result is not None
+            assert held.result.exit_code == -1
+            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_when_cancelled_mid_turn(
             talker: Mock, held: Mock, steps: list[str]
@@ -947,10 +988,16 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
+                "read transcript",
+                "warned: read its session artifacts",
+                "settle",
                 "remove temp home",
                 "warned: remove its temp home",
             ]
-            assert held.result is None
+            assert held.result is not None
+            assert held.result.exit_code == -1
+            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_client_that_failed_to_start(
             talker: Mock, held: Mock, steps: list[str]

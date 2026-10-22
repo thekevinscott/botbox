@@ -1,0 +1,1 @@
+Fixed: Python sessions retain captured stdout, stderr, transcripts, and proxy logs in `Session.result` when the caller raises or cancels. An unavailable exit code is reported as `-1`. Cleanup still runs and the original exception propagates; artifact read failures produce a warning.

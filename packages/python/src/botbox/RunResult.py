@@ -5,7 +5,7 @@ from dataclasses import dataclass
 class RunResult:
     """What a run left behind. Nothing parsed.
 
-    `exit_code` is -1 when no exit code came back: the Docker daemon went away mid-run.
+    `exit_code` is -1 when no exit code came back, including an interrupted session.
     `transcript` maps each transcript file's path, relative to the agent's home, to its text.
     `proxy` is the proxy's log: every connection, admitted or refused.
     `image` is the tag that ran: the layered tag when a `dockerfile` was given, else the agent's.

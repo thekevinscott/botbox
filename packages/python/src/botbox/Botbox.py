@@ -23,6 +23,7 @@ from botbox.read_transcript import read_transcript
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import Session
+from botbox.session_result import session_result
 from botbox.warned import warned
 
 
@@ -164,7 +165,9 @@ class Botbox:
         home named the same way. Leaving the block ends the CLI's input, waits for it to exit,
         removes the session's containers and temp home, and leaves the `RunResult` in the
         session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
-        tears down the same way, through any number of further cancels. Raises `TypeError` for
+        tears down the same way, through any number of further cancels. The result retains
+        available artifacts on these paths too, with exit code -1 if no exit code was read.
+        Artifact read failures warn without replacing the original error. Raises `TypeError` for
         an agent with no session mode, and `DockerException` as `run()` does.
         """
         agent = self.agent
@@ -175,6 +178,8 @@ class Botbox:
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
+        live = None
+        exit_code = -1
         try:
             home = Path(scratch.name) / "home"
             home.mkdir()
@@ -203,11 +208,17 @@ class Botbox:
                     exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
                 finally:
                     await settle(warned(remove_within(name), f"remove its agent container {name}"))
-                transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
         finally:
-            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
-        stdout = live.stdout.into.decode(errors="replace")
-        live.result = RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
+            try:
+                if live is not None:
+                    await settle(
+                        warned(
+                            session_result(live, home, jail.log, image, exit_code),
+                            "read its session artifacts",
+                        )
+                    )
+            finally:
+                await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
 
     async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
         """Run the agent container to its exit, remove it, and return its output and exit code."""
