@@ -50,6 +50,11 @@ def describe_agent_exit() -> None:
         state["ExitCode"] = 7
         assert await agent_exit("botbox-agent-1", COMMAND, 125, "") == 7
 
+    async def it_warns_when_the_container_was_killed_for_memory(state: dict[str, Any]) -> None:
+        state.update(ExitCode=137, OOMKilled=True)
+        with pytest.warns(RuntimeWarning, match="botbox-agent-1 ran out of memory"):
+            assert await agent_exit("botbox-agent-1", COMMAND, 137, "") == 137
+
     @pytest.mark.parametrize("client", [-9, -15, -1])
     async def it_raises_with_a_killed_client_even_though_the_container_exited(
         client: int,

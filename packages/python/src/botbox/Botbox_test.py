@@ -102,6 +102,11 @@ def describe_botbox() -> None:
         with pytest.raises(TypeError, match=r"allow=\('github\.com',\)"):
             Botbox(agent, allow="github.com")
 
+    def it_caps_memory_and_pids_high_by_default(agent: Mock) -> None:
+        box = Botbox(agent)
+        assert box.memory == "64g"
+        assert box.pids == 32768
+
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
         def threads() -> Iterator[MagicMock]:
@@ -507,7 +512,16 @@ def read_transcript(steps: list[str]) -> Iterator[Mock]:
 
 
 RUN = argparse.ArgumentParser()
-for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user"):
+for flag in (
+    "--name",
+    "--label",
+    "--workdir",
+    "--network",
+    "--pid",
+    "--user",
+    "--memory",
+    "--pids-limit",
+):
     RUN.add_argument(flag)
 for flag in ("--env", "--volume", "--cap-drop", "--security-opt"):
     RUN.add_argument(flag, action="append", default=[])
@@ -664,6 +678,26 @@ def describe_run() -> None:
                 f"{scratch / 'sockets'}:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
+
+        async def it_caps_memory_and_pids_high_by_default(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner).run("true")
+            options = agent_options(docker_run)
+            assert options["memory"] == "64g"
+            assert options["pids_limit"] == "32768"
+
+        async def it_caps_memory_and_pids_as_the_box_says(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner, memory="2g", pids=1024).run("true")
+            options = agent_options(docker_run)
+            assert options["memory"] == "2g"
+            assert options["pids_limit"] == "1024"
+
+        async def it_leaves_memory_and_pids_uncapped_for_none(
+            runner: Mock, docker_run: Mock
+        ) -> None:
+            await Botbox(runner, memory=None, pids=None).run("true")
+            [args] = docker_run.call_args.args
+            assert "--memory" not in args
+            assert "--pids-limit" not in args
 
         async def it_works_in_the_home_by_default(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner).run("true")
@@ -936,11 +970,22 @@ def describe_session() -> None:
             assert options["security_opt"] == ["no-new-privileges"]
             assert options["env"] == ["HTTPS_PROXY=http://127.0.0.1:41893"]
             assert options["workdir"] == "/home/user/src"
+            assert options["memory"] == "64g"
+            assert options["pids_limit"] == "32768"
             assert options["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",
                 f"{scratch / 'sockets'}:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
+
+        async def it_caps_memory_and_pids_as_the_box_says(
+            talker: Mock, hold_session: Mock
+        ) -> None:
+            async with Botbox(talker, memory="2g", pids=None).session():
+                pass
+            options = session_options(hold_session)
+            assert options["memory"] == "2g"
+            assert "--pids-limit" not in session_args(hold_session)
 
     def describe_failure() -> None:
         async def it_lets_a_failed_docker_command_through_after_tearing_down(
