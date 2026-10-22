@@ -14,6 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     # The action has no timeout of its own. If a predicted run never
     # dispatches, the gate waits until the job is killed.
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: thekevinscott/pr-monitor@v1
