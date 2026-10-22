@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import Botbox
-from botbox.warned import warned as warn_failure
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -914,29 +913,6 @@ def describe_session() -> None:
             assert held.result.exit_code == -1
             assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
             assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
-
-        async def it_keeps_the_original_error_when_artifact_reading_fails(
-            talker: Mock,
-            read_transcript: Mock,
-            steps: list[str],
-            warned: Mock,
-        ) -> None:
-            original = warned.side_effect
-            warned.side_effect = lambda step, what: (
-                warn_failure(step, what)
-                if what == "read its session artifacts"
-                else original(step, what)
-            )
-            read_transcript.side_effect = OSError("unreadable transcript")
-            failed = ValueError("original failure")
-            with (
-                pytest.warns(RuntimeWarning, match="read its session artifacts"),
-                pytest.raises(ValueError) as raised,
-            ):
-                async with Botbox(talker).session():
-                    raise failed
-            assert raised.value is failed
-            assert steps[-1] == "warned: remove its temp home"
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, held: Mock, steps: list[str]

@@ -142,6 +142,28 @@ def describe_session() -> None:
             assert daemon.containers == []
             assert homes(temp) == []
 
+        async def it_preserves_the_original_error_if_artifact_reading_fails(
+            talker: Botbox,
+            daemon: Daemon,
+            temp: Path,
+            monkeypatch: pytest.MonkeyPatch,
+        ) -> None:
+            def fail_read(*_args: object) -> None:
+                raise OSError("unreadable transcript")
+
+            monkeypatch.setattr("botbox.session_result.read_transcript", fail_read)
+            failed = ValueError("original failure")
+            with (
+                pytest.warns(RuntimeWarning, match="read its session artifacts"),
+                pytest.raises(ValueError) as raised,
+            ):
+                async with talker.session() as live:
+                    await live.message("hi")
+                    raise failed
+            assert raised.value is failed
+            assert daemon.containers == []
+            assert homes(temp) == []
+
         async def it_tears_down_and_raises_when_the_block_fails(
             talker: Botbox, daemon: Daemon, temp: Path
         ) -> None:
