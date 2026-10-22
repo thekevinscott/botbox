@@ -1,12 +1,14 @@
 """`Botbox.session()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, token
 
-from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult
+from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult, Session
 
 SESSION = ClaudeAgent().session_command()
 
@@ -16,6 +18,19 @@ def talker(box: Botbox, daemon: Daemon) -> Botbox:
     """The box, its agent's session planned to answer each message."""
     daemon.agent(SESSION, mode="session", stdout="booting\n")
     return box
+
+
+@pytest.fixture
+def unreadable_transcript() -> Iterator[Mock]:
+    original = Path.glob
+
+    def glob(path: Path, pattern: str) -> Iterator[Path]:
+        if path.name == "home":
+            raise OSError("unreadable transcript directory")
+        return original(path, pattern)
+
+    with patch("pathlib.Path.glob", autospec=True, side_effect=glob) as read:
+        yield read
 
 
 def describe_session() -> None:
@@ -137,7 +152,26 @@ def describe_session() -> None:
                     assert await live.message("hi") == []
             assert raised.value.return_code == 125
             assert "Unable to find image" in raised.value.stderr
-            assert live.result is None
+            assert live.result is not None
+            assert live.result.exit_code == -1
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        @pytest.mark.usefixtures("unreadable_transcript")
+        async def it_preserves_the_original_error_if_artifact_reading_fails(
+            talker: Botbox,
+            daemon: Daemon,
+            temp: Path,
+        ) -> None:
+            failed = ValueError("original failure")
+            with (
+                pytest.warns(RuntimeWarning, match="read its session artifacts"),
+                pytest.raises(ValueError) as raised,
+            ):
+                async with talker.session() as live:
+                    await live.message("hi")
+                    raise failed
+            assert raised.value is failed
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -148,7 +182,10 @@ def describe_session() -> None:
                 async with talker.session() as live:
                     await live.message("hi")
                     raise ValueError("boom")
-            assert live.result is None
+            assert live.result is not None
+            assert live.result.exit_code == -1
+            assert live.result.transcript
+            assert '"said": "hi"' in live.result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -158,8 +195,11 @@ def describe_session() -> None:
         ) -> None:
             heard: list[object] = []
 
+            sessions: list[Session] = []
+
             async def talk() -> None:
                 async with talker.session() as live:
+                    sessions.append(live)
                     async for event in live.stream("hang"):
                         heard.append(event)
 
@@ -168,6 +208,11 @@ def describe_session() -> None:
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
+            result = sessions[0].result
+            assert result is not None
+            assert result.exit_code == -1
+            assert result.transcript
+            assert '"said": "hang"' in result.stdout
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
             assert homes(temp) == []
@@ -177,8 +222,11 @@ def describe_session() -> None:
         ) -> None:
             daemon.set(rm_seconds=0.3)
 
+            sessions: list[Session] = []
+
             async def talk() -> None:
                 async with talker.session() as live:
+                    sessions.append(live)
                     await live.message("hang")
 
             task = asyncio.ensure_future(talk())
@@ -188,6 +236,11 @@ def describe_session() -> None:
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
+            result = sessions[0].result
+            assert result is not None
+            assert result.exit_code == -1
+            assert result.transcript
+            assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
 

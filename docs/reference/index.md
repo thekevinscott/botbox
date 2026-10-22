@@ -90,7 +90,7 @@ async with box.session(
 
 Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts` and `workdir` are as for [`run()`](#run), and so are the lockdown, labels and temp home. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp home. Then the `RunResult` is in `live.result`; its `stdout` holds every line the CLI wrote, events included.
 
-- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` stays `None`.
+- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` still holds the output, transcripts and proxy log captured so far, with `exit_code` -1; if reading them fails, a warning, and the original error propagates.
 - A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends, as `run()` does.
 - Raises `TypeError` for an agent with no session mode; `CodexAgent` raises `NotImplementedError`. Both before anything is built.
 

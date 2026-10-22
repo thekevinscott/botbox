@@ -66,7 +66,7 @@ async with Botbox(agent) as box:
 
 `await live.message(text)` still collects one turn and returns its events.
 
-There is no `close()`. Leaving the block ends the session and sets `live.result`. If the block raises or is cancelled, `live.result` stays `None`.
+There is no `close()`. Leaving the block ends the session and sets `live.result`. If the block raises or is cancelled, `live.result` still holds what was captured, with `exit_code` -1.
 
 A session opened without `with` and closed in a `finally` (a session held open across a generator) becomes an `@asynccontextmanager`:
 

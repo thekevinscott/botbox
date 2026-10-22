@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file /home/duncan/work/code/research/botbox/.env pytest tests/e2e",
+  "ran_at": 1792686403,
+  "exit_code": 0,
+  "commit": "4fe893b28bae9a4fcadf6738f63c3abf06db7713",
+  "branch": "fix/session-failure-artifacts"
+}
