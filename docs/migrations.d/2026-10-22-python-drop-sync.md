@@ -72,7 +72,7 @@ None.
 
 ## Behavior changes without code changes
 
-- A missing image, or any container that never started, raises `DockerException` with `return_code` 125. The sync `run()` returned a `RunResult` with exit 125.
+- A container that never started raises `DockerException` with the Docker client's exit code as `return_code`: 125 for a missing image, 126 or 127 for an entrypoint that can't be invoked or found. The sync `run()` returned a `RunResult` with that exit code.
 - A Docker client that dies while the daemon is up raises `DockerException`.
 - A teardown step that fails after the command ran, a container removal that takes longer than 30 seconds, and a proxy log that can't be read are `RuntimeWarning`s. The result still comes back.
 - Containers no longer run with `--rm`. The run reads the exit code from the stopped container, then removes it. Both containers carry the label `botbox.run=<token>`, so an owner killed with SIGKILL leaves them stopped and findable.
