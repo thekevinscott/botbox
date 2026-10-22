@@ -357,10 +357,11 @@ def describe_async_lockdown() -> None:
             assert net.log == "GET /café \ufffd\n"
 
         async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:
-            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: "):
+            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: ") as w:
                 async with jail(scratch) as net:
                     unreadable(scratch / "proxy" / "tinyproxy.log")
             assert net.log == ""
+            assert w[0].filename == __file__
 
         async def it_keeps_the_bodys_error_when_it_cannot_read_the_log(scratch: Path) -> None:
             with (

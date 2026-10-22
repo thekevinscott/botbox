@@ -118,6 +118,7 @@ async def async_lockdown(
         try:
             jail.log = log.read_text(encoding="utf-8", errors="replace")
         except OSError as error:
+            # 3: past contextlib's __aexit__, to whoever entered the block.
             warnings.warn(
-                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=2
+                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
             )
