@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException
+from botbox import Botbox, ClaudeAgent, DockerException, reap
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -72,7 +72,7 @@ asyncio.run(main())
 """
 
 GRACE = 5
-HOME = re.compile(r"botbox-[0-9a-f]{12}-.+")
+HOME = re.compile(r"[0-9a-f]{12}")
 
 
 def containers(token: str, *filters: str) -> list[str]:
@@ -97,10 +97,13 @@ class Runs:
 
     def watch(self) -> None:
         while not self.done.wait(0.02):
-            self.tokens |= {p.name.split("-")[1] for p in self.homes()}
+            self.tokens |= {p.name for p in self.homes()}
 
     def homes(self) -> list[Path]:
-        return [p for p in self.temp.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
+        runs = self.temp / f"botbox-{os.getuid()}"
+        if not runs.exists():
+            return []
+        return [p for p in runs.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
 
     def leftovers(self) -> list[str]:
         return [
@@ -251,9 +254,11 @@ def describe_run() -> None:
                 while containers(token, "status=running"):
                     assert time.monotonic() - started < GRACE, containers(token, "status=running")
                     await asyncio.sleep(0.1)
-                # Stopped and labelled, for a sweep to remove.
+                # Stopped and labelled, for the sweep to remove.
                 assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
                 assert [s for h in runs.homes() for s in (h / "sockets").glob("*")] == []
+                assert await reap() == [token]
+                assert runs.leftovers() == []
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:

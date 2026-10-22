@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, token, volume
+from fake_docker_test import REFUSAL, Daemon, homes, option, runs, token, volume
 
 from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, PiAgent, RunResult
 
@@ -126,7 +126,7 @@ def describe_run() -> None:
             assert homes(temp) == []
             [agent] = daemon.runs("botbox-agent-")
             home = next(v for v in agent if v.endswith(":/home/user:rw")).split(":")[0]
-            assert Path(home).parent.name.startswith(f"botbox-{token(daemon)}-")
+            assert Path(home).parent == runs(temp) / token(daemon)
 
         async def it_uses_a_new_temp_home_and_socket_directory_each_run(
             box: Botbox, daemon: Daemon
