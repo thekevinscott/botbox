@@ -43,8 +43,9 @@ def describe_abandon() -> None:
 
     async def it_keeps_none_of_what_it_drains() -> None:
         stdout = stream(b"x" * 1024)
-        await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
-        assert stdout.at_eof()
+        with patch("botbox.docker.abandon.collect", autospec=True) as collect:
+            await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
+        collect.assert_called_once_with(stdout, bytearray(), 0)
 
     async def it_then_stops_its_readers_and_closes_its_pipes(reap: AsyncMock) -> None:
         process = Mock(stdout=stream(b"open", eof=False), stderr=None)
