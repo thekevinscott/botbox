@@ -8,6 +8,8 @@ Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 
 For `PiAgent`, the `provider` argument selects the agent's own hosts.
 
+An allowed host is reachable over HTTPS on port 443 and plain HTTP on port 80. Other ports are refused.
+
 Every connection, admitted or refused, is logged to `result.proxy`.
 
 Next: [Reading the result](./reading-the-result). Background: [Network](../explanation/#network).

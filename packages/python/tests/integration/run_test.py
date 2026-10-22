@@ -12,7 +12,7 @@ from python_on_whales.exceptions import DockerException
 from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent, RunResult
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
-REFUSAL = 'NOTICE Proxying refused on filtered domain "github.com"\n'
+REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 
 
 @pytest.fixture
@@ -339,13 +339,14 @@ def describe_run() -> None:
         def it_admits_the_agents_hosts(box: Botbox, daemon: Daemon) -> None:
             box.run("true")
             assert daemon.proxy["files"]["/etc/tinyproxy/filter"] == {
-                ".": "^api\\.anthropic\\.com$\n"
+                ".": "^api\\.anthropic\\.com(:443)?$\n^http://api\\.anthropic\\.com(:80)?(/|$)\n"
             }
 
         def it_adds_the_callers_hosts(agent: ClaudeAgent, daemon: Daemon) -> None:
             Botbox(agent, allow=["registry.npmjs.org"]).run("true")
             assert daemon.proxy["files"]["/etc/tinyproxy/filter"] == {
-                ".": "^api\\.anthropic\\.com$\n^registry\\.npmjs\\.org$\n"
+                ".": "^api\\.anthropic\\.com(:443)?$\n^http://api\\.anthropic\\.com(:80)?(/|$)\n"
+                "^registry\\.npmjs\\.org(:443)?$\n^http://registry\\.npmjs\\.org(:80)?(/|$)\n"
             }
 
         def it_mounts_the_filter_read_only_and_readable_by_the_proxy_user(

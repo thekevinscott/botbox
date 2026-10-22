@@ -6,11 +6,13 @@ The raw CONNECT probe reads the proxy's own answer. Two kinds of probe, because 
 admitted everything would still pass every direct one.
 """
 
+import secrets
 import subprocess
+import time
 from collections.abc import Iterator
 
 import pytest
-from conftest import Probe, docker_lines
+from conftest import LINE, Probe, docker_lines
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -26,6 +28,17 @@ CONNECT = (
     " const r = (v) => { console.log(v); process.exit(0) };"
     ' s.on("connect", () => s.write('
     '"CONNECT " + host + ":443 HTTP/1.1\\r\\nHost: " + host + ":443\\r\\n\\r\\n"));'
+    ' s.on("data", (d) => r(d.toString().split(" ")[1]));'
+    ' s.on("timeout", () => r("timeout"));'
+    ' s.on("error", (e) => r("error " + e.code))\''
+)
+
+REQUEST = (
+    "node -e 'const [proxy, request] = process.argv.slice(1);"
+    ' const [name, port] = proxy.split(":");'
+    ' const s = require("net").connect({ host: name, port: Number(port), timeout: 5000 });'
+    " const r = (v) => { console.log(v); process.exit(0) };"
+    ' s.on("connect", () => s.write(request.replaceAll("|", "\\r\\n")));'
     ' s.on("data", (d) => r(d.toString().split(" ")[1]));'
     ' s.on("timeout", () => r("timeout"));'
     ' s.on("error", (e) => r("error " + e.code))\''
@@ -124,7 +137,7 @@ def describe_the_proxy_log() -> None:
         assert 'Established connection to host "api.anthropic.com"' in proxy
 
     def it_records_the_refusal(proxy: str) -> None:
-        assert 'Proxying refused on filtered domain "example.com"' in proxy
+        assert 'Proxying refused on filtered url "example.com:443"' in proxy
 
 
 def describe_allow() -> None:
@@ -167,3 +180,75 @@ def describe_a_container_outside_the_run() -> None:
         ]
         answer = subprocess.run(outsider, check=True, capture_output=True, text=True).stdout
         assert answer.strip() == "error ECONNREFUSED"
+
+
+UPSTREAM = (
+    'const http = require("http");'
+    " for (const port of [80, 8022]) {"
+    ' const server = http.createServer((q, r) => r.end("upstream"));'
+    ' server.on("connection", () => console.log("connection " + port));'
+    ' server.listen(port, () => console.log("listening " + port)); }'
+)
+
+
+@pytest.fixture(scope="module")
+def upstream(box: Botbox) -> Iterator[tuple[str, str]]:
+    """A server on the default bridge, on 80 and 8022, that logs each connection it accepts."""
+    name = f"botbox-e2e-upstream-{secrets.token_hex(6)}"
+    server = [
+        *("docker", "run", "--detach", "--rm", "--name", name, "--network", "bridge"),
+        *("--user", "root", "--entrypoint", "node", box.build(), "-e", UPSTREAM),
+    ]
+    subprocess.run(server, check=True, capture_output=True)
+    try:
+        while "listening 8022" not in upstream_log(name):
+            time.sleep(0.1)
+        (ip,) = docker_lines(
+            "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", name
+        )
+        yield name, ip
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], check=True, capture_output=True)
+
+
+def upstream_log(name: str) -> str:
+    return subprocess.run(
+        ["docker", "logs", name], check=True, capture_output=True, text=True
+    ).stdout
+
+
+@pytest.fixture(scope="module")
+def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
+    """Plain-HTTP requests to an allowed host, and what that host saw."""
+    name, ip = upstream
+    probes = {
+        "port 80": f'{REQUEST} {PROXY} "GET http://{ip}/ HTTP/1.0||"',
+        "other port": f'{REQUEST} {PROXY} "GET http://{ip}:8022/ HTTP/1.0||"',
+        "other port by host": f'{REQUEST} {PROXY} "GET / HTTP/1.0|Host: {ip}:8022||"',
+    }
+    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
+    with Botbox(ClaudeAgent(), allow=[ip]) as box:
+        result = box.run(script)
+    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    return {n: v.strip() for n, v in fields}, upstream_log(name)
+
+
+def describe_plain_http_to_an_allowed_host() -> None:
+    def it_reaches_port_80(plain_http: tuple[dict[str, str], str]) -> None:
+        report, seen = plain_http
+        assert report["port 80"] == "200"
+        assert "connection 80\n" in seen
+
+    def it_is_refused_on_any_other_port(plain_http: tuple[dict[str, str], str]) -> None:
+        report, _ = plain_http
+        assert report["other port"] == "403"
+
+    def it_is_refused_on_any_other_port_named_in_the_host_header(
+        plain_http: tuple[dict[str, str], str],
+    ) -> None:
+        report, _ = plain_http
+        assert report["other port by host"] == "403"
+
+    def it_never_connects_to_the_other_port(plain_http: tuple[dict[str, str], str]) -> None:
+        _, seen = plain_http
+        assert "connection 8022" not in seen

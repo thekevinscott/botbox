@@ -31,7 +31,7 @@ def docker_exception() -> Iterator[None]:
 
 
 ALLOW = ("api.anthropic.com",)
-REFUSAL = 'NOTICE Proxying refused on filtered domain "github.com"\n'
+REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 
 type Jail = Callable[..., AbstractContextManager[Lockdown]]
 
@@ -342,6 +342,11 @@ def describe_lockdown() -> None:
                 pass
             assert "FilterDefaultDeny Yes" in PROXY_CONF.read_text()
 
+        def it_filters_the_whole_url_so_the_port_is_checked(jail: Jail) -> None:
+            with jail():
+                pass
+            assert "FilterURLs Yes" in PROXY_CONF.read_text()
+
     def describe_the_relays() -> None:
         def it_caps_the_proxy_sides_children(jail: Jail) -> None:
             with jail():
@@ -359,11 +364,52 @@ def describe_lockdown() -> None:
             assert "UNIX-CONNECT:/run/botbox/proxy.sock" in script
 
     def describe_the_allowlist() -> None:
-        def it_anchors_each_host(jail: Jail, popen: MagicMock) -> None:
+        def it_admits_each_host_by_connect_on_443_and_plain_http_on_80(
+            jail: Jail, popen: MagicMock
+        ) -> None:
             with jail(allow=("api.anthropic.com", "example.test")):
                 source, mode = volumes(popen)["/etc/tinyproxy/filter"]
-                assert source.read_text() == "^api\\.anthropic\\.com$\n^example\\.test$\n"
+                assert source.read_text() == (
+                    "^api\\.anthropic\\.com(:443)?$\n"
+                    "^http://api\\.anthropic\\.com(:80)?(/|$)\n"
+                    "^example\\.test(:443)?$\n"
+                    "^http://example\\.test(:80)?(/|$)\n"
+                )
                 assert mode == "ro"
+
+        def it_brackets_an_ipv6_literal_as_the_request_url_does(
+            jail: Jail, popen: MagicMock
+        ) -> None:
+            with jail(allow=("2001:db8::1",)):
+                source, _ = volumes(popen)["/etc/tinyproxy/filter"]
+                assert source.read_text() == (
+                    "^\\[2001:db8::1\\](:443)?$\n^http://\\[2001:db8::1\\](:80)?(/|$)\n"
+                )
+
+        @pytest.mark.parametrize(
+            ("host", "authority"),
+            [
+                ("2001:db8::1", "[2001:db8::1]"),
+                ("192.0.2.1", "192.0.2.1"),
+                ("api.anthropic.com", "api.anthropic.com"),
+            ],
+        )
+        def it_matches_the_urls_tinyproxy_filters_only_on_443_and_80(
+            jail: Jail, popen: MagicMock, host: str, authority: str
+        ) -> None:
+            """tinyproxy reads each line as a case-insensitive ERE; they read the same in `re`."""
+            with jail(allow=(host,)):
+                source, _ = volumes(popen)["/etc/tinyproxy/filter"]
+                patterns = source.read_text().splitlines()
+
+            def admitted(url: str) -> bool:
+                return any(re.search(p, url, re.IGNORECASE) for p in patterns)
+
+            assert admitted(f"{authority}:443")
+            assert admitted(f"http://{authority}/")
+            assert admitted(f"http://{authority}:80/")
+            assert not admitted(f"{authority}:8022")
+            assert not admitted(f"http://{authority}:8022/")
 
         def it_is_readable_by_the_proxy_user(jail: Jail, popen: MagicMock) -> None:
             with jail():

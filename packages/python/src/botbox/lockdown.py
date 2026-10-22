@@ -9,6 +9,7 @@ from uuid import uuid4
 from python_on_whales import docker
 from python_on_whales.exceptions import DockerException
 
+from botbox.authority import authority
 from botbox.owner_only import owner_only
 from botbox.stop_attached import stop_attached
 from botbox.wait_for_socket import wait_for_socket
@@ -74,7 +75,9 @@ def lockdown(allow: Iterable[str], scratch: Path) -> Generator[Lockdown]:
     )
 
     allowlist = scratch / "filter"
-    allowlist.write_text("".join(f"^{re.escape(host)}$\n" for host in allow))
+    # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
+    authorities = (re.escape(authority(host)) for host in allow)
+    allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
     allowlist.chmod(0o644)
     log_dir = scratch / "proxy"
     log_dir.mkdir()
