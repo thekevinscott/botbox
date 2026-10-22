@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/lockdown_test.py tests/e2e/run_test.py tests/e2e/session_test.py ",
+  "ran_at": 1792704727,
+  "exit_code": 0,
+  "commit": "3c2e431e4eaae3291060489f247353661d214e2e",
+  "branch": "log-driver-none"
+}
