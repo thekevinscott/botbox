@@ -1,11 +1,9 @@
 import asyncio
 from collections.abc import Iterator
 from pathlib import Path
-from subprocess import DEVNULL, PIPE
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from python_on_whales.exceptions import DockerException
 
 from botbox.buildx import STDERR_LIMIT, buildx
 
@@ -23,6 +21,21 @@ ARGV = [
     "botbox=/relay",
     "/agents",
 ]
+
+
+class DockerException(Exception):
+    """Stands in for python_on_whales' DockerException."""
+
+    def __init__(self, command: list[str], return_code: int, *, stderr: bytes) -> None:
+        self.docker_command = command
+        self.return_code = return_code
+        self.stderr = stderr.decode()
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch("botbox.buildx.DockerException", DockerException):
+        yield
 
 
 class Process:
@@ -48,13 +61,13 @@ class Process:
 
 
 @pytest.fixture
-def process() -> Process:
+async def process() -> Process:
     return Process()
 
 
 @pytest.fixture(autouse=True)
 def spawn(process: Process) -> Iterator[AsyncMock]:
-    with patch("botbox.buildx.create_subprocess_exec", autospec=True) as m:
+    with patch("botbox.buildx.asyncio.create_subprocess_exec", autospec=True) as m:
         m.return_value = process
         yield m
 
@@ -71,7 +84,12 @@ async def build() -> None:
 def describe_buildx() -> None:
     async def it_runs_a_quiet_buildx_build_that_loads_the_image(spawn: AsyncMock) -> None:
         await build()
-        spawn.assert_awaited_once_with(*ARGV, stdin=DEVNULL, stdout=DEVNULL, stderr=PIPE)
+        spawn.assert_awaited_once_with(
+            *ARGV,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
     async def it_passes_no_build_context_flag_without_contexts(spawn: AsyncMock) -> None:
         await buildx(
@@ -81,7 +99,7 @@ def describe_buildx() -> None:
 
     def describe_when_the_build_fails() -> None:
         @pytest.fixture
-        def process() -> Process:
+        async def process() -> Process:
             return Process(b"ERROR: failed to build: failed to solve\n", 1)
 
         async def it_raises_with_the_command_exit_code_and_stderr() -> None:
@@ -93,7 +111,7 @@ def describe_buildx() -> None:
 
     def describe_when_stderr_runs_long() -> None:
         @pytest.fixture
-        def process() -> Process:
+        async def process() -> Process:
             return Process(b"a" * STDERR_LIMIT + "é".encode() + b"b" * (STDERR_LIMIT - 1), 1)
 
         async def it_keeps_only_the_tail() -> None:
@@ -103,7 +121,7 @@ def describe_buildx() -> None:
 
     def describe_when_cancelled_mid_build() -> None:
         @pytest.fixture
-        def process() -> Process:
+        async def process() -> Process:
             return Process(hangs=True)
 
         async def it_terminates_the_client_and_waits_for_it(process: Process) -> None:

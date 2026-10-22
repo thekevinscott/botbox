@@ -7,12 +7,16 @@ from unittest.mock import Mock, call, patch
 import pytest
 
 from botbox.AsyncBotbox import AsyncBotbox
-from botbox.build_steps import BuildStep
 
-AGENT_STEP = BuildStep(
-    Path("/agents"), "an-agent:latest", Path("/agents/D"), {"botbox": Path("/r")}
+AGENT_STEP = Mock(
+    context=Path("/agents"),
+    tag="an-agent:latest",
+    file=Path("/agents/D"),
+    contexts={"botbox": "/r"},
 )
-LAYER_STEP = BuildStep(Path("/consumer"), "an-agent-123:latest", Path("/consumer/Dockerfile"), {})
+LAYER_STEP = Mock(
+    context=Path("/consumer"), tag="an-agent-123:latest", file=Path("/consumer/D"), contexts={}
+)
 
 
 @pytest.fixture
@@ -52,8 +56,10 @@ def lock(steps: list[str]) -> Iterator[None]:
     @asynccontextmanager
     async def lock(tag: str) -> AsyncIterator[None]:
         steps.append(f"lock {tag}")
-        yield
-        steps.append(f"unlock {tag}")
+        try:
+            yield
+        finally:
+            steps.append(f"unlock {tag}")
 
     with patch("botbox.AsyncBotbox.async_build_lock", lock):
         yield
@@ -65,7 +71,7 @@ def describe_async_botbox() -> None:
 
     def it_takes_its_options_by_keyword_only(agent: Mock, layer: Path) -> None:
         with pytest.raises(TypeError):
-            AsyncBotbox(agent, layer)  # type: ignore[misc]
+            AsyncBotbox(agent, layer)  # type: ignore[call-arg]
 
     def it_has_no_dockerfile_by_default(agent: Mock) -> None:
         assert AsyncBotbox(agent).dockerfile is None
@@ -98,12 +104,12 @@ def describe_build() -> None:
                 Path("/agents"),
                 tag="an-agent:latest",
                 file=Path("/agents/D"),
-                contexts={"botbox": Path("/r")},
+                contexts={"botbox": "/r"},
             ),
             call(
                 Path("/consumer"),
                 tag="an-agent-123:latest",
-                file=Path("/consumer/Dockerfile"),
+                file=Path("/consumer/D"),
                 contexts={},
             ),
         ]

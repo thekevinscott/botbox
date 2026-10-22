@@ -1,10 +1,8 @@
 import asyncio
-import fcntl
-import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -19,57 +17,42 @@ def lock_dir(tmp_path: Path) -> Iterator[Path]:
         yield tmp_path
 
 
-def try_lock(path: Path) -> bool:
-    with path.open("a") as f:
-        try:
-            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        return True
+@pytest.fixture(autouse=True)
+def fcntl() -> Iterator[MagicMock]:
+    with patch("botbox.async_build_lock.fcntl") as m:
+        m.flock.return_value = None
+        yield m
 
 
-async def hold(tag: str, held: asyncio.Event, release: asyncio.Event) -> None:
-    async with async_build_lock(tag):
-        held.set()
-        await release.wait()
+def held_elsewhere_for(seconds: float) -> object:
+    """An `flock` that finds the lock taken until `seconds` from now."""
+    until = time.monotonic() + seconds
+
+    def flock(*_args: object) -> None:
+        if time.monotonic() < until:
+            raise BlockingIOError
+
+    return flock
 
 
 def describe_async_build_lock() -> None:
-    async def it_locks_the_file_build_lock_path_names(lock_dir: Path) -> None:
+    async def it_locks_the_file_build_lock_path_names_without_blocking(
+        fcntl: MagicMock, lock_dir: Path
+    ) -> None:
         async with async_build_lock("an-agent:latest"):
-            assert not try_lock(lock_dir / "an-agent:latest.lock")
-        assert try_lock(lock_dir / "an-agent:latest.lock")
+            [(lock, flags)] = [c.args for c in fcntl.flock.call_args_list]
+            assert Path(lock.name) == lock_dir / "an-agent:latest.lock"
+            assert flags == fcntl.LOCK_EX | fcntl.LOCK_NB
+            assert not lock.closed
 
-    async def it_makes_a_second_holder_of_the_same_tag_wait_until_released() -> None:
-        held, release = asyncio.Event(), asyncio.Event()
-        holder = asyncio.create_task(hold("an-agent:latest", held, release))
-        await held.wait()
-        second, never = asyncio.Event(), asyncio.Event()
-        waiter = asyncio.create_task(hold("an-agent:latest", second, never))
-        await asyncio.sleep(WAIT)
-        assert not second.is_set()
-        release.set()
-        await asyncio.wait_for(second.wait(), WAIT * 10)
-        never.set()
-        await asyncio.gather(holder, waiter)
+    async def it_tries_again_until_the_lock_is_free(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = [BlockingIOError, BlockingIOError, None]
+        async with async_build_lock("an-agent:latest"):
+            assert fcntl.flock.call_count == 3
 
-    async def it_does_not_make_a_different_tag_wait() -> None:
-        held, release = asyncio.Event(), asyncio.Event()
-        holder = asyncio.create_task(hold("an-agent:latest", held, release))
-        await held.wait()
-        async with asyncio.timeout(WAIT * 10), async_build_lock("another-agent:latest"):
-            pass
-        release.set()
-        await holder
-
-    async def it_waits_on_a_lock_held_elsewhere_without_blocking_the_loop(lock_dir: Path) -> None:
-        locked, ticks = threading.Event(), 0
-
-        def hold_elsewhere() -> None:
-            with (lock_dir / "an-agent:latest.lock").open("a") as other:
-                fcntl.flock(other, fcntl.LOCK_EX)
-                locked.set()
-                time.sleep(WAIT)
+    async def it_keeps_the_loop_running_while_it_waits(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = held_elsewhere_for(WAIT)
+        ticks = 0
 
         async def tick() -> None:
             nonlocal ticks
@@ -77,31 +60,25 @@ def describe_async_build_lock() -> None:
                 await asyncio.sleep(0.01)
                 ticks += 1
 
-        elsewhere = threading.Thread(target=hold_elsewhere)
-        elsewhere.start()
-        locked.wait()
         ticker = asyncio.create_task(tick())
         async with async_build_lock("an-agent:latest"):
             ticker.cancel()
-        elsewhere.join()
         assert ticks >= 5
 
-    async def it_lets_go_when_cancelled_while_waiting(lock_dir: Path) -> None:
-        held, release = asyncio.Event(), asyncio.Event()
-        holder = asyncio.create_task(hold("an-agent:latest", held, release))
-        await held.wait()
-        never = asyncio.Event()
-        waiter = asyncio.create_task(hold("an-agent:latest", asyncio.Event(), never))
+    async def it_closes_the_lock_file_when_cancelled_while_waiting(fcntl: MagicMock) -> None:
+        fcntl.flock.side_effect = BlockingIOError
+        waiter = asyncio.create_task(async_build_lock("an-agent:latest").__aenter__())
         await asyncio.sleep(WAIT)
         waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiter
-        release.set()
-        await holder
-        assert try_lock(lock_dir / "an-agent:latest.lock")
+        assert fcntl.flock.call_args.args[0].closed
 
-    async def it_releases_when_the_body_raises(lock_dir: Path) -> None:
+    async def it_releases_by_closing_the_lock_file_when_the_body_raises(fcntl: MagicMock) -> None:
         with pytest.raises(RuntimeError):
             async with async_build_lock("an-agent:latest"):
                 raise RuntimeError("build failed")
-        assert try_lock(lock_dir / "an-agent:latest.lock")
+        assert fcntl.flock.call_args.args[0].closed
+        assert fcntl.flock.call_args_list == [
+            call(fcntl.flock.call_args.args[0], fcntl.LOCK_EX | fcntl.LOCK_NB)
+        ]

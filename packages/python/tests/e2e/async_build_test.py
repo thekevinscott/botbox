@@ -143,7 +143,8 @@ def describe_async_build() -> None:
             build = asyncio.create_task(AsyncBotbox(agent).build())
             await until(lambda: processes(agent.step) and clients(agent))
             build.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await build
-            await until(lambda: not processes(agent.image), timeout=2)
+            async with asyncio.timeout(5):
+                with pytest.raises(asyncio.CancelledError):
+                    await build
+            assert not processes(agent.image)
             await until(lambda: not processes(agent.step), timeout=5)
