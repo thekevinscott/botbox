@@ -72,6 +72,16 @@ def owner_only() -> Iterator[MagicMock]:
         yield m
 
 
+@pytest.fixture(autouse=True)
+def abort_writer() -> Iterator[Mock]:
+    def abort(writer: asyncio.StreamWriter) -> None:
+        if not writer.transport.is_closing():
+            writer.transport.abort()
+
+    with patch("botbox.hold_session.abort_writer", autospec=True, side_effect=abort) as m:
+        yield m
+
+
 @pytest.fixture
 def agent() -> Mock:
     return Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
@@ -143,6 +153,23 @@ def describe_hold_session() -> None:
                 await asyncio.sleep(0.01)
                 raise ValueError("boom")
         assert isinstance(live.client.exception(), OSError)
+
+    async def it_aborts_the_input_once_left(agent: Mock, abort_writer: Mock) -> None:
+        async with hold_session(agent, []) as live:
+            abort_writer.assert_not_called()
+        abort_writer.assert_called_once_with(live.stdin)
+
+    async def it_aborts_the_input_when_its_output_cannot_be_captured(
+        agent: Mock, abort_writer: Mock
+    ) -> None:
+        with (
+            patch("botbox.hold_session.Capture", side_effect=OSError("no fds")),
+            pytest.raises(OSError, match="no fds"),
+        ):
+            async with hold_session(agent, []):
+                pass
+        [(writer,)] = [c.args for c in abort_writer.call_args_list]
+        assert writer.transport.is_closing()
 
     async def it_closes_both_ends_of_the_input(agent: Mock) -> None:
         before = open_fds()

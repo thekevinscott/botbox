@@ -1,7 +1,8 @@
 import asyncio
 import json
+from collections.abc import Iterator
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -38,6 +39,12 @@ class Live:
         return b"".join(c.args[0] for c in self.stdin.write.call_args_list)
 
 
+@pytest.fixture(autouse=True)
+def abort_writer() -> Iterator[Mock]:
+    with patch("botbox.AsyncSession.abort_writer", autospec=True) as m:
+        yield m
+
+
 @pytest.fixture
 async def live() -> Live:
     return Live()
@@ -63,12 +70,12 @@ def describe_AsyncSession() -> None:
         assert live.session.result is None
 
     async def it_wakes_a_waiting_turn_and_drops_its_input_once_the_client_exits(
-        live: Live,
+        live: Live, abort_writer: Mock
     ) -> None:
         live.exit()
         await asyncio.sleep(0)
         assert live.stdout.grew.is_set()
-        live.stdin.transport.abort.assert_called_once_with()
+        abort_writer.assert_called_once_with(live.stdin)
 
     def describe_stream() -> None:
         async def it_sends_the_encoded_message_on_its_own_line(live: Live) -> None:
@@ -118,6 +125,20 @@ def describe_AsyncSession() -> None:
             events = [event async for event in live.session.stream("hi")]
             assert events == [{"n": 1}]
 
+        async def it_yields_a_last_line_the_cli_left_unterminated(live: Live) -> None:
+            live.print(lines({"n": 1}) + b'{"type": "end"}')
+            live.exit()
+            assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
+            assert await live.session.message("again") == []
+
+        async def it_waits_for_the_end_of_a_line_while_the_cli_runs(live: Live) -> None:
+            live.print(b'{"type": "end"}')
+            later = asyncio.ensure_future(live.session.message("hi"))
+            await asyncio.sleep(0.01)
+            assert not later.done()
+            live.print(b"\n")
+            assert await later == [{"type": "end"}]
+
         async def it_wakes_when_the_cli_exits_while_it_waits(live: Live) -> None:
             stream = live.session.stream("hi")
             later = asyncio.ensure_future(anext(stream))
@@ -159,6 +180,17 @@ def describe_AsyncSession() -> None:
             live.print(lines({"n": 2}, {"type": "end"}, {"n": 3}, {"type": "end"}))
             assert await following == [{"n": 3}, {"type": "end"}]
             assert live.sent == b"<one>\n<two>\n"
+
+        async def it_skips_the_rest_of_a_turn_whose_send_was_cut_short(live: Live) -> None:
+            stuck = asyncio.Event()
+            live.stdin.drain.side_effect = [stuck.wait(), None]
+            sending = asyncio.ensure_future(live.session.message("one"))
+            await asyncio.sleep(0.01)
+            sending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await sending
+            live.print(lines({"n": 1}, {"type": "end"}, {"n": 2}, {"type": "end"}))
+            assert await live.session.message("two") == [{"n": 2}, {"type": "end"}]
 
         async def it_skips_nothing_after_a_turn_left_at_its_end(live: Live) -> None:
             live.print(lines({"type": "end"}, {"n": 2}, {"type": "end"}))
