@@ -66,7 +66,6 @@ elif command == "ps":
         if option("--filter").removeprefix("label=") in json.loads(path.read_text())["Labels"]:
             print(path.stem)
 elif command == "rm":
-    (state / "rm.pid").write_text(str(os.getpid()))
     time.sleep(plan.get("rm_seconds", 0))
     if plan.get("rm_fails"):
         fail("Error response from daemon: removal of container is already in progress\\n")
