@@ -72,6 +72,40 @@ subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", sys.argv[
 time.sleep(60)
 """
 
+# Exits with the code it is given, leaving a child that holds its output open.
+LINGER = """
+import subprocess, sys
+subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", sys.argv[-1]])
+print("built")
+sys.exit(int(sys.argv[-2]))
+"""
+
+# A subreaper that never reaps orphans, so a killed group is left as zombies. Reaps a client
+# whose deaf child outlives it, and says when it is done.
+ZOMBIES = """
+import asyncio, ctypes, os, sys
+from botbox.docker.reap import reap
+from botbox.docker.run import run
+
+PR_SET_CHILD_SUBREAPER = 36
+ctypes.CDLL(None).prctl(PR_SET_CHILD_SUBREAPER, 1)
+
+async def main():
+    process = await run([], stdin=None, stdout=asyncio.subprocess.PIPE, stderr=None)
+    drain = asyncio.ensure_future(process.stdout.read())
+    while not os.path.exists(os.environ["PIDS"]) or not open(os.environ["PIDS"]).read():
+        await asyncio.sleep(0.01)
+    while process.returncode is None:
+        await asyncio.sleep(0.01)
+    try:
+        await reap(process, drain, grace=0.2)
+    except Exception:
+        pass
+    print("done", flush=True)
+
+asyncio.run(main())
+"""
+
 
 @pytest.fixture(autouse=True)
 def docker() -> None:
@@ -130,6 +164,14 @@ def blocking_until(condition: Callable[[], bool], timeout: float) -> bool:
         if time.monotonic() > deadline:
             return False
         time.sleep(0.01)
+    return True
+
+
+async def unmarked(marker: str) -> bool:
+    """Whether every process marked `marker` is gone within two seconds."""
+    async with asyncio.timeout(2):
+        while marked(marker):
+            await asyncio.sleep(0.01)
     return True
 
 
@@ -263,3 +305,42 @@ def describe_docker() -> None:
             async with asyncio.timeout(2):
                 while marked(marker):
                     await asyncio.sleep(0.01)
+
+        @pytest.mark.usefixtures("pids")
+        async def it_finishes_reaping_a_group_left_as_zombies(install: Install) -> None:
+            install(ORPHAN)
+            reaper = await asyncio.create_subprocess_exec(
+                sys.executable, "-c", ZOMBIES, stdout=asyncio.subprocess.PIPE
+            )
+            assert reaper.stdout is not None
+            try:
+                async with asyncio.timeout(10):
+                    assert await reaper.stdout.readline() == b"done\n"
+            finally:
+                reaper.kill()
+                await reaper.wait()
+
+    def describe_outlived() -> None:
+        async def it_returns_what_a_client_printed_when_its_child_holds_the_pipes(
+            install: Install,
+        ) -> None:
+            install(LINGER)
+            marker = f"sdk-{uuid4().hex}"
+            task = asyncio.ensure_future(run_docker("buildx", "0", marker))
+            await asyncio.wait({task}, timeout=10)
+            assert task.done()
+            assert task.result() == "built\n"
+            assert await unmarked(marker)
+
+        async def it_raises_when_a_client_whose_child_holds_the_pipes_fails(
+            install: Install,
+        ) -> None:
+            install(LINGER)
+            marker = f"sdk-{uuid4().hex}"
+            task = asyncio.ensure_future(run_docker("buildx", "3", marker))
+            await asyncio.wait({task}, timeout=10)
+            assert task.done()
+            with pytest.raises(DockerException) as raised:
+                task.result()
+            assert raised.value.return_code == 3
+            assert await unmarked(marker)

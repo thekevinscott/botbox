@@ -1,17 +1,16 @@
 import asyncio
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.docker.run_docker import STDERR_LIMIT, run_docker
+from botbox.docker.run_docker import LINGER, STDERR_LIMIT, run_docker
 
 
-def stream(data: bytes, *, eof: bool = True) -> asyncio.StreamReader:
+def stream(data: bytes) -> asyncio.StreamReader:
     reader = asyncio.StreamReader()
     reader.feed_data(data)
-    if eof:
-        reader.feed_eof()
+    reader.feed_eof()
     return reader
 
 
@@ -20,12 +19,6 @@ class Process:
         self.stdout = stream(stdout)
         self.stderr = stream(stderr)
         self.code = code
-        self.exited = asyncio.Event()
-        self.exited.set()
-
-    async def wait(self) -> int:
-        await self.exited.wait()
-        return self.code
 
 
 class DockerException(Exception):
@@ -33,6 +26,10 @@ class DockerException(Exception):
         self.docker_command = docker_command
         self.return_code = return_code
         self.stderr = stderr
+
+
+async def forever(*_args: object) -> None:
+    await asyncio.Event().wait()
 
 
 @pytest.fixture(autouse=True)
@@ -53,14 +50,48 @@ def spawn(process: Process) -> Iterator[AsyncMock]:
 
 
 @pytest.fixture(autouse=True)
-def reap() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.run_docker.reap", autospec=True) as m:
+def exit_code() -> Iterator[AsyncMock]:
+    async def code(process: Process) -> int:
+        return process.code
+
+    with patch("botbox.docker.run_docker.exit_code", autospec=True, side_effect=code) as m:
         yield m
+
+
+@pytest.fixture(autouse=True)
+def ended() -> Iterator[AsyncMock]:
+    async def drained(_process: Process, drains: tuple[asyncio.Future[bytes], ...]) -> None:
+        await asyncio.gather(*drains)
+
+    with patch("botbox.docker.run_docker.ended", autospec=True, side_effect=drained) as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def stop() -> Iterator[AsyncMock]:
+    with patch("botbox.docker.run_docker.stop", autospec=True) as m:
+        yield m
+
+
+@pytest.fixture
+def timeout() -> Iterator[Mock]:
+    with patch("botbox.docker.run_docker.asyncio.timeout", side_effect=asyncio.timeout) as m:
+        yield m
+
+
+async def cancelled(task: asyncio.Task[str]) -> None:
+    await asyncio.sleep(0.01)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 def describe_run_docker() -> None:
     def it_keeps_64k_of_stderr() -> None:
         assert STDERR_LIMIT == 64 * 1024
+
+    def it_lets_the_clients_descendants_outlive_it_by_two_seconds() -> None:
+        assert LINGER == 2
 
     async def it_returns_stdout() -> None:
         assert await run_docker("version") == '{"Version":"29"}\n'
@@ -73,6 +104,33 @@ def describe_run_docker() -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+
+    async def it_waits_for_the_client_to_exit(process: Process, exit_code: AsyncMock) -> None:
+        await run_docker("version")
+        exit_code.assert_awaited_once_with(process)
+
+    async def it_then_gives_its_pipes_and_group_the_linger_to_finish(
+        process: Process, ended: AsyncMock, timeout: Mock
+    ) -> None:
+        await run_docker("version")
+        reaped, drains = ended.await_args_list[0].args
+        assert reaped is process
+        assert len(drains) == 2
+        timeout.assert_called_once_with(LINGER)
+
+    async def it_leaves_alone_a_client_that_finished_cleanly(stop: AsyncMock) -> None:
+        await run_docker("version")
+        stop.assert_not_awaited()
+
+    async def it_stops_a_group_that_outlives_the_linger(
+        process: Process, ended: AsyncMock, stop: AsyncMock, timeout: Mock
+    ) -> None:
+        ended.side_effect = forever
+        timeout.side_effect = lambda _delay: asyncio.timeout(0.01)
+        assert await run_docker("version") == '{"Version":"29"}\n'
+        stopped, *drains = stop.await_args_list[0].args
+        assert stopped is process
+        assert len(drains) == 2
 
     async def it_raises_the_command_code_and_stderr_on_failure(spawn: AsyncMock) -> None:
         spawn.return_value = Process(stderr=b"no such image\xff", code=1)
@@ -87,6 +145,15 @@ def describe_run_docker() -> None:
         with pytest.raises(DockerException):
             await run_docker("rm", "x")
 
+    async def it_raises_a_failure_after_stopping_a_lingering_group(
+        spawn: AsyncMock, ended: AsyncMock, timeout: Mock
+    ) -> None:
+        spawn.return_value = Process(code=3)
+        ended.side_effect = forever
+        timeout.side_effect = lambda _delay: asyncio.timeout(0.01)
+        with pytest.raises(DockerException):
+            await run_docker("build")
+
     async def it_keeps_only_the_end_of_a_long_stderr(spawn: AsyncMock) -> None:
         spawn.return_value = Process(stderr=b"x" * STDERR_LIMIT * 2 + b"the error", code=1)
         with pytest.raises(DockerException) as raised:
@@ -94,53 +161,26 @@ def describe_run_docker() -> None:
         assert raised.value.stderr.endswith("the error")
         assert len(raised.value.stderr) == STDERR_LIMIT
 
-    async def it_reaps_the_process_and_its_drains_when_cancelled(
-        spawn: AsyncMock, reap: AsyncMock
+    async def it_stops_the_client_when_cancelled_while_it_runs(
+        process: Process, exit_code: AsyncMock, stop: AsyncMock
     ) -> None:
-        process = Process()
-        process.exited.clear()
-        spawn.return_value = process
-        task = asyncio.create_task(run_docker("build"))
-        await asyncio.sleep(0.01)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        reaped, *drains = reap.await_args_list[0].args
-        assert reaped is process
+        exit_code.side_effect = forever
+        await cancelled(asyncio.create_task(run_docker("build")))
+        stopped, *drains = stop.await_args_list[0].args
+        assert stopped is process
         assert len(drains) == 2
 
-    async def it_keeps_reaping_through_a_second_cancel(spawn: AsyncMock, reap: AsyncMock) -> None:
-        process = Process()
-        process.exited.clear()
-        spawn.return_value = process
-        reaped = asyncio.Event()
+    async def it_stops_the_group_when_cancelled_while_it_lingers(
+        ended: AsyncMock, stop: AsyncMock
+    ) -> None:
+        ended.side_effect = forever
+        await cancelled(asyncio.create_task(run_docker("build")))
+        stop.assert_awaited_once()
 
-        async def slow_reap(*_args: object) -> None:
-            await asyncio.sleep(0.05)
-            reaped.set()
-
-        reap.side_effect = slow_reap
-        task = asyncio.create_task(run_docker("build"))
-        await asyncio.sleep(0.01)
-        task.cancel()
-        await asyncio.sleep(0.01)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        assert reaped.is_set()
-
-    async def it_reaps_when_reading_fails(spawn: AsyncMock, reap: AsyncMock) -> None:
-        process = Process()
-
-        async def broken() -> int:
-            raise OSError("broken pipe")
-
-        process.wait = broken  # type: ignore[method-assign]
-        spawn.return_value = process
-        with pytest.raises(OSError, match="broken pipe"):
+    async def it_stops_the_client_when_waiting_on_it_fails(
+        exit_code: AsyncMock, stop: AsyncMock
+    ) -> None:
+        exit_code.side_effect = OSError("pidfd")
+        with pytest.raises(OSError, match="pidfd"):
             await run_docker("build")
-        reap.assert_awaited_once()
-
-    async def it_does_not_reap_a_process_that_exited(reap: AsyncMock) -> None:
-        await run_docker("version")
-        reap.assert_not_awaited()
+        stop.assert_awaited_once()

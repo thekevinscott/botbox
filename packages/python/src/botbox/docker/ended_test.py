@@ -1,33 +1,23 @@
 import asyncio
 from collections.abc import Iterator
-from unittest.mock import Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
 from botbox.docker.ended import POLL, ended
 
-
-class Process:
-    pid = 4242
-
-    def __init__(self) -> None:
-        self.exited = asyncio.Event()
-        self.exited.set()
-
-    async def wait(self) -> int:
-        await self.exited.wait()
-        return 0
-
-
-@pytest.fixture
-async def process() -> Process:
-    return Process()
+PROCESS = Mock(pid=4242)
 
 
 @pytest.fixture(autouse=True)
-def killpg() -> Iterator[Mock]:
-    with patch("botbox.docker.ended.os.killpg", autospec=True) as m:
-        m.side_effect = ProcessLookupError
+def exit_code() -> Iterator[AsyncMock]:
+    with patch("botbox.docker.ended.exit_code", autospec=True) as m:
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def group_running() -> Iterator[Mock]:
+    with patch("botbox.docker.ended.group_running", autospec=True, return_value=False) as m:
         yield m
 
 
@@ -41,31 +31,38 @@ def describe_ended() -> None:
     def it_polls_every_10ms() -> None:
         assert POLL == 0.01
 
-    async def it_waits_for_the_process(process: Process) -> None:
-        process.exited.clear()
-        task = asyncio.create_task(ended(process, ()))  # type: ignore[arg-type]
+    async def it_waits_for_the_leader_to_exit(exit_code: AsyncMock) -> None:
+        exited = asyncio.Event()
+
+        async def leader(_process: object) -> int:
+            await exited.wait()
+            return 0
+
+        exit_code.side_effect = leader
+        task = asyncio.create_task(ended(PROCESS, ()))
         await asyncio.sleep(0.01)
         assert not task.done()
-        process.exited.set()
+        exited.set()
         await task
+        exit_code.assert_awaited_once_with(PROCESS)
 
-    async def it_waits_for_the_drains(process: Process) -> None:
+    async def it_waits_for_the_drains() -> None:
         drained = asyncio.Event()
 
         async def drain() -> None:
             await asyncio.sleep(0.01)
             drained.set()
 
-        await ended(process, (asyncio.ensure_future(drain()),))  # type: ignore[arg-type]
+        await ended(PROCESS, (asyncio.ensure_future(drain()),))
         assert drained.is_set()
 
-    async def it_swallows_a_failed_drain(process: Process) -> None:
+    async def it_swallows_a_failed_drain() -> None:
         async def drain() -> None:
             raise OSError("pipe broke")
 
-        await ended(process, (asyncio.ensure_future(drain()),))  # type: ignore[arg-type]
+        await ended(PROCESS, (asyncio.ensure_future(drain()),))
 
-    async def it_leaves_the_drains_running_when_cancelled(process: Process) -> None:
+    async def it_leaves_the_drains_running_when_cancelled() -> None:
         release = asyncio.Event()
 
         async def drain() -> str:
@@ -73,7 +70,7 @@ def describe_ended() -> None:
             return "read"
 
         reading = asyncio.ensure_future(drain())
-        task = asyncio.create_task(ended(process, (reading,)))  # type: ignore[arg-type]
+        task = asyncio.create_task(ended(PROCESS, (reading,)))
         await asyncio.sleep(0.01)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -81,14 +78,10 @@ def describe_ended() -> None:
         release.set()
         assert await reading == "read"
 
-    async def it_waits_until_the_rest_of_the_group_is_gone(
-        process: Process, killpg: Mock, sleep: Mock
+    async def it_waits_until_no_one_else_in_the_group_runs(
+        group_running: Mock, sleep: Mock
     ) -> None:
-        killpg.side_effect = [None, None, ProcessLookupError]
-        await ended(process, ())  # type: ignore[arg-type]
-        assert killpg.call_args_list == [call(4242, 0)] * 3
+        group_running.side_effect = [True, True, False]
+        await ended(PROCESS, ())
+        assert group_running.call_args_list == [call(4242)] * 3
         assert sleep.call_args_list == [call(POLL)] * 2
-
-    async def it_counts_a_group_it_may_not_signal_as_gone(process: Process, killpg: Mock) -> None:
-        killpg.side_effect = PermissionError
-        await ended(process, ())  # type: ignore[arg-type]
