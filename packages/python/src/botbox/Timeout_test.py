@@ -1,9 +1,10 @@
+from unittest.mock import sentinel
+
 import pytest
 
-from botbox.RunResult import RunResult
 from botbox.Timeout import Timeout
 
-RESULT = RunResult("out", "err", -1, {}, "log", "an-image")
+RESULT = sentinel.result
 
 
 def describe_timeout() -> None:

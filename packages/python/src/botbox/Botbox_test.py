@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+from dataclasses import astuple
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,8 +11,6 @@ from unittest.mock import MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import Botbox
-from botbox.RunResult import RunResult
-from botbox.Timeout import Timeout
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -58,6 +57,20 @@ def docker_build(steps: list[str]) -> Iterator[Mock]:
 
 class CommandFailed(Exception):
     """Stands in for the SDK's `DockerException`."""
+
+
+class Timeout(Exception):
+    """Stands in for `botbox.Timeout`."""
+
+    def __init__(self, seconds: float, result: Any) -> None:
+        self.seconds = seconds
+        self.result = result
+
+
+@pytest.fixture(autouse=True)
+def timeout_error() -> Iterator[None]:
+    with patch("botbox.Botbox.Timeout", Timeout):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -800,7 +813,7 @@ def describe_run() -> None:
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
             assert raised.value.seconds == 0.01
-            assert raised.value.result == RunResult(
+            assert astuple(raised.value.result) == (
                 "partial\n",
                 "err\n",
                 -1,
@@ -860,7 +873,7 @@ def describe_run() -> None:
             read_transcript.return_value = {}
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("true")
-            assert raised.value.result == RunResult("", "", -1, {}, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
 
         async def it_lets_another_timeout_error_through(runner: Mock, docker_run: Mock) -> None:
             docker_run.side_effect = TimeoutError("docker hung")
@@ -1211,7 +1224,7 @@ def describe_session() -> None:
                     await asyncio.Event().wait()
             assert raised.value.seconds == 0.01
             assert raised.value.result is held.result
-            assert raised.value.result == RunResult(
+            assert astuple(raised.value.result) == (
                 "out\ufffd\n",
                 "err\n",
                 -1,
@@ -1266,7 +1279,13 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session():
                     pass
-            assert raised.value.result == RunResult("", "", -1, {}, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+
+        async def it_lets_another_timeout_error_through(talker: Mock) -> None:
+            with pytest.raises(TimeoutError, match="docker hung") as raised:
+                async with Botbox(talker, timeout=60).session():
+                    raise TimeoutError("docker hung")
+            assert type(raised.value) is TimeoutError
 
         @pytest.mark.parametrize("seconds", [0, -1])
         async def it_refuses_a_timeout_that_is_not_positive_before_building(
