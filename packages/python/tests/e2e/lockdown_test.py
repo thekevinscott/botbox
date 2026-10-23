@@ -3,6 +3,8 @@
 Every probe reads what the kernel already publishes; nothing runs an exploit.
 """
 
+import os
+
 import pytest
 from conftest import Probe
 
@@ -49,8 +51,8 @@ def describe_the_container() -> None:
     def it_has_no_setgid_binaries(posture: dict[str, str]) -> None:
         assert posture["setgid"] == ""
 
-    def it_runs_as_uid_1000(posture: dict[str, str]) -> None:
-        assert posture["uid"] == "1000"
+    def it_runs_as_the_host_uid(posture: dict[str, str]) -> None:
+        assert posture["uid"] == str(os.getuid())
 
     def it_runs_as_user(posture: dict[str, str]) -> None:
         assert posture["user"] == "user"

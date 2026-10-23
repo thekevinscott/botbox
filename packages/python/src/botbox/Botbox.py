@@ -1,4 +1,5 @@
 import asyncio
+import os
 import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
@@ -52,6 +53,8 @@ class Botbox:
         memory: str | None = "64g",
         pids: int | None = 32768,
     ) -> None:
+        if os.getuid() == 0:
+            raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
         self.agent = agent
         self.dockerfile = None if dockerfile is None else Path(dockerfile).resolve()
         if isinstance(allow, str):
@@ -268,6 +271,8 @@ class Botbox:
         return [
             "--label",
             f"botbox.run={token}",
+            "--env",
+            f"HOME={agent.home}",
             *[flag for k, v in jail.envs.items() for flag in ("--env", f"{k}={v}")],
             *[flag for m in mounts for flag in ("--volume", ":".join(m))],
             "--workdir",
@@ -277,7 +282,7 @@ class Botbox:
             "--pid",
             f"container:{jail.proxy}",
             "--user",
-            "user",
+            f"{os.getuid()}:{os.getgid()}",
             "--cap-drop",
             "ALL",
             "--security-opt",

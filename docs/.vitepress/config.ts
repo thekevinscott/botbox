@@ -9,7 +9,8 @@ export default defineConfig({
   // the build. The changelog/migration fragment folders are the raw record
   // (one file per PR, see docs/internals/repo.md); they never publish either.
   // internals/ is contributor/agent-facing material, also excluded.
-  srcExclude: ['**/AGENTS.md', 'changelog.d/**', 'migrations.d/**', 'internals/**'],
+  // migrations.md is a pointer stub at the conventional path.
+  srcExclude: ['**/AGENTS.md', 'changelog.d/**', 'migrations.d/**', 'internals/**', 'migrations.md'],
   themeConfig: {
     sidebar: [
       {
@@ -39,10 +40,19 @@ export default defineConfig({
         ],
       },
       {
+        text: 'API',
         items: [
-          { text: 'API Reference', link: '/reference/' },
-          { text: 'Migrations', link: '/migrations' },
+          { text: 'Botbox', link: '/api/botbox' },
+          { text: 'build()', link: '/api/build' },
+          { text: 'run()', link: '/api/run' },
+          { text: 'RunResult', link: '/api/run-result' },
+          { text: 'session()', link: '/api/session' },
+          { text: 'reap()', link: '/api/reap' },
         ],
+      },
+      {
+        text: 'Security',
+        items: [{ text: 'Threat Model', link: '/threat-model' }],
       },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/thekevinscott/botbox' }],
