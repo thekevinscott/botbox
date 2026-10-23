@@ -9,7 +9,15 @@ from typing import Any
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, runs, token, volume
 
-from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, PiAgent, RunResult
+from botbox import (
+    Botbox,
+    ClaudeAgent,
+    CodexAgent,
+    DockerException,
+    PiAgent,
+    RunResult,
+    Timeout,
+)
 
 RELAY_COPY = "COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay"
 
@@ -325,6 +333,24 @@ def describe_run() -> None:
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(1):
                     await box.run("sleep 600")
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_tears_down_and_raises_what_the_run_left_when_its_timeout_runs_out(
+            box: Botbox, daemon: Daemon, temp: Path
+        ) -> None:
+            daemon.agent("sleep 600", mode="hang", stdout="partial\n")
+            daemon.set(proxy_log=REFUSAL)
+            with pytest.raises(Timeout) as raised:
+                await Botbox(box.agent, timeout=2).run("sleep 600")
+            assert raised.value.result == RunResult(
+                stdout="partial\n",
+                stderr="",
+                exit_code=-1,
+                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
+                proxy=REFUSAL,
+                image="botbox-claude:latest",
+            )
             assert daemon.containers == []
             assert homes(temp) == []
 

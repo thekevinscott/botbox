@@ -14,6 +14,7 @@ from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
+from botbox.check_timeout import check_timeout
 from botbox.Claim import Claim
 from botbox.docker.build import build as docker_build
 from botbox.docker.run import run as docker_run
@@ -26,11 +27,15 @@ from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import Session
 from botbox.session_result import session_result
+from botbox.Timeout import Timeout
 from botbox.warned import warned
 
 
 class Botbox:
-    """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
+    """An agent, an optional image layer, the extra hosts its proxy admits, and a timeout.
+
+    `timeout` is in seconds and bounds every run and session; None, the default, is no limit.
+    A call's own `timeout` takes its place.
 
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
     so a run or session in progress unwinds and tears down, then the block raises
@@ -47,6 +52,7 @@ class Botbox:
         *,
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
+        timeout: float | None = None,
     ) -> None:
         if os.getuid() == 0:
             raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
@@ -55,6 +61,7 @@ class Botbox:
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
+        self.timeout = check_timeout(timeout)
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -120,6 +127,7 @@ class Botbox:
         *,
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
+        timeout: float | None = None,
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return what it left.
 
@@ -136,28 +144,65 @@ class Botbox:
         died (see `reap()`). Raises `DockerException` if setup fails or the container never ran
         to its exit while the daemon was up. A teardown step that fails, or a container removal
         that takes longer than 30 seconds, is a warning, never the error.
+
+        The timeout, `timeout` or else the box's, starts once the image is built. When it runs
+        out, the run tears down as a cancel does, reads the transcript, and raises `Timeout`
+        with what the run left and `exit_code` -1.
         """
         agent = self.agent
+        limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         await reap()
         image = await self.build()
         token = uuid4().hex[:12]
         claim = Claim(token)
+        out, err = bytearray(), bytearray()
+        jail: Lockdown | None = None
+        deadline = asyncio.timeout(limit)
         try:
             home = claim.path / "home"
             # Owner-only, so an agent under another uid can't leave files the host can't delete.
             home.mkdir(mode=0o700)
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
-            async with lockdown(allow, claim.path, token) as jail:
-                flags = self._lockdown_flags(token, home, jail, volumes, workdir)
-                stdout, stderr, exit_code = await self._attach(
-                    token, [*flags, image, RELAY, "sh", "-c", command]
+            try:
+                async with deadline, lockdown(allow, claim.path, token) as jail:
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    exit_code = await self._attach(
+                        token, [*flags, image, RELAY, "sh", "-c", command], out, err
+                    )
+                    transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+            except TimeoutError as timed_out:
+                if limit is None or not deadline.expired():
+                    raise
+                transcript = {}
+
+                async def read() -> None:
+                    transcript.update(
+                        await asyncio.to_thread(read_transcript, home, agent.transcripts)
+                    )
+
+                await settle(warned(read(), "read its transcript"))
+                proxy = "" if jail is None else jail.log
+                result = RunResult(
+                    out.decode(errors="replace"),
+                    err.decode(errors="replace"),
+                    -1,
+                    transcript,
+                    proxy,
+                    image,
                 )
-                transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+                raise Timeout(limit, result) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
-        return RunResult(stdout, stderr, exit_code, transcript, jail.log, image)
+        return RunResult(
+            out.decode(errors="replace"),
+            err.decode(errors="replace"),
+            exit_code,
+            transcript,
+            jail.log,
+            image,
+        )
 
     @asynccontextmanager
     async def session(
@@ -165,6 +210,7 @@ class Botbox:
         *,
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
+        timeout: float | None = None,
     ) -> AsyncIterator[Session]:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
@@ -176,10 +222,15 @@ class Botbox:
         available artifacts on these paths too, with exit code -1 if no exit code was read.
         Artifact read failures warn without replacing the original error. Raises `TypeError` for
         an agent with no session mode, and `DockerException` as `run()` does.
+
+        The timeout, `timeout` or else the box's, covers the whole block, from once the image is
+        built to the CLI's exit. When it runs out, the session tears down as a cancel does and
+        raises `Timeout` with the session's `result`.
         """
         agent = self.agent
         if not isinstance(agent, SessionAgent):
             raise TypeError(f"{type(agent).__name__} has no session mode")
+        limit = self.timeout if timeout is None else check_timeout(timeout)
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         await reap()
@@ -188,60 +239,73 @@ class Botbox:
         claim = Claim(token)
         live = None
         exit_code = -1
+        deadline = asyncio.timeout(limit)
         try:
-            home = claim.path / "home"
-            home.mkdir(mode=0o700)
-            agent.stage_auth(home)
-            allow = (*agent.allow, *self.allow)
-            async with lockdown(allow, claim.path, token) as jail:
-                name = f"botbox-agent-{token}"
-                flags = self._lockdown_flags(token, home, jail, volumes, workdir)
-                args = [
-                    "--interactive",
-                    "--name",
-                    name,
-                    *flags,
-                    image,
-                    RELAY,
-                    "sh",
-                    "-c",
-                    command,
-                ]
-                try:
-                    async with hold_session(agent, args) as live:
-                        yield live
-                        live.stdin.close()
-                        client = await live.client
-                    stderr = live.stderr.decode(errors="replace")
-                    exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
-                finally:
-                    await settle(warned(remove_within(name), f"remove its agent container {name}"))
-        finally:
             try:
-                if live is not None:
-                    await settle(
-                        warned(
-                            session_result(live, home, jail.log, image, exit_code),
-                            "read its session artifacts",
+                home = claim.path / "home"
+                home.mkdir(mode=0o700)
+                agent.stage_auth(home)
+                allow = (*agent.allow, *self.allow)
+                async with deadline, lockdown(allow, claim.path, token) as jail:
+                    name = f"botbox-agent-{token}"
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    args = [
+                        "--interactive",
+                        "--name",
+                        name,
+                        *flags,
+                        image,
+                        RELAY,
+                        "sh",
+                        "-c",
+                        command,
+                    ]
+                    try:
+                        async with hold_session(agent, args) as live:
+                            yield live
+                            live.stdin.close()
+                            client = await live.client
+                        stderr = live.stderr.decode(errors="replace")
+                        exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
+                    finally:
+                        await settle(
+                            warned(remove_within(name), f"remove its agent container {name}")
                         )
-                    )
             finally:
-                await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
+                try:
+                    if live is not None:
+                        await settle(
+                            warned(
+                                session_result(live, home, jail.log, image, exit_code),
+                                "read its session artifacts",
+                            )
+                        )
+                finally:
+                    await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
+        except TimeoutError as timed_out:
+            if limit is None or not deadline.expired():
+                raise
+            result = None if live is None else live.result
+            if result is None:
+                result = RunResult("", "", -1, {}, "", image)
+            raise Timeout(limit, result) from timed_out
 
-    async def _attach(self, token: str, args: list[str]) -> tuple[str, str, int]:
-        """Run the agent container to its exit, remove it, and return its output and exit code."""
+    async def _attach(self, token: str, args: list[str], out: bytearray, err: bytearray) -> int:
+        """Run the agent container to its exit, output into `out` and `err`, remove it, and return
+        its exit code.
+        """
         name = f"botbox-agent-{token}"
         args = ["--name", name, *args]
-        out, err = bytearray(), bytearray()
         try:
             client = await docker_run(
                 args, stdin=asyncio.subprocess.DEVNULL, stdout=out, stderr=err
             )
-            stderr = err.decode(errors="replace")
-            exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
+            exit_code = await agent_exit(
+                name, ["docker", "run", *args], client, err.decode(errors="replace")
+            )
         finally:
             await settle(warned(remove_within(name), f"remove its agent container {name}"))
-        return out.decode(errors="replace"), stderr, exit_code
+        return exit_code
 
     def _lockdown_flags(
         self,
