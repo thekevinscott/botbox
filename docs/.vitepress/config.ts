@@ -16,7 +16,6 @@ export default defineConfig({
         items: [
           { text: 'Getting Started', link: '/getting-started' },
           { text: 'How It Works', link: '/explanation/' },
-          { text: 'Threat Model', link: '/threat-model' },
         ],
       },
       {
@@ -44,6 +43,10 @@ export default defineConfig({
           { text: 'API Reference', link: '/reference/' },
           { text: 'Migrations', link: '/migrations' },
         ],
+      },
+      {
+        text: 'Security',
+        items: [{ text: 'Threat Model', link: '/threat-model' }],
       },
     ],
     socialLinks: [{ icon: 'github', link: 'https://github.com/thekevinscott/botbox' }],
