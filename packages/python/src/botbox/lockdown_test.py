@@ -382,6 +382,14 @@ def describe_lockdown() -> None:
             os.close.assert_called_once_with(3)
 
     def describe_the_log() -> None:
+        async def it_reuses_an_existing_log_directory(scratch: Path) -> None:
+            log = scratch / "output" / "proxy" / "tinyproxy.log"
+            log.parent.mkdir(parents=True)
+            log.write_bytes(b"previous\n")
+            async with jail(scratch):
+                assert log.read_bytes() == b"previous\n"
+                assert log.stat().st_mode & 0o777 == 0o666
+
         async def it_keeps_the_log_on_disk_when_the_body_raises(scratch: Path) -> None:
             log = scratch / "output" / "proxy" / "tinyproxy.log"
             with pytest.raises(KeyError):

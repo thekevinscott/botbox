@@ -220,7 +220,7 @@ class Botbox:
         token = uuid4().hex[:12]
         claim = Claim(token)
         live = None
-        exit_code = -1
+        result = RunResult(-1)
         deadline = asyncio.timeout(limit)
         try:
             try:
@@ -248,8 +248,13 @@ class Botbox:
                             yield live
                             live.stdin.close()
                             client = await live.client
-                        exit_code = await agent_exit(
-                            name, ["docker", "run", *args], client, f"See {output / 'stderr.txt'}"
+                        result = RunResult(
+                            await agent_exit(
+                                name,
+                                ["docker", "run", *args],
+                                client,
+                                f"See {output / 'stderr.txt'}",
+                            )
                         )
                     finally:
                         await settle(
@@ -258,15 +263,13 @@ class Botbox:
             finally:
                 try:
                     if live is not None:
-                        live.result = RunResult(exit_code)
+                        live.result = result
                 finally:
                     await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
-            raise Timeout(
-                limit, RunResult(-1) if live is None else live.result or RunResult(-1)
-            ) from timed_out
+            raise Timeout(limit, result) from timed_out
 
     async def _attach(self, token: str, args: list[str], out: IO[bytes], err: IO[bytes]) -> int:
         """Run the agent container to its exit, output into `out` and `err`, remove it, and return
