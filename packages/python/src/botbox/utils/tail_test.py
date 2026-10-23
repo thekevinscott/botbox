@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.tail import tail
+from botbox.utils.tail import tail
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def lifetimes() -> Iterator[list[IO[bytes]]]:
         pipes.append(pipe)
         yield
 
-    with patch("botbox.tail.owner_only", own, create=True):
+    with patch("botbox.utils.tail.owner_only", own, create=True):
         yield pipes
 
 
@@ -33,7 +33,7 @@ def spawned() -> Iterator[list[asyncio.subprocess.Process]]:
         processes.append(process)
         return process
 
-    with patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn):
+    with patch("botbox.utils.tail.asyncio.create_subprocess_exec", side_effect=spawn):
         yield processes
 
 
@@ -61,7 +61,7 @@ def delayed_spawn(
         await release.wait()
         return process
 
-    with patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn):
+    with patch("botbox.utils.tail.asyncio.create_subprocess_exec", side_effect=spawn):
         yield
 
 
@@ -71,7 +71,7 @@ def abandoned(release: asyncio.Event, process: AsyncMock) -> Iterator[Mock]:
         release.set()
         assert await started is process
 
-    with patch("botbox.tail.abandon", side_effect=abandon) as mocked:
+    with patch("botbox.utils.tail.abandon", side_effect=abandon) as mocked:
         yield mocked
 
 

@@ -16,7 +16,7 @@ def describe_tail_owner() -> None:
         script = """
 import asyncio, sys
 from pathlib import Path
-from botbox.tail import tail
+from botbox.utils.tail import tail
 spawn = asyncio.create_subprocess_exec
 async def record(*args, **kwargs):
     process = await spawn(*args, **kwargs)
