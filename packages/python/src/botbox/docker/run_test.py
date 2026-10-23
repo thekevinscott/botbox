@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from types import TracebackType
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -92,3 +93,16 @@ def describe_run() -> None:
         with pytest.raises(OSError, match="wait failed"):
             await run([], stdin=None, stdout=bytearray(), stderr=bytearray())
         assert all(capture.closed for capture in captures)
+
+
+def describe_file_output() -> None:
+    async def it_passes_files_directly_without_creating_captures(
+        tmp_path: Path, execute: AsyncMock, captures: list[Capture]
+    ) -> None:
+        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+            assert await run(["img"], stdin=None, stdout=out, stderr=err) == 5
+            assert not out.closed and not err.closed
+            execute.assert_awaited_once_with(
+                ["run", "img"], stdin=None, stdout=out, stderr=err, signum=KILL
+            )
+        assert captures == []

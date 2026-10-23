@@ -428,3 +428,14 @@ def describe_docker() -> None:
             with pytest.warns(RuntimeWarning):
                 await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
+
+    async def it_writes_complete_binary_output_directly_to_files(
+        install: Install,
+        tmp_path: Path,
+    ) -> None:
+        install("import os, sys; os.write(1, b'x' * 131072); os.write(2, b'err\\xff'); sys.exit(3)")
+        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+            assert await run(["image"], stdin=None, stdout=out, stderr=err, limit=1) == 3
+            assert not out.closed and not err.closed
+        assert (tmp_path / "out").read_bytes() == b"x" * 131072
+        assert (tmp_path / "err").read_bytes() == b"err\xff"

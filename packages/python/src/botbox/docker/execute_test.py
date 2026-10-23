@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
@@ -23,7 +24,13 @@ class Capture:
         self.eof: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         if not open:
             self.eof.set_result(None)
-        self.release = Mock()
+        self.release: Mock = Mock()
+
+
+@pytest.fixture(autouse=True)
+def capture_type() -> Iterator[None]:
+    with patch("botbox.docker.execute.Capture", Capture):
+        yield
 
 
 async def forever(*_args: object) -> None:
@@ -213,3 +220,25 @@ def describe_execute() -> None:
         with pytest.raises(OSError, match="wait failed"):
             await run(captures, "build")
         reap.assert_awaited_once()
+
+    @pytest.mark.parametrize("file_stdout", [True, False])
+    async def it_passes_files_through_and_drains_only_the_capture(
+        tmp_path: Path,
+        captures: tuple[Capture, Capture],
+        spawn: AsyncMock,
+        ended: AsyncMock,
+        file_stdout: bool,
+    ) -> None:
+        capture = captures[0]
+        with (tmp_path / "output").open("wb") as file:
+            out, err = (file, capture) if file_stdout else (capture, file)
+            assert await execute([], stdin=None, stdout=out, stderr=err) == 0  # type: ignore[arg-type]
+            spawn.assert_awaited_once_with(
+                [],
+                stdin=None,
+                stdout=file if file_stdout else capture.write,
+                stderr=capture.write if file_stdout else file,
+            )
+            ended.assert_awaited_once_with(spawn.return_value, (capture.eof,))
+            capture.release.assert_called_once_with()
+            assert not file.closed
