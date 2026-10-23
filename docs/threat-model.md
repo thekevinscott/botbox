@@ -98,7 +98,7 @@ Deleting the home after a run still has a race of the same kind, on a permission
 
 ### Why botbox Doesn't Close It
 
-It does for the transcript. The delete is tracked in #112.
+It could; it isn't done yet. The delete changes permissions by path, which follows a link swapped in at the last moment. Changing them through a descriptor opened without following links closes it ([#112](https://github.com/thekevinscott/botbox/issues/112)).
 
 ## Resource exhaustion
 
