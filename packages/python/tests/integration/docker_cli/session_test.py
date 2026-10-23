@@ -73,12 +73,12 @@ def describe_session() -> None:
             updates = 0
             async with talker.session() as live:
                 async for event in live.stream("think"):
-                    held.append(len(live.stdout.into) + len(getattr(live, "stray", b"")))
+                    held.append(len(live.stdout.into))
                     updates += event["type"] == "update"
             assert updates == 600
             assert max(held) < 2 * 2**20
             assert live.result is not None
-            assert live.result.stdout == "booting\nnot json\n"
+            assert live.result.stdout == ""
 
         async def it_tears_down_promptly_with_output_left_unread(
             talker: Botbox, daemon: Daemon, temp: Path
@@ -101,7 +101,7 @@ def describe_session() -> None:
                 await live.message("hi")
                 assert live.result is None
             assert live.result == RunResult(
-                stdout="booting\nnot json\n",
+                stdout="",
                 stderr="",
                 exit_code=0,
                 transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
@@ -206,7 +206,7 @@ def describe_session() -> None:
             assert live.result is not None
             assert live.result.exit_code == -1
             assert live.result.transcript
-            assert live.result.stdout == "booting\nnot json\n"
+            assert live.result.stdout == ""
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -238,7 +238,7 @@ def describe_session() -> None:
             assert result is not None
             assert result.exit_code == -1
             assert result.transcript
-            assert result.stdout == "booting\n"
+            assert result.stdout == ""
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
             assert homes(temp) == []
@@ -266,7 +266,7 @@ def describe_session() -> None:
             assert result is not None
             assert result.exit_code == -1
             assert result.transcript
-            assert result.stdout == "booting\n"
+            assert result.stdout == ""
             assert daemon.containers == []
             assert homes(temp) == []
 

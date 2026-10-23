@@ -14,8 +14,6 @@ from botbox.RunResult import RunResult
 LINE_LIMIT = 2**30
 # Unread output past this pauses reading the CLI until the session reads on.
 WINDOW = 2**20
-# The tail of the lines that aren't events, kept for the result's stdout.
-OUTPUT_LIMIT = 2**20
 
 
 class Session:
@@ -23,9 +21,8 @@ class Session:
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
     collects them. One turn at a time. The CLI's output lands in the `stdout` capture, which
-    holds only what hasn't been read, and in `stderr`. `stray` keeps the tail of the lines
-    that weren't events. `client` is its attached `docker run`. `result` is set once the
-    session's block is left.
+    holds only what hasn't been read, and in `stderr`. Lines that aren't events are dropped.
+    `client` is its attached `docker run`. `result` is set once the session's block is left.
     """
 
     def __init__(
@@ -42,7 +39,6 @@ class Session:
         self.stderr = stderr
         self.client = client
         self.scanned = 0
-        self.stray = bytearray()
         self.overflow = False
         self.turn = False
         self.result: RunResult | None = None
@@ -56,10 +52,10 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines that aren't JSON objects stay in the result's stdout but aren't events. If the
-        CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
-        end before the next message goes. A line over `LINE_LIMIT` kills the CLI and raises
-        `OutputLimitExceeded`, as does every read after it.
+        Lines that aren't JSON objects are dropped. If the CLI exits mid-turn, the stream ends
+        with what arrived. A turn left early is read to its end before the next message goes. A
+        line over `LINE_LIMIT` kills the CLI and raises `OutputLimitExceeded`, as does every
+        read after it.
         """
         while self.turn and (event := await self.event()) is not None:
             self.turn = not self.agent.turn_ended(event)
@@ -80,14 +76,6 @@ class Session:
         """Read the CLI's output to its exit, dropping the events."""
         while await self.event() is not None:
             pass
-
-    def output(self) -> str:
-        """The tail of the lines that weren't events, once what's left unread is sorted."""
-        printed = self.stdout.into
-        for line in printed.splitlines(keepends=True):
-            self.sort(line)
-        del printed[:]
-        return self.stray.decode(errors="replace")
 
     async def event(self) -> dict[str, Any] | None:
         """The next JSON object the CLI prints; None once it has exited without another."""
@@ -114,15 +102,7 @@ class Session:
             line = printed[: end + 1]
             del printed[: end + 1]
             self.scanned = 0
-            if (event := self.sort(line)) is not None:
-                return event
-
-    def sort(self, line: bytearray) -> dict[str, Any] | None:
-        """The event on `line`, or None with the line kept in `stray`."""
-        with suppress(ValueError):
-            event = json.loads(line)
-            if isinstance(event, dict):
-                return event
-        self.stray += line
-        del self.stray[: max(len(self.stray) - OUTPUT_LIMIT, 0)]
-        return None
+            with suppress(ValueError):
+                event = json.loads(line)
+                if isinstance(event, dict):
+                    return event

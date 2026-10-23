@@ -229,13 +229,8 @@ def describe_Session() -> None:
             assert live.sent == b"<hi>\n"
 
     def describe_retention() -> None:
-        def it_holds_a_1_gib_line_a_1_mib_window_and_1_mib_of_output() -> None:
-            assert (module.LINE_LIMIT, module.WINDOW, module.OUTPUT_LIMIT) == (2**30, 2**20, 2**20)
-
-        async def it_keeps_an_empty_first_line_as_output(live: Live) -> None:
-            live.print(b"\n" + lines({"type": "end"}))
-            await live.session.message("hi")
-            assert live.session.output() == "\n"
+        def it_holds_a_1_gib_line_and_a_1_mib_window() -> None:
+            assert (module.LINE_LIMIT, module.WINDOW) == (2**30, 2**20)
 
         async def it_releases_each_line_once_read(live: Live) -> None:
             def update(n: int) -> dict[str, Any]:
@@ -247,34 +242,17 @@ def describe_Session() -> None:
             held: list[int] = []
             live.print(lines(update(1)))
             async for event in live.session.stream("hi"):
-                held.append(len(live.stdout.into) + len(getattr(live.session, "stray", b"")))
+                held.append(len(live.stdout.into))
                 if event["type"] == "update":
                     n = len(event["partial"]["thinking"]) // 16
                     live.print(lines(update(n + 1) if n < count else {"type": "end"}))
             assert len(held) == count + 1
             assert max(held) < longest
 
-        async def it_keeps_only_lines_that_are_not_events_as_output(live: Live) -> None:
+        async def it_drops_lines_that_are_not_events(live: Live) -> None:
             live.print(lines("starting", {"n": 1}, "[1, 2]", "", {"type": "end"}))
-            await live.session.message("hi")
-            live.print(b"\xffbye")
-            live.exit()
-            assert live.session.output() == "starting\n[1, 2]\n\n\ufffdbye"
+            assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
             assert live.stdout.into == b""
-
-        async def it_sorts_output_nothing_read(live: Live) -> None:
-            live.print(lines({"n": 1}, "stray", {"type": "end"}))
-            live.exit()
-            assert live.session.output() == "stray\n"
-            assert live.stdout.into == b""
-
-        async def it_keeps_the_tail_of_the_output(
-            live: Live, monkeypatch: pytest.MonkeyPatch
-        ) -> None:
-            monkeypatch.setattr(module, "OUTPUT_LIMIT", 8)
-            live.print(lines("first", "second", {"type": "end"}))
-            await live.session.message("hi")
-            assert live.session.output() == "\nsecond\n"
 
         async def it_drains_the_cli_to_its_exit(live: Live) -> None:
             live.print(lines({"n": 1}, "stray"))
@@ -284,7 +262,7 @@ def describe_Session() -> None:
             live.print(lines({"type": "end"}, "last"))
             live.exit()
             await asyncio.wait_for(draining, 1)
-            assert live.session.output() == "stray\nlast\n"
+            assert live.stdout.into == b""
 
         async def it_resumes_reading_while_it_waits_for_a_line(live: Live) -> None:
             live.print(b'{"type": ')

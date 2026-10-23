@@ -5,7 +5,7 @@ from dataclasses import dataclass
 class RunResult:
     """What a run left behind. Nothing parsed.
 
-    From a session, `stdout` keeps only the lines that weren't events, the last 1 MiB of them.
+    From a session, `stdout` is empty.
     `exit_code` is -1 when no exit code came back, including an interrupted session.
     `transcript` maps each transcript file's path, relative to the agent's home, to its text.
     `proxy` is the proxy's log: every connection, admitted or refused.

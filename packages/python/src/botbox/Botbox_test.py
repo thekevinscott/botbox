@@ -757,7 +757,7 @@ def describe_run() -> None:
 def held(steps: list[str]) -> Mock:
     """The live session `hold_session` yields: its CLI printed, then exits 3 once input ends."""
     live = Mock(
-        output=Mock(return_value="out\ufffd\n"),
+        stdout=Mock(into=bytearray(b"unread\n")),
         stderr=bytearray(b"err\n"),
         result=None,
         drain=AsyncMock(side_effect=lambda: steps.append("drain output")),
@@ -820,7 +820,7 @@ def describe_session() -> None:
             assert live.result is None
         result = live.result
         assert result is not None
-        assert result.stdout == "out�\n"
+        assert result.stdout == ""
         assert result.stderr == "err\n"
         assert result.exit_code == 3
         assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}

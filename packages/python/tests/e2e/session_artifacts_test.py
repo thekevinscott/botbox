@@ -52,7 +52,7 @@ def describe_session_artifacts() -> None:
         assert live is not None
         assert live.result is not None
         assert live.result.transcript == {".claude/projects/turn.jsonl": "transcript\n"}
-        assert live.result.stdout == "started\n"
+        assert live.result.stdout == ""
         assert live.result.stderr == "diagnostic\n"
         assert live.result.exit_code == (0 if outcome == "normal" else -1)
         scratch = agent.staged_home.parent
