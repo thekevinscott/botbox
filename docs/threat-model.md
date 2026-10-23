@@ -68,7 +68,7 @@ The agent, reading or writing what you mount.
 
 ### What botbox Does
 
-Nothing from the host is visible except your mounts and the staged credentials. A missing mount source raises before anything runs. A `"ro"` mount is read-only (see [Mounting directories](./guide/mounting-directories)).
+Nothing from the host is visible except your mounts and the staged credentials. A missing mount source is created as an empty dir owned by you before anything runs. A `"ro"` mount is read-only (see [Mounting directories](./guide/mounting-directories)).
 
 ### What's Left
 

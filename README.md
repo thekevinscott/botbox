@@ -122,7 +122,7 @@ Concurrent builds of one tag, from any process, take turns.
 
 ### Mounts
 
-Plain bind mounts. Missing host paths raise.
+Plain bind mounts. A missing host path is created as an empty dir owned by you.
 
 ```python
 mounts=[

@@ -13,7 +13,7 @@ await box.run(
 | Argument  | What it is                                                              |
 | --------- | ----------------------------------------------------------------------- |
 | `command` | Shell command line, run as `sh -c`, passed through unchanged. |
-| `mounts`  | Bind mounts: host path, container path, mode. Missing host paths raise. |
+| `mounts`  | Bind mounts: host path, container path, mode. A missing host path is created as a dir owned by you. |
 | `workdir` | Where the command starts. Must be a mounted path or inside one; otherwise `run()` raises. Defaults to the agent's home. |
 | `timeout` | Seconds the run may take once the image is built. Defaults to the box's [`timeout`](./botbox). |
 

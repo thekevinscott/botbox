@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -35,9 +36,34 @@ def describe_bind_mounts() -> None:
             (str(work), "/w", "ro")
         ]
 
-    def it_raises_on_a_missing_host_path(tmp_path: Path) -> None:
-        with pytest.raises(FileNotFoundError, match=r"mount source .*gone does not exist"):
-            bind_mounts([(tmp_path / "gone", "/gone", "ro")], workdir=None, home=HOME)
+    def describe_a_missing_host_path() -> None:
+        def it_creates_it_as_a_directory_with_its_parents(tmp_path: Path) -> None:
+            missing = tmp_path / "a" / "b"
+            assert bind_mounts([(missing, "/b", "ro")], workdir=None, home=HOME) == [
+                (str(missing), "/b", "ro")
+            ]
+            assert missing.is_dir()
+
+        def it_owns_it_by_the_calling_user(tmp_path: Path) -> None:
+            bind_mounts([(tmp_path / "new", "/new", "rw")], workdir=None, home=HOME)
+            assert (tmp_path / "new").stat().st_uid == os.getuid()
+
+        def it_creates_nothing_when_the_workdir_is_outside_every_mount(tmp_path: Path) -> None:
+            with pytest.raises(ValueError, match="workdir"):
+                bind_mounts([(tmp_path / "new", "/new", "rw")], workdir="/elsewhere", home=HOME)
+            assert not (tmp_path / "new").exists()
+
+    def it_leaves_an_existing_host_path_as_it_is(tmp_path: Path) -> None:
+        (tmp_path / "file").write_text("kept")
+        bind_mounts([(tmp_path / "file", "/file", "ro")], workdir=None, home=HOME)
+        assert (tmp_path / "file").read_text() == "kept"
+
+    def it_tolerates_a_host_path_created_after_any_existence_check(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "raced").mkdir()
+        monkeypatch.setattr(Path, "exists", lambda _: False)
+        bind_mounts([(tmp_path / "raced", "/raced", "rw")], workdir=None, home=HOME)
 
     def describe_workdir() -> None:
         @pytest.mark.parametrize("workdir", ["/work", "/work/", "/work/pkg", Path("/work/a/b")])
