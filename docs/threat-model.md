@@ -1,7 +1,3 @@
----
-outline: 2
----
-
 # Threat Model
 
 botbox runs an agent with its permission prompts off. So it treats everything inside the box as hostile: the agent, the files it reads, the pages it fetches and every process it starts. A repo with instructions planted in a README, or a prompt-injected web page, can turn a well-meaning agent into an attacker. This page lists what that attacker can do, what botbox does about it, and what is left to you.
