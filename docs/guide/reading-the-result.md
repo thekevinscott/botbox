@@ -20,14 +20,14 @@ A non-zero exit is a normal result. When a timeout raises `botbox.Timeout`, its 
 
 ## Read the proxy log
 
-`output/proxy/tinyproxy.log` records connections admitted or refused by the proxy.
+`output/proxy.log` records connections admitted or refused by the proxy.
 
 ```python
-print((output / "proxy/tinyproxy.log").read_text(errors="replace"))
+print((output / "proxy.log").read_text(errors="replace"))
 ```
 
 ## Keep other files
 
-Use [read-write mounts](./mounting-directories) for other files the agent should leave behind. Unrelated files in the output folder belong to the caller and remain in place.
+Use [read-write mounts](./mounting-directories) for other files the agent should leave behind. Unrelated files in the output folder belong to the caller and remain in place. Reusing a folder truncates `stdout.txt`, `stderr.txt`, and `proxy.log`; existing transcript files remain until the agent changes them.
 
 See the [`RunResult` page](../api/run-result) and [how a run works](../explanation/#a-run).

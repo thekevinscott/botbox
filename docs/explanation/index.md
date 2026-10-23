@@ -51,7 +51,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. It writes directly into `output/proxy/tinyproxy.log`, with permissions that let the proxy uid write it.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. Tinyproxy logs to stdout in foreground mode. Its attached Docker client writes stdout and stderr directly to `output/proxy.log`; no log directory is mounted into the container and no permissions are changed in the caller’s output folder.
 
 ### Lifetime
 
@@ -77,7 +77,7 @@ botbox creates the harness's sessions directory in the temporary home before Doc
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr go directly to the output files. A `tail -n +1 -F` subprocess follows stdout from the beginning. Python reads its pipe line by line, retaining only the current partial line; tail is killed at teardown. No `--pid` option is needed, so this works on macOS too. `stream()` and `message()` write one line in the harness's input format, then read tail's pipe line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr go directly to the output files. A `tail -n +1 -F` subprocess follows stdout from the beginning. Python reads its pipe line by line, retaining only the current partial line; tail is killed at teardown. A shell wrapper holds a stdin pipe owned only by the Python process; when the owner dies, EOF makes the wrapper stop and reap tail. No `--pid` option is needed, so this works on macOS too. `stream()` and `message()` write one line in the harness's input format, then read tail's pipe line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
 The block's end closes stdin, waits for the client, reads the exit code, removes the container and temporary home as `run()` does. Output stays on disk. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 

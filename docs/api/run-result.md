@@ -9,7 +9,7 @@ output/
   stdout.txt
   stderr.txt
   transcripts/
-  proxy/tinyproxy.log
+  proxy.log
 ```
 
 The folder is created if needed. Use a separate folder for each run or session: stdout and stderr are opened afresh, while existing transcript files and unrelated caller files remain. botbox leaves this folder in place after success, failure, cancellation or timeout. After a process is killed, whatever reached disk remains; unflushed output and power loss are outside this guarantee.

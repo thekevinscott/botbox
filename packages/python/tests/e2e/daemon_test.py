@@ -118,4 +118,4 @@ def describe_the_daemon_dying_mid_run() -> None:
     def it_keeps_the_proxy_log(
         output: Path,
     ) -> None:
-        assert "Starting main loop" in (output / "proxy/tinyproxy.log").read_text(errors="replace")
+        assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")

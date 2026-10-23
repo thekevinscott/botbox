@@ -58,9 +58,9 @@ def describe_a_codex_session() -> None:
     def it_reaches_chatgpt_through_the_proxy(
         output: Path,
     ) -> None:
-        assert 'Established connection to host "chatgpt.com"' in (
-            output / "proxy/tinyproxy.log"
-        ).read_text(errors="replace")
+        assert 'Established connection to host "chatgpt.com"' in (output / "proxy.log").read_text(
+            errors="replace"
+        )
 
     @pytest.mark.usefixtures("result")
     def it_reaches_for_no_refused_host(
@@ -68,7 +68,7 @@ def describe_a_codex_session() -> None:
     ) -> None:
         refused = [
             line
-            for line in (output / "proxy/tinyproxy.log").read_text(errors="replace").splitlines()
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
             if "Proxying refused" in line
         ]
         assert refused == []

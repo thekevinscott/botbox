@@ -1,12 +1,95 @@
 import asyncio
+import os
+import signal
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
+from typing import IO
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from botbox.tail import tail
 
 
+@pytest.fixture
+def lifetimes() -> Iterator[list[IO[bytes]]]:
+    pipes: list[IO[bytes]] = []
+
+    @contextmanager
+    def own(pipe: IO[bytes]) -> Iterator[None]:
+        pipes.append(pipe)
+        yield
+
+    with patch("botbox.tail.owner_only", own, create=True):
+        yield pipes
+
+
+@pytest.fixture
+def spawned() -> Iterator[list[asyncio.subprocess.Process]]:
+    processes: list[asyncio.subprocess.Process] = []
+    original = asyncio.create_subprocess_exec
+
+    async def spawn(*args: str, **kwargs: object) -> asyncio.subprocess.Process:
+        process = await original(*args, **kwargs)  # type: ignore[arg-type]
+        processes.append(process)
+        return process
+
+    with patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn):
+        yield processes
+
+
+@pytest.fixture
+def starting() -> asyncio.Event:
+    return asyncio.Event()
+
+
+@pytest.fixture
+def release() -> asyncio.Event:
+    return asyncio.Event()
+
+
+@pytest.fixture
+def process() -> AsyncMock:
+    return AsyncMock()
+
+
+@pytest.fixture
+def delayed_spawn(
+    starting: asyncio.Event, release: asyncio.Event, process: AsyncMock
+) -> Iterator[None]:
+    async def spawn(*_args: object, **_kwargs: object) -> AsyncMock:
+        starting.set()
+        await release.wait()
+        return process
+
+    with patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn):
+        yield
+
+
+@pytest.fixture
+def abandoned(release: asyncio.Event, process: AsyncMock) -> Iterator[Mock]:
+    async def abandon(started: asyncio.Future[AsyncMock]) -> None:
+        release.set()
+        assert await started is process
+
+    with patch("botbox.tail.abandon", side_effect=abandon) as mocked:
+        yield mocked
+
+
 def describe_tail() -> None:
+    async def it_holds_a_lifetime_pipe_owner_only_until_teardown(
+        tmp_path: Path,
+        lifetimes: list[IO[bytes]],
+    ) -> None:
+        path = tmp_path / "stdout.txt"
+        path.touch()
+        async with tail(path):
+            assert len(lifetimes) == 1
+            assert not lifetimes[0].closed
+        assert lifetimes[0].closed
+
     async def it_reads_existing_and_new_lines(tmp_path: Path) -> None:
         path = tmp_path / "stdout.txt"
         path.write_bytes(b"before\n")
@@ -17,7 +100,9 @@ def describe_tail() -> None:
             assert await reader.readline() == b"after\n"
         assert reader.at_eof()
 
-    async def it_closes_the_pipe_when_cancelled(tmp_path: Path) -> None:
+    async def it_exits_when_cancelled(
+        tmp_path: Path, spawned: list[asyncio.subprocess.Process]
+    ) -> None:
         path = tmp_path / "stdout.txt"
         path.touch()
         started = asyncio.Event()
@@ -35,36 +120,85 @@ def describe_tail() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert readers[0].at_eof()
+        assert spawned[0].returncode is not None
+
+    async def it_follows_a_file_created_after_startup(tmp_path: Path) -> None:
+        path = tmp_path / "later.txt"
+        async with asyncio.timeout(10), tail(path) as reader:
+            await asyncio.sleep(0.1)
+            path.write_bytes(b"created\n")
+            assert await reader.readline() == b"created\n"
+
+    @pytest.mark.parametrize("signum", [signal.SIGKILL, signal.SIGTERM])
+    async def it_stops_following_when_its_owner_dies(tmp_path: Path, signum: int) -> None:
+        path = tmp_path / "stdout.txt"
+        path.touch()
+        script = """
+import asyncio, sys
+from pathlib import Path
+from botbox.tail import tail
+spawn = asyncio.create_subprocess_exec
+async def record(*args, **kwargs):
+    process = await spawn(*args, **kwargs)
+    print(process.pid, flush=True)
+    return process
+asyncio.create_subprocess_exec = record
+async def main():
+    async with tail(Path(sys.argv[1])):
+        await asyncio.Event().wait()
+asyncio.run(main())
+"""
+        owner = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            script,
+            str(path),
+            stdout=asyncio.subprocess.PIPE,
+        )
+        assert owner.stdout is not None
+        group = 0
+        try:
+            async with asyncio.timeout(10):
+                group = int(await owner.stdout.readline())
+                owner.send_signal(signum)
+                await owner.wait()
+                while True:
+                    check = await asyncio.create_subprocess_exec(
+                        "ps",
+                        "-eo",
+                        "pgid=,stat=",
+                        stdout=asyncio.subprocess.PIPE,
+                    )
+                    status, _ = await check.communicate()
+                    alive = [line.split() for line in status.decode().splitlines()]
+                    if not any(
+                        int(pid) == group and not state.startswith("Z") for pid, state in alive
+                    ):
+                        break
+                    await asyncio.sleep(0.02)
+        finally:
+            if owner.returncode is None:
+                owner.kill()
+                await owner.wait()
+            if group:
+                with suppress(ProcessLookupError):
+                    os.killpg(group, signal.SIGKILL)
 
 
 def describe_startup() -> None:
-    async def it_reaps_a_spawn_that_is_cancelled_before_its_handle_arrives(tmp_path: Path) -> None:
-        from unittest.mock import AsyncMock, patch
-
-        started = asyncio.Event()
-        release = asyncio.Event()
-        process = AsyncMock()
-
-        async def spawn(*_args: object, **_kwargs: object) -> AsyncMock:
-            started.set()
-            await release.wait()
-            return process
-
-        async def abandon(starting: asyncio.Future[AsyncMock]) -> None:
-            release.set()
-            assert await starting is process
-
+    @pytest.mark.usefixtures("delayed_spawn")
+    async def it_reaps_a_spawn_that_is_cancelled_before_its_handle_arrives(
+        tmp_path: Path,
+        starting: asyncio.Event,
+        abandoned: Mock,
+    ) -> None:
         async def follow() -> None:
             async with tail(tmp_path / "stdout.txt"):
                 pytest.fail("cancelled spawn must not yield")
 
-        with (
-            patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn),
-            patch("botbox.tail.abandon", side_effect=abandon) as abandoned,
-        ):
-            task = asyncio.create_task(follow())
-            await started.wait()
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            abandoned.assert_awaited_once()
+        task = asyncio.create_task(follow())
+        await starting.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        abandoned.assert_awaited_once()

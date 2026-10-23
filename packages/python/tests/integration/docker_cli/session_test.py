@@ -92,7 +92,7 @@ def describe_session() -> None:
                 'not json\n{"type": "result", "result": "HI"}\n'
             )
             assert (output / "stderr.txt").read_text() == ""
-            assert (output / "proxy/tinyproxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == REFUSAL
             assert (output / "transcripts/-work/abc.jsonl").read_text() == '{"type": "user"}\n'
 
         async def it_reads_the_exit_code_from_the_stopped_container(

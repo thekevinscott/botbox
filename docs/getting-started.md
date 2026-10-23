@@ -32,7 +32,7 @@ async def main() -> None:
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
     print(Path("output/stdout.txt").read_text())
-    print(Path("output/proxy/tinyproxy.log").read_text())
+    print(Path("output/proxy.log").read_text())
 
 
 asyncio.run(main())
@@ -42,7 +42,7 @@ The API is asyncio. From sync code, wrap each call in `asyncio.run(...)`.
 
 ## What came back
 
-`output/stdout.txt` is the CLI's output. `output/proxy/tinyproxy.log` is every connection the agent made, admitted or refused.
+`output/stdout.txt` is the CLI's output. `output/proxy.log` is every connection the agent made, admitted or refused.
 
 ## Next steps
 

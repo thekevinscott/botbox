@@ -64,7 +64,7 @@ def describe_a_claude_session() -> None:
         output: Path,
     ) -> None:
         assert 'Established connection to host "api.anthropic.com"' in (
-            output / "proxy/tinyproxy.log"
+            output / "proxy.log"
         ).read_text(errors="replace")
 
     @pytest.mark.usefixtures("result")
@@ -73,7 +73,7 @@ def describe_a_claude_session() -> None:
     ) -> None:
         refused = [
             line
-            for line in (output / "proxy/tinyproxy.log").read_text(errors="replace").splitlines()
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
             if "Proxying refused" in line
         ]
         assert refused == []

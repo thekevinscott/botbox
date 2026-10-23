@@ -55,26 +55,15 @@ def describe_run() -> None:
             assert result == RunResult(exit_code=3)
             assert (output / "stdout.txt").read_text() == "out\n"
             assert (output / "stderr.txt").read_text() == "err\n"
-            assert (output / "proxy/tinyproxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == REFUSAL
             assert (output / "transcripts/-work/abc.jsonl").read_text() == '{"type": "user"}\n'
 
-        async def it_replaces_proxy_log_bytes_that_are_not_utf8(
+        async def it_preserves_proxy_log_bytes_that_are_not_utf8(
             output: Path, box: Botbox, daemon: Daemon
         ) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
             await box.run("true", output=output)
-            assert (
-                output / "proxy/tinyproxy.log"
-            ).read_bytes() == b"GET http://caf\xe9/ HTTP/1.1\n"
-
-        async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
-            output: Path, box: Botbox, daemon: Daemon
-        ) -> None:
-            daemon.agent("true", stdout="out\n")
-            daemon.set(proxy_log_unreadable=True)
-            result = await box.run("true", output=output)
-            assert result.exit_code == 0
-            assert (output / "proxy/tinyproxy.log").is_dir()
+            assert (output / "proxy.log").read_bytes() == b"GET http://caf\xe9/ HTTP/1.1\n"
 
         async def it_reads_the_exit_code_from_the_stopped_container(
             output: Path, box: Botbox, daemon: Daemon
@@ -101,7 +90,7 @@ def describe_run() -> None:
                 f".claude/projects/{p.relative_to(output / 'transcripts')}": p.read_text()
                 for p in (output / "transcripts").rglob("*.jsonl")
             } == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
-            assert (output / "proxy/tinyproxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == REFUSAL
             assert homes(temp) == []
 
     def describe_the_containers() -> None:
@@ -368,7 +357,7 @@ def describe_run() -> None:
             assert raised.value.result == RunResult(exit_code=-1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == ""
-            assert (output / "proxy/tinyproxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == REFUSAL
             assert (output / "transcripts/-work/abc.jsonl").read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
             assert homes(temp) == []
@@ -416,7 +405,7 @@ def describe_live_output() -> None:
         await daemon.hanging()
         assert (output / "stdout.txt").read_bytes() == b"partial\n"
         assert (output / "stderr.txt").read_bytes() == b"diagnostic\n"
-        assert (output / "proxy/tinyproxy.log").read_text() == REFUSAL
+        assert (output / "proxy.log").read_text() == REFUSAL
         assert (output / "transcripts/-work/abc.jsonl").is_file()
         running.cancel()
         with pytest.raises(asyncio.CancelledError):

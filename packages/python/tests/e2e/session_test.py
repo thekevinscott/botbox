@@ -172,7 +172,7 @@ def describe_a_session() -> None:
         _, _, _result = session
         refused = [
             line
-            for line in (output / "proxy/tinyproxy.log").read_text(errors="replace").splitlines()
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
             if "Proxying refused" in line
         ]
         assert refused == []

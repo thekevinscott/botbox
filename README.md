@@ -56,7 +56,7 @@ async def main() -> None:
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
     print(Path("output/stdout.txt").read_text())
-    print(Path("output/proxy/tinyproxy.log").read_text())
+    print(Path("output/proxy.log").read_text())
 
 
 asyncio.run(main())
@@ -108,7 +108,7 @@ output/
   stdout.txt
   stderr.txt
   transcripts/
-  proxy/tinyproxy.log
+  proxy.log
 ```
 
 Use a separate folder per run or session. The folder is created if needed, and unrelated caller files remain. Output survives teardown, cancellation, timeout and a killed owner to the extent it reached disk. botbox does not read transcripts or logs into the result. See [Reading the result](https://thekevinscott.github.io/botbox/guide/reading-the-result).
@@ -160,7 +160,7 @@ The container runs with `--network none`. The only way out is a unix socket to a
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `output/proxy/tinyproxy.log`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
+Every connection, admitted or refused, is logged to `output/proxy.log`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 
@@ -262,6 +262,6 @@ MIT. See [LICENSE](./LICENSE).
 ## Internal - Checks
 
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
-- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. The output folder remains after teardown; `RunResult` contains only the exit code.
+- [x] Transcripts are bind-mounted into the caller’s output folder, and the Docker clients write stdout, stderr and proxy logs directly to files there during the run. The output folder remains after teardown; `RunResult` contains only the exit code.
 - [x] add test for docker daemon dying
 - [x] add test for concurrent builds of one tag

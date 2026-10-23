@@ -182,7 +182,7 @@ def describe_run() -> None:
             for p in (output / "transcripts").rglob("*.jsonl")
             if p.is_file()
         } == {}
-        assert "Starting main loop" in (output / "proxy/tinyproxy.log").read_text(errors="replace")
+        assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
@@ -234,9 +234,7 @@ def describe_run() -> None:
                 (output / "stderr.txt").read_text(errors="replace"),
                 result.exit_code,
             ) == ("partial\n", "err\n", -1)
-            assert "Starting main loop" in (output / "proxy/tinyproxy.log").read_text(
-                errors="replace"
-            )
+            assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 

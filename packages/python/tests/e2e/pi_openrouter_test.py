@@ -53,9 +53,9 @@ def describe_a_pi_session_on_openrouter() -> None:
     def it_reaches_openrouter_through_the_proxy(
         output: Path,
     ) -> None:
-        assert 'Established connection to host "openrouter.ai"' in (
-            output / "proxy/tinyproxy.log"
-        ).read_text(errors="replace")
+        assert 'Established connection to host "openrouter.ai"' in (output / "proxy.log").read_text(
+            errors="replace"
+        )
 
     @pytest.mark.usefixtures("result")
     def it_reaches_for_no_refused_host(
@@ -63,7 +63,7 @@ def describe_a_pi_session_on_openrouter() -> None:
     ) -> None:
         refused = [
             line
-            for line in (output / "proxy/tinyproxy.log").read_text(errors="replace").splitlines()
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
             if "Proxying refused" in line
         ]
         assert refused == []

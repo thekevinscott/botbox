@@ -108,5 +108,5 @@ def describe_an_api_key_session() -> None:
     def it_keeps_the_key_out_of_the_proxy_log(
         output: Path,
     ) -> None:
-        leaked = API_KEY in (output / "proxy/tinyproxy.log").read_text(errors="replace")
+        leaked = API_KEY in (output / "proxy.log").read_text(errors="replace")
         assert not leaked

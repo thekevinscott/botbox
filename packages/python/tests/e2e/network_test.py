@@ -89,7 +89,7 @@ def report(session: tuple[RunResult, dict[str, str]]) -> dict[str, str]:
 @pytest.fixture(scope="module")
 def proxy(output: Path, session: tuple[RunResult, dict[str, str]]) -> str:
     assert session[0].exit_code == 0
-    return (output / "proxy/tinyproxy.log").read_text(errors="replace")
+    return (output / "proxy.log").read_text(errors="replace")
 
 
 def describe_a_request_through_the_proxy() -> None:
@@ -152,9 +152,9 @@ def describe_allow() -> None:
         result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}", output=output))
         assert result.exit_code == 0
         assert (output / "stdout.txt").read_text(errors="replace").strip() == "200"
-        assert 'Established connection to host "example.com"' in (
-            output / "proxy/tinyproxy.log"
-        ).read_text(errors="replace")
+        assert 'Established connection to host "example.com"' in (output / "proxy.log").read_text(
+            errors="replace"
+        )
 
 
 @pytest.fixture(scope="module")
