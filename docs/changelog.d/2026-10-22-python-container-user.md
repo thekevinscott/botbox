@@ -1,0 +1,1 @@
+Fixed: the agent runs as your uid and gid instead of the image's uid 1000, so runs and sessions work on hosts where you aren't uid 1000, and the agent can write your bind mounts. `HOME` is set to the staged home, and a uid with no passwd entry in the image gets one named `user`. `Botbox` now raises `RuntimeError` when run as root.
