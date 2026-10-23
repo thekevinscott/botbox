@@ -340,4 +340,6 @@ class Botbox:
             "ALL",
             "--security-opt",
             "no-new-privileges",
+            "--log-driver",
+            "none",
         ]

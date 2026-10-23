@@ -525,7 +525,7 @@ def read_transcript(steps: list[str]) -> Iterator[Mock]:
 
 
 RUN = argparse.ArgumentParser()
-for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user"):
+for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user", "--log-driver"):
     RUN.add_argument(flag)
 for flag in ("--env", "--volume", "--cap-drop", "--security-opt"):
     RUN.add_argument(flag, action="append", default=[])
@@ -706,6 +706,7 @@ def describe_run() -> None:
             assert options["user"] == f"{os.getuid()}:{os.getgid()}"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
+            assert options["log_driver"] == "none"
             assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
 
         async def it_mounts_the_home_the_sockets_and_the_callers_mounts(
@@ -1081,6 +1082,7 @@ def describe_session() -> None:
             assert options["user"] == f"{os.getuid()}:{os.getgid()}"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
+            assert options["log_driver"] == "none"
             assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
             assert options["workdir"] == "/home/user/src"
             assert options["volume"] == [
