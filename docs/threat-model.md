@@ -104,15 +104,15 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
 
 ### What's Left
 
-All of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and time stay open.
+All of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and a default time limit stay open.
 
 ### Why botbox Doesn't Close It
 
-Memory, processes and CPU it could, and the PRs above do the first two. Any default has to leave room for real workloads, so the defaults are high and you lower them. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
+Memory, processes and CPU it could, and the PRs above do the first two. Any default has to leave room for real workloads, so the defaults are high and you lower them. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time has an option but no default, since runs vary by orders of magnitude.
 
 ## The proxy as a way out
 
