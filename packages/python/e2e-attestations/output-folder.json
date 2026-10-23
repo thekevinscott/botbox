@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/api_key_test.py tests/e2e/claude_test.py tests/e2e/codex_test.py tests/e2e/daemon_test.py tests/e2e/network_test.py tests/e2e/pi_openrouter_test.py tests/e2e/run_test.py tests/e2e/session_test.py",
-  "ran_at": 1792790305,
+  "ran_at": 1792790618,
   "exit_code": 0,
-  "commit": "4b7c27de3c41afbe7989f70e10a10a143be64607",
+  "commit": "c184e5d969ce371ea838d4a265e296d89c637b11",
   "branch": "output-folder"
 }
