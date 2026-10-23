@@ -40,7 +40,7 @@ The agent can read the token and send it out through any allowed host (see the n
 
 ### Why botbox Doesn't Close It
 
-It could; it isn't done yet. The [#65 spike](https://github.com/thekevinscott/botbox/tree/spike-65/spikes/65) ran Claude Code and Codex with placeholder credentials and an Envoy sidecar that adds the real token outside the box. No real token reached the home. pi was not tested. Until then, prefer `api_key` with a scoped key and a spend limit, and revoke it if a run looks wrong.
+It could; it isn't done yet. The box could hold a placeholder, with a sidecar outside it that adds the real token on the way out, so no real token reaches the home. Until then, prefer `api_key` with a scoped key and a spend limit, and revoke it if a run looks wrong.
 
 ## Exfiltration through allowed hosts
 
@@ -58,7 +58,7 @@ Anything an allowed host accepts. The model host is always allowed. The agent ca
 
 ### Why botbox Doesn't Close It
 
-Rules on paths and headers need the proxy to see inside TLS. For the model host, the #65 design gets there without interception: the agent talks plain HTTP to the sidecar, which allows only the API paths the CLI uses and overwrites the auth header, so a planted key never reaches the API. For other hosts it would take TLS interception with a CA inside the box. That is possible, not done, and breaks clients that pin certificates. A check that the TLS server name matches the CONNECT host would only catch a client that names another site in its TLS hello. Classic fronting names the allowed site there and the other site in the encrypted `Host` header, which only interception sees. Keep `allow` short.
+Rules on paths and headers need the proxy to see inside TLS. For the model host, the sidecar design above gets there without interception: the agent talks plain HTTP to the sidecar, which allows only the API paths the CLI uses and overwrites the auth header, so a planted key never reaches the API. For other hosts it would take TLS interception with a CA inside the box. That is possible, not done, and breaks clients that pin certificates. A check that the TLS server name matches the CONNECT host would only catch a client that names another site in its TLS hello. Classic fronting names the allowed site there and the other site in the encrypted `Host` header, which only interception sees. Keep `allow` short.
 
 ## Host files through mounts
 
@@ -90,11 +90,11 @@ A transcript match that resolves outside the home is skipped. The container has 
 
 ### What's Left
 
-One case breaks that assumption ([#112](https://github.com/thekevinscott/botbox/issues/112)). If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+One case breaks that assumption. If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
 
 ### Why botbox Doesn't Close It
 
-It's being done. [#145](https://github.com/thekevinscott/botbox/pull/145) moves transcripts into a per-run directory without following links.
+It could; it isn't done yet. Opening each file without following links, and keeping only regular files, closes it.
 
 ## Resource exhaustion
 
@@ -108,11 +108,11 @@ The proxy has a process cap. The agent container has none: no memory, process or
 
 ### What's Left
 
-All of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and time stay open.
+All of the above. Wrap every call in `asyncio.timeout`, and keep an eye on the host's temp directory.
 
 ### Why botbox Doesn't Close It
 
-Memory, processes and CPU it could, and the PRs above do the first two. Any default has to leave room for real workloads, so the defaults are high and you lower them. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
+Memory, processes and CPU it could; it isn't done yet. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
 
 ## The proxy as a way out
 
