@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
@@ -8,6 +8,7 @@ from botbox.agents.agent import SessionAgent
 from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.RunResult import RunResult
+from botbox.utils.CapturedLines import CapturedLines
 
 
 class Session:
@@ -26,20 +27,22 @@ class Session:
         stdout: Capture,
         stderr: bytearray,
         client: asyncio.Future[int],
+        *,
+        _readline: Callable[[], Awaitable[bytes]] | None = None,
     ) -> None:
         self.agent = agent
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
         self.client = client
-        self.read = 0
+        self._readline = CapturedLines(stdout, client).readline if _readline is None else _readline
+        self._pending: bytes | None = None
         self.turn = False
         self.result: RunResult | None = None
         client.add_done_callback(self.ended)
 
     def ended(self, _client: asyncio.Future[int]) -> None:
-        """Wake a waiting turn, and drop input nothing will read so a write can't stall."""
-        self.stdout.grew.set()
+        """Drop input nothing will read so a write can't stall."""
         abort_writer(self.stdin)
 
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
@@ -66,19 +69,25 @@ class Session:
 
     async def event(self) -> dict[str, Any] | None:
         """The next JSON object the CLI prints; None once it has exited without another."""
-        printed, grew = self.stdout.into, self.stdout.grew
         while True:
-            grew.clear()
-            end = printed.find(b"\n", self.read)
-            if end < 0:
-                if not self.client.done():
-                    await grew.wait()
-                    continue
-                if self.read == len(printed):
-                    return None
-                end = len(printed)
-            line = bytes(printed[self.read : end])
-            self.read = min(end + 1, len(printed))
+            line, self._pending = self._pending, None
+            if line is None:
+                reading = asyncio.ensure_future(self._readline())
+                try:
+                    await asyncio.wait((reading, self.client), return_when=asyncio.FIRST_COMPLETED)
+                    if not reading.done():
+                        return None
+                    line = reading.result()
+                except asyncio.CancelledError:
+                    if reading.done() and not reading.cancelled():
+                        self._pending = reading.result()
+                    raise
+                finally:
+                    reading.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await reading
+            if not line:
+                return None
             with suppress(ValueError):
                 event = json.loads(line)
                 if isinstance(event, dict):
