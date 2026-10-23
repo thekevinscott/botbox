@@ -24,7 +24,7 @@ class RunResult:
     exit_code: int
     image: str
     files: Path
-    _finalizer: weakref.finalize[[Path], None] = field(init=False, repr=False, compare=False)
+    _finalizer: "weakref.finalize[[Path], None]" = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_finalizer", weakref.finalize(self, remove_tree, self.files))
