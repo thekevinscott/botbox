@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/session_test.py tests/e2e/session_artifacts_test.py tests/e2e/sigterm_test.py tests/e2e/teardown_test.py tests/e2e/pi_test.py ",
-  "ran_at": 1792705779,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/session_test.py tests/e2e/session_artifacts_test.py tests/e2e/sigterm_test.py tests/e2e/teardown_test.py tests/e2e/pi_test.py",
+  "ran_at": 1792761982,
   "exit_code": 0,
-  "commit": "f9fec70c2aff6ff1b8e68e9f3a5038504a5ff157",
+  "commit": "221670b7df0a15cf491790b71f71eec476dd70fc",
   "branch": "session-retention"
 }
