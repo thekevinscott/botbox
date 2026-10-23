@@ -62,41 +62,45 @@ def describe_run() -> None:
             )
 
         async def it_replaces_proxy_log_bytes_that_are_not_utf8(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
-            assert (await box.run("true")).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
+            assert (
+                await box.run("true", output=output)
+            ).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
 
         async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent("true", stdout="out\n")
             daemon.set(proxy_log_unreadable=True)
             with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: "):
-                result = await box.run("true")
-            assert (result.stdout, result.exit_code, result.proxy) == ("out\n", 0, "")
+                result = await box.run("true", output=output)
+            assert (result.stdout, result.exit_code, result.proxy) == ("", 0, "")
+            assert (output / "stdout.txt").read_text() == "out\n"
 
         async def it_reads_the_exit_code_from_the_stopped_container(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent("exit 125", exit=125)
-            assert (await box.run("exit 125")).exit_code == 125
+            assert (await box.run("exit 125", output=output)).exit_code == 125
             name = f"botbox-agent-{token(daemon)}"
             assert ["container", "inspect", "--format", "json", name] in daemon.calls
 
         async def it_returns_minus_one_with_warnings_when_the_daemon_goes_away(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent("true", stdout="partial\n", mode="daemon_gone")
             daemon.set(proxy_log=REFUSAL)
             with pytest.warns(RuntimeWarning) as warned:
-                result = await box.run("true")
+                result = await box.run("true", output=output)
             assert [str(w.message).split(":")[0] for w in warned] == [
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
             ]
             assert result.exit_code == -1
-            assert result.stdout == "partial\n"
+            assert result.stdout == ""
+            assert (output / "stdout.txt").read_text() == "partial\n"
             assert result.transcript == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
             assert result.proxy == REFUSAL
             assert homes(temp) == []
@@ -239,43 +243,46 @@ def describe_run() -> None:
 
     def describe_failure() -> None:
         async def it_raises_when_the_client_dies_while_the_daemon_is_up(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent("true", stderr="lost\n", mode="client_dies")
             with pytest.raises(DockerException) as raised:
-                await box.run("true")
+                await box.run("true", output=output)
             assert raised.value.return_code == -9
-            assert raised.value.stderr == "lost\n"
+            assert raised.value.stderr == f"See {output / 'stderr.txt'}"
+            assert (output / "stderr.txt").read_text() == "lost\n"
             assert daemon.containers == []
 
         async def it_raises_when_the_client_is_killed_after_the_container_exits(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent("true", stdout="trunc", mode="client_dies_after_exit")
             with pytest.raises(DockerException) as raised:
-                await box.run("true")
+                await box.run("true", output=output)
             assert raised.value.return_code == -9
             assert daemon.containers == []
 
-        async def it_raises_when_the_container_never_ran(box: Botbox, daemon: Daemon) -> None:
+        async def it_raises_when_the_container_never_ran(
+            box: Botbox, daemon: Daemon, output: Path
+        ) -> None:
             daemon.agent("true", missing=True)
             with pytest.raises(DockerException) as raised:
-                await box.run("true")
+                await box.run("true", output=output)
             assert raised.value.return_code == 125
-            assert "Unable to find image" in raised.value.stderr
+            assert "Unable to find image" in (output / "stderr.txt").read_text()
             assert daemon.containers == []
 
         async def it_raises_with_the_proxys_output_when_it_will_not_start(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.set(proxy_fails=True)
             with pytest.raises(RuntimeError, match="did not start:\ntinyproxy: bad config"):
-                await box.run("true")
+                await box.run("true", output=output)
             assert daemon.runs("botbox-agent-") == []
             assert homes(temp) == []
 
         async def it_keeps_the_error_and_warns_when_the_proxy_log_will_not_read(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent("true", missing=True)
             daemon.set(proxy_log_unreadable=True)
@@ -283,15 +290,15 @@ def describe_run() -> None:
                 pytest.warns(RuntimeWarning, match="could not read its proxy log"),
                 pytest.raises(DockerException) as raised,
             ):
-                await box.run("true")
+                await box.run("true", output=output)
             assert raised.value.return_code == 125
 
         async def it_returns_the_result_and_warns_when_teardown_fails(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.set(rm_fails=True)
             with pytest.warns(RuntimeWarning) as warned:
-                result = await box.run("true")
+                result = await box.run("true", output=output)
             assert result.exit_code == 0
             assert [str(w.message).split(":")[0] for w in warned] == [
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
@@ -300,23 +307,25 @@ def describe_run() -> None:
 
     def describe_cancelling() -> None:
         async def it_tears_down_the_run_when_cancelled(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
-            daemon.agent("sleep 600", mode="hang")
-            run = asyncio.ensure_future(box.run("sleep 600"))
+            daemon.agent("sleep 600", mode="hang", stdout="partial\n", stderr="err\n")
+            run = asyncio.ensure_future(box.run("sleep 600", output=output))
             await daemon.hanging()
             run.cancel()
             await asyncio.wait({run}, timeout=10)
             assert run.cancelled()
             assert daemon.containers == []
             assert homes(temp) == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_finishes_tearing_down_through_a_second_cancel(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
-            daemon.agent("sleep 600", mode="hang")
+            daemon.agent("sleep 600", mode="hang", stdout="partial\n", stderr="err\n")
             daemon.set(rm_seconds=0.3)
-            run = asyncio.ensure_future(box.run("sleep 600"))
+            run = asyncio.ensure_future(box.run("sleep 600", output=output))
             await daemon.hanging()
             run.cancel()
             await asyncio.sleep(0.1)
@@ -325,26 +334,31 @@ def describe_run() -> None:
             assert run.cancelled()
             assert daemon.containers == []
             assert homes(temp) == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_tears_down_the_run_when_a_timeout_fires(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
-            daemon.agent("sleep 600", mode="hang")
+            daemon.agent("sleep 600", mode="hang", stdout="partial\n", stderr="err\n")
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(1):
-                    await box.run("sleep 600")
+                    await box.run("sleep 600", output=output)
             assert daemon.containers == []
             assert homes(temp) == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_tears_down_and_raises_what_the_run_left_when_its_timeout_runs_out(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent("sleep 600", mode="hang", stdout="partial\n")
             daemon.set(proxy_log=REFUSAL)
             with pytest.raises(Timeout) as raised:
-                await Botbox(box.agent, timeout=2).run("sleep 600")
+                await Botbox(box.agent, timeout=2).run("sleep 600", output=output)
+            assert (output / "stdout.txt").read_text() == "partial\n"
             assert raised.value.result == RunResult(
-                stdout="partial\n",
+                stdout="",
                 stderr="",
                 exit_code=-1,
                 transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
@@ -355,18 +369,18 @@ def describe_run() -> None:
             assert homes(temp) == []
 
         async def it_raises_a_sibling_runs_error_unwrapped_in_a_task_group(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
-            daemon.agent("sleep 600", mode="hang")
+            daemon.agent("sleep 600", mode="hang", stdout="partial\n", stderr="err\n")
             daemon.agent("false", missing=True)
 
             async def fail_once_hanging() -> RunResult:
                 await daemon.hanging()
-                return await box.run("false")
+                return await box.run("false", output=output / "failed")
 
             with pytest.raises(ExceptionGroup) as raised:
                 async with asyncio.TaskGroup() as group:
-                    group.create_task(box.run("sleep 600"))
+                    group.create_task(box.run("sleep 600", output=output / "sleeping"))
                     group.create_task(fail_once_hanging())
             [error] = raised.value.exceptions
             assert isinstance(error, DockerException)
@@ -426,4 +440,29 @@ def describe_run_output() -> None:
         result = raised.value.result
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
         assert (tmp_path / "stdout.txt").read_text() == "partial\n"
+        assert daemon.containers == []
+
+
+@pytest.fixture
+def output(tmp_path: Path) -> Path:
+    return tmp_path / "output"
+
+
+def describe_output_reuse() -> None:
+    async def it_replaces_both_streams_on_success_and_early_failure(
+        box: Botbox, daemon: Daemon, output: Path
+    ) -> None:
+        daemon.agent("first", stdout="old stdout", stderr="old stderr")
+        await box.run("first", output=output)
+        (output / "keep").write_text("keep")
+        daemon.agent("second", stdout="new", exit=3)
+        assert (await box.run("second", output=output)).exit_code == 3
+        assert (output / "stdout.txt").read_text() == "new"
+        assert (output / "stderr.txt").read_text() == ""
+        daemon.set(proxy_fails=True)
+        with pytest.raises(RuntimeError, match="did not start"):
+            await box.run("third", output=output)
+        assert (output / "stdout.txt").read_text() == ""
+        assert (output / "stderr.txt").read_text() == ""
+        assert (output / "keep").read_text() == "keep"
         assert daemon.containers == []
