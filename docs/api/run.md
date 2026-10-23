@@ -4,6 +4,7 @@
 await box.run(
     command: str,
     *,
+    output: str | Path | None = None,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
     workdir: str | Path | None = None,
     timeout: float | None = None,
@@ -13,11 +14,31 @@ await box.run(
 | Argument  | What it is                                                              |
 | --------- | ----------------------------------------------------------------------- |
 | `command` | Shell command line, run as `sh -c`, passed through unchanged. |
+| `output` | Optional host directory for `stdout.txt` and `stderr.txt`. Created with missing parents; relative paths resolve from the working directory. |
 | `mounts`  | Bind mounts: host path, container path, mode. A missing host path is created as a dir owned by you. |
 | `workdir` | Where the command starts. Must be a mounted path or inside one; otherwise `run()` raises. Defaults to the agent's home. |
 | `timeout` | Seconds the run may take once the image is built. Defaults to the box's [`timeout`](./botbox). |
 
 Returns a [`RunResult`](./run-result). A non-zero exit is a normal `RunResult`.
+
+With `output`, stdout and stderr go directly to files without being captured in Python.
+Their result fields are empty, including in `Timeout.result`; transcript, proxy and image
+fields retain their usual behavior. Read the files yourself when needed:
+
+```python
+from pathlib import Path
+
+output = Path("runs/check")
+result = await box.run("echo hello", output=output)
+print((output / "stdout.txt").read_text())
+```
+
+Existing stream files are truncated when the agent starts; other files in the directory
+are preserved. Use a separate directory for each concurrent run. Stream files remain
+after success, failure, timeout or cancellation once opened. Earlier setup failures may
+leave only the directory. Agent Docker failures put the absolute `stderr.txt` path in
+`DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.
+Omit `output` to keep stdout and stderr in the result as before.
 
 - When `timeout` runs out, the run tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout). Its `result` holds the output, transcript and proxy log so far, with `exit_code` -1.
 - Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.

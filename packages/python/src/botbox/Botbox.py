@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Self, cast
@@ -128,8 +128,12 @@ class Botbox:
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
         timeout: float | None = None,
+        output: str | Path | None = None,
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return what it left.
+
+        With `output`, stdout and stderr go directly to stdout.txt and stderr.txt there;
+        the result stream fields are empty. Existing stream files are truncated.
 
         Mounts and `workdir` are checked before anything is built. The agent's home is a fresh
         host temp directory with the credentials staged in; the proxy logs into the same
@@ -152,6 +156,9 @@ class Botbox:
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        if output is not None:
+            output = Path(output).resolve()
+            output.mkdir(parents=True, exist_ok=True)
         await reap()
         image = await self.build()
         token = uuid4().hex[:12]
@@ -169,7 +176,7 @@ class Botbox:
                 async with deadline, lockdown(allow, claim.path, token) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
-                        token, [*flags, image, RELAY, "sh", "-c", command], out, err
+                        token, [*flags, image, RELAY, "sh", "-c", command], out, err, output
                     )
                     transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
             except TimeoutError as timed_out:
@@ -290,19 +297,33 @@ class Botbox:
                 result = RunResult("", "", -1, {}, "", image)
             raise Timeout(limit, result) from timed_out
 
-    async def _attach(self, token: str, args: list[str], out: bytearray, err: bytearray) -> int:
-        """Run the agent container to its exit, output into `out` and `err`, remove it, and return
-        its exit code.
-        """
+    async def _attach(
+        self, token: str, args: list[str], out: bytearray, err: bytearray, output: Path | None
+    ) -> int:
+        """Run with file sinks or legacy buffers, then remove the agent container."""
         name = f"botbox-agent-{token}"
         args = ["--name", name, *args]
         try:
-            client = await docker_run(
-                args, stdin=asyncio.subprocess.DEVNULL, stdout=out, stderr=err
-            )
-            exit_code = await agent_exit(
-                name, ["docker", "run", *args], client, err.decode(errors="replace")
-            )
+            with ExitStack() as stack:
+                stdout = (
+                    out
+                    if output is None
+                    else stack.enter_context((output / "stdout.txt").open("wb"))
+                )
+                stderr = (
+                    err
+                    if output is None
+                    else stack.enter_context((output / "stderr.txt").open("wb"))
+                )
+                client = await docker_run(
+                    args, stdin=asyncio.subprocess.DEVNULL, stdout=stdout, stderr=stderr
+                )
+                diagnostic = (
+                    err.decode(errors="replace")
+                    if output is None
+                    else f"See {output / 'stderr.txt'}"
+                )
+                exit_code = await agent_exit(name, ["docker", "run", *args], client, diagnostic)
         finally:
             await settle(warned(remove_within(name), f"remove its agent container {name}"))
         return exit_code
