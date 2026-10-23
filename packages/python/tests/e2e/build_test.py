@@ -33,7 +33,7 @@ asyncio.run(Botbox(Agent()).build())
 PROCESSES = 4
 
 
-class SlowAgent:
+class SlowAgent(ClaudeAgent):
     """An agent image whose one step sleeps `seconds`, behind a marker no cache has seen."""
 
     def __init__(self, directory: Path, seconds: float) -> None:
@@ -113,7 +113,7 @@ def describe_build() -> None:
         box = Botbox(agent)
         tags = await asyncio.gather(box.build(), box.build())
         watcher.cancel()
-        assert tags == [agent.image, agent.image]
+        assert list(tags) == [agent.image, agent.image]
         assert watch.most == 1
 
     async def it_takes_turns_with_a_build_of_one_tag_in_another_process(

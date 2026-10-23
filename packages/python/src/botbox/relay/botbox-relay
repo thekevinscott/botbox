@@ -5,6 +5,10 @@ if [ "$(id -u)" = "$(awk '/^Uid:/ {print $2}' /proc/1/status)" ]; then
     echo "botbox-relay: the agent runs as the proxy's uid $(id -u); use another" >&2
     exit 125
 fi
+# OpenShift's arbitrary-uid pattern: name a uid the image has no passwd entry for.
+if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
+    echo "user:x:$(id -u):$(id -g):user:/home/user:/bin/sh" >>/etc/passwd
+fi
 # The subshell orphans socat, so the command's shell never waits on it.
 (socat TCP-LISTEN:41893,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/proxy.sock &)
 tries=0

@@ -240,7 +240,7 @@ def describe_build() -> None:
 def describe_botbox() -> None:
     def it_takes_its_options_by_keyword_only(layer: Path) -> None:
         with pytest.raises(TypeError):
-            Botbox(ClaudeAgent(), layer)  # type: ignore[misc]
+            Botbox(ClaudeAgent(), layer)  # type: ignore[call-arg]
 
     def it_does_not_build_on_construction(buildx: Buildx, layer: Path) -> None:
         Botbox(ClaudeAgent(), dockerfile=layer, allow=["registry.npmjs.org"])

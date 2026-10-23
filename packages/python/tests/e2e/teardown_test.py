@@ -1,24 +1,45 @@
 """What a real run leaves behind on the host: nothing, pass or fail, and nothing it said is lost."""
 
+import tempfile
+from collections.abc import Iterator
+from pathlib import Path
+from unittest.mock import patch
+
 import pytest
-from conftest import leftovers
+from run_test import Runs
 
 from botbox import Botbox
 
 
+@pytest.fixture
+def temp(tmp_path: Path) -> Iterator[Path]:
+    """This test's own temp dir, so other botbox runs on the host are not counted."""
+    directory = tmp_path / "tmp"
+    directory.mkdir()
+    with patch.object(tempfile, "tempdir", str(directory)):
+        yield directory
+
+
+@pytest.fixture
+def runs(temp: Path) -> Iterator[Runs]:
+    runs = Runs(temp)
+    yield runs
+    runs.clean()
+
+
 def describe_teardown() -> None:
     @pytest.mark.parametrize("command", ["true", "exit 1", "kill -9 $$"])
-    async def it_leaves_nothing(box: Botbox, command: str) -> None:
-        before = leftovers()
+    async def it_leaves_nothing(box: Botbox, runs: Runs, command: str) -> None:
         await box.run(command)
-        assert leftovers() == before
+        assert len(runs.tokens) == 1
+        assert runs.leftovers() == []
 
-    async def it_leaves_nothing_after_an_async_with_block(box: Botbox) -> None:
-        before = leftovers()
+    async def it_leaves_nothing_after_an_async_with_block(box: Botbox, runs: Runs) -> None:
         async with box:
             await box.run("true")
             await box.run("exit 1")
-        assert leftovers() == before
+        assert len(runs.tokens) == 2
+        assert runs.leftovers() == []
 
 
 def describe_a_command_that_ends_at_once() -> None:

@@ -9,7 +9,7 @@ RUN npm install -g @earendil-works/pi-coding-agent@0.74.0
 
 RUN usermod --login user --home /home/user --move-home node && groupmod --new-name user node
 
-RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + && chmod 666 /etc/passwd
 
 COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay
 

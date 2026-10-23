@@ -10,8 +10,11 @@ lint:
 format:
     cd packages/python && uv run ruff check --fix . && uv run ruff format .
 
+# Separate runs: tests/ resolves sibling imports (conftest, fake_docker_test) as top-level modules.
 typecheck:
     cd packages/python && uv run mypy src
+    cd packages/python && uv run mypy tests/integration
+    cd packages/python && uv run mypy tests/e2e
 
 test-unit:
     cd packages/python && uv run pytest src
