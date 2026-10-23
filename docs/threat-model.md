@@ -1,117 +1,209 @@
+---
+outline: 2
+---
+
 # Threat Model
 
 botbox runs an agent with its permission prompts off. So it treats everything inside the box as hostile: the agent, the files it reads, the pages it fetches and every process it starts. A repo with instructions planted in a README, or a prompt-injected web page, can turn a well-meaning agent into an attacker. This page lists what that attacker can do, what botbox does about it, and what is left to you.
 
 Trusted: the host, the Docker daemon, your code that calls botbox, your `dockerfile`, and your choice of mounts and allowed hosts. Anyone who can reach the Docker daemon is root on the host in practice, and is out of scope.
 
-Each section answers four questions. Who is the attacker? What does botbox do today? What remains? Why doesn't botbox close the gap on its own?
+Each threat has four parts: who attacks, what botbox does about it now, what's left for you to handle, and why botbox doesn't close the gap itself.
 
 ## Forged session events
 
-**Attacker.** Any process in the box: a tool call, a test script from the repo, a build step. The agent CLI's stdout is a pipe to botbox. Processes the CLI starts may inherit it. Any process under the same uid can also open it through `/proc/<pid>/fd/1` of the shell above the CLI. Whatever it writes there, botbox reads as the agent's output.
+### Who Attacks
 
-**Today.** Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `result.stdout` is whatever reached the container's stdout.
+Any process in the box: a tool call, a test script from the repo, a build step. The agent CLI's stdout is a pipe to botbox. Processes the CLI starts may inherit it. Any process under the same uid can also open it through `/proc/<pid>/fd/1` of the shell above the CLI. Whatever it writes there, botbox reads as the agent's output.
 
-**What remains.** All of it. Treat events and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** It can't from outside the container. The CLI and every process it starts run as one uid and write the same pipe, so nothing outside can tell who wrote a line. A fix needs the agent's help: a CLI that writes events to a descriptor its tools can't reach, or runs its tools under another uid.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `result.stdout` is whatever reached the container's stdout.
+
+### What's Left
+
+All of it. Treat events and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
+
+### Why botbox Doesn't Close It
+
+It can't from outside the container. The CLI and every process it starts run as one uid and write the same pipe, so nothing outside can tell who wrote a line. A fix needs the agent's help: a CLI that writes events to a descriptor its tools can't reach, or runs its tools under another uid.
 
 ## Credential theft
 
-**Attacker.** The agent, or anything it runs. The login botbox stages in the home is readable by the agent's uid. A copied Claude Code or Codex login holds a refresh token as well as the access token, so a stolen copy can outlive the run. An `api_key` is in a file the agent can read too.
+### Who Attacks
 
-**Today.** botbox copies only the harness's credential files into a fresh home, never the host's home or `.env` (see [Home and Credentials](./explanation/#home-and-credentials)). With `api_key`, the box gets a file that holds the key and nothing else. The copy means a refresh inside the box never touches the host's file. The home is deleted after the run.
+The agent, or anything it runs. The login botbox stages in the home is readable by the agent's uid. A copied Claude Code or Codex login holds a refresh token as well as the access token, so a stolen copy can outlive the run. An `api_key` is in a file the agent can read too.
 
-**What remains.** The agent can read the token and send it out through any allowed host (see the next section), write it into a read-write mount, or print it into a result you publish. Using a stolen refresh token can also rotate the login and sign out the host's own sessions.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** It could; it isn't done yet. The [#65 spike](https://github.com/thekevinscott/botbox/tree/spike-65/spikes/65) ran Claude Code and Codex with placeholder credentials and an Envoy sidecar that adds the real token outside the box. No real token reached the home. pi was not tested. Until then, prefer `api_key` with a scoped key and a spend limit, and revoke it if a run looks wrong.
+botbox copies only the harness's credential files into a fresh home, never the host's home or `.env` (see [Home and Credentials](./explanation/#home-and-credentials)). With `api_key`, the box gets a file that holds the key and nothing else. The copy means a refresh inside the box never touches the host's file. The home is deleted after the run.
+
+### What's Left
+
+The agent can read the token and send it out through any allowed host (see the next section), write it into a read-write mount, or print it into a result you publish. Using a stolen refresh token can also rotate the login and sign out the host's own sessions.
+
+### Why botbox Doesn't Close It
+
+It could; it isn't done yet. The [#65 spike](https://github.com/thekevinscott/botbox/tree/spike-65/spikes/65) ran Claude Code and Codex with placeholder credentials and an Envoy sidecar that adds the real token outside the box. No real token reached the home. pi was not tested. Until then, prefer `api_key` with a scoped key and a spend limit, and revoke it if a run looks wrong.
 
 ## Exfiltration through allowed hosts
 
-**Attacker.** The agent, sending data out. It has nowhere to send it but the proxy.
+### Who Attacks
 
-**Today.** The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+The agent, sending data out. It has nowhere to send it but the proxy.
 
-**What remains.** Anything an allowed host accepts. The model host is always allowed. The agent can call its API with a key of the attacker's own and store data in the attacker's account. An allowed code host takes a push or a gist. HTTPS goes through as a CONNECT tunnel, so the proxy sees the host and port, never the path or the body. Inside the tunnel the client can also ask for a different site served from the same address (domain fronting). Whether that works depends on the host's CDN. The proxy log shows which hosts were reached, not what was sent.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** Rules on paths and headers need the proxy to see inside TLS. For the model host, the #65 design gets there without interception: the agent talks plain HTTP to the sidecar, which allows only the API paths the CLI uses and overwrites the auth header, so a planted key never reaches the API. For other hosts it would take TLS interception with a CA inside the box. That is possible, not done, and breaks clients that pin certificates. A check that the TLS server name matches the CONNECT host would stop fronting; tinyproxy can't do it, so it means replacing the proxy. Keep `allow` short.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+
+### What's Left
+
+Anything an allowed host accepts. The model host is always allowed. The agent can call its API with a key of the attacker's own and store data in the attacker's account. An allowed code host takes a push or a gist. HTTPS goes through as a CONNECT tunnel, so the proxy sees the host and port, never the path or the body. Inside the tunnel the client can also ask for a different site served from the same address (domain fronting). Whether that works depends on the host's CDN. The proxy log shows which hosts were reached, not what was sent.
+
+### Why botbox Doesn't Close It
+
+Rules on paths and headers need the proxy to see inside TLS. For the model host, the #65 design gets there without interception: the agent talks plain HTTP to the sidecar, which allows only the API paths the CLI uses and overwrites the auth header, so a planted key never reaches the API. For other hosts it would take TLS interception with a CA inside the box. That is possible, not done, and breaks clients that pin certificates. A check that the TLS server name matches the CONNECT host would only catch a client that names another site in its TLS hello. Classic fronting names the allowed site there and the other site in the encrypted `Host` header, which only interception sees. Keep `allow` short.
 
 ## Host files through mounts
 
-**Attacker.** The agent, reading or writing what you mount.
+### Who Attacks
 
-**Today.** Nothing from the host is visible except your mounts and the staged credentials. A missing mount source raises before anything runs. A `"ro"` mount is read-only (see [Mounting directories](./guide/mounting-directories)).
+The agent, reading or writing what you mount.
 
-**What remains.** Everything in a mount is readable: `.env` files, tokens in `.git/config` remote URLs, anything else in the tree. A `"rw"` mount lets the agent write files that run later on the host, outside the box: git hooks, `core.hooksPath` or `core.fsmonitor` in `.git/config`, build scripts, package scripts, direnv or editor config. It can also leave a symlink that a host tool follows later.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** Writing to the mount is the feature. botbox can't tell a fix from a planted hook. It could offer a mode that copies a directory in and hands back a diff; that isn't done yet. Until then, mount a fresh clone or a copy, not your working tree, and review what changed before you run anything in it on the host.
+Nothing from the host is visible except your mounts and the staged credentials. A missing mount source raises before anything runs. A `"ro"` mount is read-only (see [Mounting directories](./guide/mounting-directories)).
+
+### What's Left
+
+Everything in a mount is readable: `.env` files, tokens in `.git/config` remote URLs, anything else in the tree. A `"rw"` mount lets the agent write files that run later on the host, outside the box: git hooks, `core.hooksPath` or `core.fsmonitor` in `.git/config`, build scripts, package scripts, direnv or editor config. It can also leave a symlink that a host tool follows later.
+
+### Why botbox Doesn't Close It
+
+Writing to the mount is the feature. botbox can't tell a fix from a planted hook. It could offer a mode that copies a directory in and hands back a diff; that isn't done yet. Until then, mount a fresh clone or a copy, not your working tree, and review what changed before you run anything in it on the host.
 
 ## Transcript reads that follow links
 
-**Attacker.** The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
+### Who Attacks
 
-**Today.** A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
 
-**What remains.** One case breaks that assumption ([#112](https://github.com/thekevinscott/botbox/issues/112)). If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** It's being done. [#123](https://github.com/thekevinscott/botbox/pull/123) opens each file without following links and reads only regular files.
+A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+
+### What's Left
+
+One case breaks that assumption ([#112](https://github.com/thekevinscott/botbox/issues/112)). If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+
+### Why botbox Doesn't Close It
+
+It's being done. [#145](https://github.com/thekevinscott/botbox/pull/145) moves transcripts into a per-run directory without following links.
 
 ## Resource exhaustion
 
-**Attacker.** The agent, using up host memory, processes, CPU or disk, by accident or on purpose.
+### Who Attacks
 
-**Today.** The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+The agent, using up host memory, processes, CPU or disk, by accident or on purpose.
 
-**What remains.** On main, all of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and time stay open.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** Memory, processes and CPU it could, and the PRs above do the first two. Any default has to leave room for real workloads, so the defaults are high and you lower them. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Docker's default log driver keeps another copy on the daemon's disk. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+
+### What's Left
+
+All of the above. Open PRs cover part of it: [#124](https://github.com/thekevinscott/botbox/pull/124) caps memory and processes, [#125](https://github.com/thekevinscott/botbox/pull/125) caps a run's output held in memory and the proxy log read, [#126](https://github.com/thekevinscott/botbox/pull/126) drops a session's output once read, and [#122](https://github.com/thekevinscott/botbox/pull/122) turns off Docker's log. After those, CPU, disk in the home, transcript size and time stay open.
+
+### Why botbox Doesn't Close It
+
+Memory, processes and CPU it could, and the PRs above do the first two. Any default has to leave room for real workloads, so the defaults are high and you lower them. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
 
 ## The proxy as a way out
 
-**Attacker.** The agent, sending crafted requests to tinyproxy, the only service it can reach.
+### Who Attacks
 
-**Today.** The proxy runs as its own uid with no capabilities, `no-new-privileges` and a process cap. It listens on its loopback only. Its image and packages are pinned. The agent shares its PID namespace but can't signal it or read its `/proc` (see [Lifetime](./explanation/#lifetime)).
+The agent, sending crafted requests to tinyproxy, the only service it can reach.
 
-**What remains.** A bug in tinyproxy's request parsing would give the agent code running in the proxy container. That container sits on Docker's default bridge with open egress: the internet, the host's bridge address and the local network.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** Limiting the proxy's own egress takes host firewall rules, which need root. botbox runs as you. It keeps the proxy small and pinned instead.
+The proxy runs as its own uid with no capabilities, `no-new-privileges` and a process cap. It listens on its loopback only. Its image and packages are pinned. The agent shares its PID namespace but can't signal it or read its `/proc` (see [Lifetime](./explanation/#lifetime)).
+
+### What's Left
+
+A bug in tinyproxy's request parsing would give the agent code running in the proxy container. That container sits on Docker's default bridge with open egress: the internet, the host's bridge address and the local network.
+
+### Why botbox Doesn't Close It
+
+Limiting the proxy's own egress takes host firewall rules, which need root. botbox runs as you. It keeps the proxy small and pinned instead.
 
 ## Container escape
 
-**Attacker.** The agent, attacking the kernel or Docker.
+### Who Attacks
 
-**Today.** Out of scope: botbox relies on Docker and the kernel. What it adds is in [The Container](./explanation/#the-container): a non-root user, `--cap-drop ALL`, `no-new-privileges`, no setuid binaries in the harness images, no network. Docker's default seccomp profile stays on, and its AppArmor profile where the host has AppArmor.
+The agent, attacking the kernel or Docker.
 
-**What remains.** A kernel bug reachable through the allowed syscalls. Root in the container is root on the host, since the daemon doesn't remap uids by default.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** Stronger isolation is daemon config: user namespace remapping, or a sandboxed runtime such as gVisor. botbox can't install either. It could pass a runtime through to `docker run`; that isn't done yet.
+Out of scope: botbox relies on Docker and the kernel. What it adds is in [The Container](./explanation/#the-container): a non-root user, `--cap-drop ALL`, `no-new-privileges`, no setuid binaries in the harness images, no network. Docker's default seccomp profile stays on, and its AppArmor profile where the host has AppArmor.
+
+### What's Left
+
+A kernel bug reachable through the allowed syscalls. Root in the container is root on the host, since the daemon doesn't remap uids by default.
+
+### Why botbox Doesn't Close It
+
+Stronger isolation is daemon config: user namespace remapping, or a sandboxed runtime such as gVisor. botbox can't install either. It could pass a runtime through to `docker run`; that isn't done yet.
 
 ## Other local users
 
-**Attacker.** Another account on the same host, without Docker access.
+### Who Attacks
 
-**Today.** Each user's runs live in `botbox-<uid>/` under the system temp directory. botbox refuses one that another user made or can open. Homes, credentials and lock files live inside it (see [Lifetime](./explanation/#lifetime)).
+Another account on the same host, without Docker access.
 
-**What remains.** A `run()` command, prompt included, is in the `docker run` arguments, so any local user can read it in the process list. Build locks are files in the shared temp directory, so another user can create or hold one and stall or fail your builds.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** The prompt could go in through a file in the run directory; that isn't done yet. Build locks are shared on purpose: images are shared across the daemon, so builds by different users have to take turns. Moving the locks to a per-user directory would trade a stall for a failed build.
+Each user's runs live in `botbox-<uid>/` under the system temp directory. botbox refuses one that another user made or can open. Homes, credentials and lock files live inside it (see [Lifetime](./explanation/#lifetime)).
+
+### What's Left
+
+A `run()` command, prompt included, is in the `docker run` arguments, so any local user can read it in the process list. Build locks are files in the shared temp directory, so another user can create or hold one and stall or fail your builds.
+
+### Why botbox Doesn't Close It
+
+The prompt could go in through a file in the run directory; that isn't done yet. Build locks are shared on purpose: images are shared across the daemon, so builds by different users have to take turns. Moving the locks to a per-user directory would trade a stall for a failed build.
 
 ## Image supply chain
 
-**Attacker.** Whoever controls an upstream image or package.
+### Who Attacks
 
-**Today.** The proxy image is pinned by digest, its packages by version. The harness images pin each CLI by version.
+Whoever controls an upstream image or package.
 
-**What remains.** The harness images start `FROM node:24.20.0-slim` by tag, not digest. The Debian packages aren't pinned, and npm resolves each CLI's dependencies at build time unless the package ships a lockfile. A rebuild can pick up whatever upstream serves that day.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** It could; it isn't done yet. Digest pins cost a bump for each base image update.
+The proxy image is pinned by digest, its packages by version. The harness images pin each CLI by version.
+
+### What's Left
+
+The harness images start `FROM node:24.20.0-slim` by tag, not digest. The Debian packages aren't pinned, and npm resolves each CLI's dependencies at build time unless the package ships a lockfile. A rebuild can pick up whatever upstream serves that day.
+
+### Why botbox Doesn't Close It
+
+It could; it isn't done yet. Digest pins cost a bump for each base image update.
 
 ## Planted instructions
 
-**Attacker.** A repo or page whose content tells the agent what to do.
+### Who Attacks
 
-**Today.** Claude Code runs with `--strict-mcp-config`, so a repo's own MCP config is ignored. Hooks or settings a repo carries run inside the box like any other tool call.
+A repo or page whose content tells the agent what to do.
 
-**What remains.** The agent may follow the instructions. Every section above is what follows from that.
+### What botbox Does
 
-**Why doesn't botbox mitigate this automatically?** botbox can't tell instructions from data. It limits what an agent that follows them can reach.
+Claude Code runs with `--strict-mcp-config`, so a repo's own MCP config is ignored. Hooks or settings a repo carries run inside the box like any other tool call.
+
+### What's Left
+
+The agent may follow the instructions. Every section above is what follows from that.
+
+### Why botbox Doesn't Close It
+
+botbox can't tell instructions from data. It limits what an agent that follows them can reach.
