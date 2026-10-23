@@ -810,6 +810,23 @@ def describe_run() -> None:
             ]
 
     def describe_timeout() -> None:
+        async def it_keeps_partial_streams_in_a_legacy_timeout_result(
+            runner: Mock, docker_run: Mock
+        ) -> None:
+            async def hang(
+                _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
+            ) -> int:
+                stdout.extend(b"partial\n")
+                stderr.extend(b"err\n")
+                await asyncio.Event().wait()
+                return 0
+
+            docker_run.side_effect = hang
+            with pytest.raises(Timeout) as raised:
+                await Botbox(runner, timeout=0.01).run("sleep 600")
+            result = raised.value.result
+            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:

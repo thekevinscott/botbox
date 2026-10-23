@@ -28,11 +28,13 @@ HOSTILE = (
     " while :; do sleep 1; done"
 )
 
+PRINT = "echo partial; echo err >&2; "
+
 OWNER = f"""
 import asyncio, sys
 from botbox import Botbox, ClaudeAgent
 
-asyncio.run(Botbox(ClaudeAgent()).run({HOSTILE!r}, output=sys.argv[2]))
+asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=sys.argv[2]))
 """
 
 SESSION_OWNER = f"""
@@ -198,22 +200,24 @@ def describe_run() -> None:
         async def it_removes_the_runs_containers_and_home(
             box: Botbox, runs: Runs, command: str, output: Path
         ) -> None:
-            task = asyncio.ensure_future(box.run(command, output=output))
+            task = asyncio.ensure_future(box.run(PRINT + command, output=output))
             await runs.started()
+            await printed(output)
             assert await cancelled(task) < GRACE
             assert runs.leftovers() == []
-            assert (output / "stdout.txt").is_file()
-            assert (output / "stderr.txt").is_file()
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_finishes_through_a_second_cancel(
             box: Botbox, runs: Runs, output: Path
         ) -> None:
-            task = asyncio.ensure_future(box.run("sleep 600", output=output))
+            task = asyncio.ensure_future(box.run(PRINT + "sleep 600", output=output))
             await runs.started()
+            await printed(output)
             assert await cancelled(task, twice=True) < GRACE
             assert runs.leftovers() == []
-            assert (output / "stdout.txt").is_file()
-            assert (output / "stderr.txt").is_file()
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_removes_the_run_when_a_timeout_fires(
             box: Botbox, runs: Runs, output: Path
@@ -221,12 +225,12 @@ def describe_run() -> None:
             started = time.monotonic()
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(8):
-                    await box.run("sleep 600", output=output)
+                    await box.run(PRINT + "sleep 600", output=output)
             assert time.monotonic() - started < 8 + GRACE
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
-            assert (output / "stdout.txt").is_file()
-            assert (output / "stderr.txt").is_file()
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_removes_the_run_and_keeps_what_it_left_when_its_timeout_runs_out(
             box: Botbox, runs: Runs, output: Path
@@ -253,17 +257,24 @@ def describe_run() -> None:
 
             async def fail_once_up() -> None:
                 await runs.started(2)
+                await printed(output / "sleeping")
+                await printed(output / "hostile")
                 await broken.run("true", output=output / "failed")
 
             with pytest.raises(ExceptionGroup) as raised:
                 async with asyncio.TaskGroup() as group:
-                    group.create_task(box.run("sleep 600", output=output / "sleeping"))
-                    group.create_task(box.run(HOSTILE, output=output / "hostile"))
+                    group.create_task(box.run(PRINT + "sleep 600", output=output / "sleeping"))
+                    group.create_task(box.run(PRINT + HOSTILE, output=output / "hostile"))
                     group.create_task(fail_once_up())
             [error] = raised.value.exceptions
             assert isinstance(error, DockerException)
             assert len(runs.tokens) == 2
             assert runs.leftovers() == []
+            for name in ("sleeping", "hostile"):
+                assert (output / name / "stdout.txt").read_text() == "partial\n"
+                assert (output / name / "stderr.txt").read_text() == "err\n"
+            assert (output / "failed" / "stdout.txt").read_text() == ""
+            assert (output / "failed" / "stderr.txt").read_text() == ""
 
     def describe_sigkill_of_the_owner() -> None:
         @pytest.mark.parametrize(
@@ -284,6 +295,8 @@ def describe_run() -> None:
             )
             try:
                 await runs.started()
+                if holder == OWNER:
+                    await printed(tmp_path / "output")
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
                 owner.send_signal(signal.SIGKILL)
                 owner.wait()
@@ -298,8 +311,8 @@ def describe_run() -> None:
                 assert await reap() == [token]
                 assert runs.leftovers() == []
                 if holder == OWNER:
-                    assert (tmp_path / "output" / "stdout.txt").is_file()
-                    assert (tmp_path / "output" / "stderr.txt").is_file()
+                    assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
+                    assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
@@ -311,3 +324,13 @@ def describe_run() -> None:
 @pytest.fixture
 def output(tmp_path: Path) -> Path:
     return tmp_path / "output"
+
+
+async def printed(output: Path) -> None:
+    """Wait for both streams before interrupting a live run."""
+    async with asyncio.timeout(30):
+        while ((output / "stdout.txt").read_text(), (output / "stderr.txt").read_text()) != (
+            "partial\n",
+            "err\n",
+        ):
+            await asyncio.sleep(0.05)

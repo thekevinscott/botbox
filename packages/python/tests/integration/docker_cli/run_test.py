@@ -386,6 +386,9 @@ def describe_run() -> None:
             assert isinstance(error, DockerException)
             assert daemon.containers == []
             assert homes(temp) == []
+            assert (output / "sleeping" / "stdout.txt").read_text() == "partial\n"
+            assert (output / "sleeping" / "stderr.txt").read_text() == "err\n"
+            assert "Unable to find image" in (output / "failed" / "stderr.txt").read_text()
 
 
 def describe_the_agent_user() -> None:
