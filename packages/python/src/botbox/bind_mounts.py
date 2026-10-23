@@ -1,3 +1,4 @@
+import contextlib
 import posixpath
 from collections.abc import Sequence
 from pathlib import Path
@@ -25,6 +26,6 @@ def bind_mounts(
         if not any(start == t or start.startswith(t.rstrip("/") + "/") for t in targets):
             raise ValueError(f"workdir {workdir} is not a mounted path or inside one")
     for source, _, _ in volumes:
-        if not Path(source).exists():
+        with contextlib.suppress(FileExistsError):
             Path(source).mkdir(parents=True)
     return volumes
