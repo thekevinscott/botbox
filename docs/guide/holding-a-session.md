@@ -15,7 +15,7 @@ async with Botbox(agent) as box:
 
 `await live.message(text)` returns when the agent ends its turn, with that turn's events: the CLI's JSON lines, parsed. `live.stream(text)` yields the same events as they arrive. The events are the CLI's own format; for pi, the reply is the last `message_end` whose `message.role` is `assistant`.
 
-Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../reference/#runresult). If the block raises or is cancelled, `live.result` still holds what was captured, with `exit_code` -1.
+Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../api/run-result). If the block raises or is cancelled, `live.result` still holds what was captured, with `exit_code` -1.
 
 `ClaudeAgent` and `PiAgent` have a session mode. `CodexAgent` does not: to hold a session with a Codex model, run it through pi on OpenRouter, `PiAgent("openrouter", "openai/<model>")`.
 

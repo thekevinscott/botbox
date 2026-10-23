@@ -8,4 +8,4 @@ Recipes for common tasks once you have a first run working.
 - [Holding a session](./holding-a-session) — send several messages to one live agent.
 - [Reading the result](./reading-the-result) — stdout, exit code, transcript, proxy log.
 
-For every argument and field, see the [Reference](../reference/).
+For every argument and field, see the [API pages](../api/botbox).
