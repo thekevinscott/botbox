@@ -1,0 +1,7 @@
+{
+  "command": "just test-e2e",
+  "ran_at": 1792783874,
+  "exit_code": 0,
+  "commit": "b436c8a9bdfd688839b44b4b00f651d9f9caa8b2",
+  "branch": "output-folder"
+}
