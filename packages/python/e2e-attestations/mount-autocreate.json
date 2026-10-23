@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/mounts_test.py",
-  "ran_at": 1792782631,
+  "ran_at": 1792783009,
   "exit_code": 0,
-  "commit": "bd6d3c2ab17b76e5a8fab34f0dc84b08af61a367",
+  "commit": "ef8de9038f6bcd5c2912f87d2f010579c7658f82",
   "branch": "mount-autocreate"
 }
