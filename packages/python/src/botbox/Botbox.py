@@ -32,6 +32,9 @@ from botbox.warned import warned
 class Botbox:
     """An agent, an optional image layer on top of it, and the extra hosts its proxy admits.
 
+    `memory` (a `docker run --memory` size) and `pids` cap the agent's container; `None` lifts
+    either cap. The defaults are deliberately high, so set them to what the agent needs.
+
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
     so a run or session in progress unwinds and tears down, then the block raises
     `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
@@ -47,6 +50,8 @@ class Botbox:
         *,
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
+        memory: str | None = "64g",
+        pids: int | None = 32768,
     ) -> None:
         if os.getuid() == 0:
             raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
@@ -55,6 +60,8 @@ class Botbox:
         if isinstance(allow, str):
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
+        self.memory = memory
+        self.pids = pids
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -257,6 +264,10 @@ class Botbox:
         """
         agent = self.agent
         mounts = [(str(home), agent.home, "rw"), (str(jail.sockets), SOCKET_DIR, "ro"), *volumes]
+        caps = [
+            *([] if self.memory is None else ["--memory", self.memory]),
+            *([] if self.pids is None else ["--pids-limit", str(self.pids)]),
+        ]
         return [
             "--label",
             f"botbox.run={token}",
@@ -276,4 +287,5 @@ class Botbox:
             "ALL",
             "--security-opt",
             "no-new-privileges",
+            *caps,
         ]

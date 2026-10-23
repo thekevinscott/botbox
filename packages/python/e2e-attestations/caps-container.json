@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/session_test.py",
+  "ran_at": 1792761860,
+  "exit_code": 0,
+  "commit": "d9c79ecdd78a3819aa823022e37ba4f7dc901925",
+  "branch": "caps-container"
+}
