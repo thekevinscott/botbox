@@ -6,6 +6,7 @@ from botbox.docker.DockerException import DockerException
 from botbox.reap import reap
 from botbox.RunResult import RunResult
 from botbox.Session import Session
+from botbox.Timeout import Timeout
 
 __all__ = [
     "Agent",
@@ -17,5 +18,6 @@ __all__ = [
     "RunResult",
     "Session",
     "SessionAgent",
+    "Timeout",
     "reap",
 ]

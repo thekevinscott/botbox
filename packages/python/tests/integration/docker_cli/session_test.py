@@ -9,7 +9,15 @@ from unittest.mock import Mock, patch
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, token
 
-from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, RunResult, Session
+from botbox import (
+    Botbox,
+    ClaudeAgent,
+    CodexAgent,
+    DockerException,
+    RunResult,
+    Session,
+    Timeout,
+)
 
 SESSION = ClaudeAgent().session_command()
 
@@ -256,6 +264,22 @@ def describe_session() -> None:
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(1), talker.session() as live:
                     await live.message("hang")
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_tears_down_and_raises_what_the_session_left_when_its_timeout_runs_out(
+            talker: Botbox, daemon: Daemon, temp: Path
+        ) -> None:
+            sessions: list[Session] = []
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker.agent, timeout=2).session() as live:
+                    sessions.append(live)
+                    await live.message("hang")
+            result = raised.value.result
+            assert result is sessions[0].result
+            assert result.exit_code == -1
+            assert result.transcript
+            assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
 

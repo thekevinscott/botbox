@@ -6,6 +6,7 @@ import inspect
 
 import botbox
 from botbox.docker.DockerException import DockerException
+from botbox.Timeout import Timeout
 
 
 def describe_botbox() -> None:
@@ -26,6 +27,9 @@ def describe_botbox() -> None:
 
     def it_raises_its_own_docker_exception() -> None:
         assert botbox.DockerException is DockerException
+
+    def it_raises_its_own_timeout() -> None:
+        assert botbox.Timeout is Timeout
 
     def it_does_not_depend_on_python_on_whales() -> None:
         requires = importlib.metadata.requires("botbox") or []

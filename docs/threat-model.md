@@ -104,15 +104,15 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
 
 ### What's Left
 
-All of the above. Wrap every call in `asyncio.timeout`, and keep an eye on the host's temp directory.
+All of the above. Set `timeout`, and keep an eye on the host's temp directory.
 
 ### Why botbox Doesn't Close It
 
-Memory, processes and CPU it could; it isn't done yet. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time limits are the caller's call, since runs vary by orders of magnitude.
+Memory, processes and CPU it could; it isn't done yet. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time has an option but no default, since runs vary by orders of magnitude.
 
 ## The proxy as a way out
 

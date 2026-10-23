@@ -3,6 +3,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from dataclasses import astuple
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, call, patch
@@ -58,6 +59,20 @@ class CommandFailed(Exception):
     """Stands in for the SDK's `DockerException`."""
 
 
+class Timeout(Exception):
+    """Stands in for `botbox.Timeout`."""
+
+    def __init__(self, seconds: float, result: Any) -> None:
+        self.seconds = seconds
+        self.result = result
+
+
+@pytest.fixture(autouse=True)
+def timeout_error() -> Iterator[None]:
+    with patch("botbox.Botbox.Timeout", Timeout):
+        yield
+
+
 @pytest.fixture(autouse=True)
 def lock(steps: list[str]) -> Iterator[None]:
     @asynccontextmanager
@@ -106,6 +121,17 @@ def describe_botbox() -> None:
         monkeypatch.setattr(os, "getuid", lambda: 0)
         with pytest.raises(RuntimeError, match="root"):
             Botbox(agent)
+
+    def it_has_no_timeout_by_default(agent: Mock) -> None:
+        assert Botbox(agent).timeout is None
+
+    def it_holds_the_timeout(agent: Mock) -> None:
+        assert Botbox(agent, timeout=30).timeout == 30
+
+    @pytest.mark.parametrize("seconds", [0, -1])
+    def it_refuses_a_timeout_that_is_not_positive(agent: Mock, seconds: float) -> None:
+        with pytest.raises(ValueError, match="timeout"):
+            Botbox(agent, timeout=seconds)
 
     def describe_sigterm() -> None:
         @pytest.fixture(autouse=True)
@@ -531,6 +557,32 @@ def run_steps(steps: list[str]) -> list[str]:
     return steps[steps.index("start proxy") :]
 
 
+def hang_forever(steps: list[str]) -> Any:
+    """A `docker run` that prints part of its output, then never exits."""
+
+    async def hang(
+        _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
+    ) -> int:
+        steps.append("run agent")
+        stdout.extend(b"partial\n")
+        stderr.extend(b"err\n")
+        await asyncio.Event().wait()
+        return 0
+
+    return hang
+
+
+def stuck_lockdown(*_args: object) -> Any:
+    """A proxy that never comes up."""
+
+    @asynccontextmanager
+    async def lockdown() -> AsyncIterator[Mock]:
+        await asyncio.Event().wait()
+        yield Mock()
+
+    return lockdown()
+
+
 def describe_run() -> None:
     async def it_returns_what_the_run_left(runner: Mock) -> None:
         result = await Botbox(runner).run("claude -p hi")
@@ -752,6 +804,90 @@ def describe_run() -> None:
                 "remove temp home",
                 "warned: remove its temp home",
             ]
+
+    def describe_timeout() -> None:
+        async def it_raises_a_timeout_holding_what_the_run_left(
+            runner: Mock, docker_run: Mock, steps: list[str]
+        ) -> None:
+            docker_run.side_effect = hang_forever(steps)
+            with pytest.raises(Timeout) as raised:
+                await Botbox(runner, timeout=0.01).run("sleep 600")
+            assert raised.value.seconds == 0.01
+            assert astuple(raised.value.result) == (
+                "partial\n",
+                "err\n",
+                -1,
+                {".claude/projects/a.jsonl": "{}\n"},
+                "CONNECT api.anthropic.com:443\n",
+                "an-agent-123:latest",
+            )
+
+        async def it_tears_down_and_reads_the_transcript_before_removing_the_home(
+            runner: Mock, docker_run: Mock, steps: list[str]
+        ) -> None:
+            docker_run.side_effect = hang_forever(steps)
+            with pytest.raises(Timeout):
+                await Botbox(runner, timeout=0.01).run("sleep 600")
+            assert run_steps(steps) == [
+                "start proxy",
+                "run agent",
+                f"remove {AGENT}",
+                "settle",
+                f"warned: remove its agent container {AGENT}",
+                "stop proxy",
+                "settle",
+                "read transcript",
+                "warned: read its transcript",
+                "settle",
+                "remove temp home",
+                "warned: remove its temp home",
+            ]
+
+        async def it_takes_the_calls_timeout_over_the_boxs(
+            runner: Mock, docker_run: Mock, steps: list[str]
+        ) -> None:
+            docker_run.side_effect = hang_forever(steps)
+            with pytest.raises(Timeout) as raised:
+                await Botbox(runner, timeout=600).run("sleep 600", timeout=0.01)
+            assert raised.value.seconds == 0.01
+
+        async def it_returns_a_run_that_ends_in_time(runner: Mock) -> None:
+            result = await Botbox(runner, timeout=60).run("true")
+            assert result.exit_code == 3
+
+        async def it_starts_the_clock_once_the_image_is_built(
+            runner: Mock, docker_build: Mock
+        ) -> None:
+            async def slow_build(*_args: object, **_options: object) -> None:
+                await asyncio.sleep(0.05)
+
+            docker_build.side_effect = slow_build
+            result = await Botbox(runner, timeout=0.02).run("true")
+            assert result.exit_code == 3
+
+        async def it_holds_an_empty_result_when_the_agent_never_started(
+            runner: Mock, lockdown: Mock, read_transcript: Mock
+        ) -> None:
+            lockdown.side_effect = stuck_lockdown
+            read_transcript.side_effect = None
+            read_transcript.return_value = {}
+            with pytest.raises(Timeout) as raised:
+                await Botbox(runner, timeout=0.01).run("true")
+            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+
+        async def it_lets_another_timeout_error_through(runner: Mock, docker_run: Mock) -> None:
+            docker_run.side_effect = TimeoutError("docker hung")
+            with pytest.raises(TimeoutError, match="docker hung") as raised:
+                await Botbox(runner, timeout=60).run("true")
+            assert type(raised.value) is TimeoutError
+
+        @pytest.mark.parametrize("seconds", [0, -1])
+        async def it_refuses_a_timeout_that_is_not_positive_before_building(
+            runner: Mock, docker_build: Mock, seconds: float
+        ) -> None:
+            with pytest.raises(ValueError, match="timeout"):
+                await Botbox(runner).run("true", timeout=seconds)
+            docker_build.assert_not_called()
 
 
 @pytest.fixture
@@ -1078,3 +1214,84 @@ def describe_session() -> None:
                     pass
             lockdown.assert_not_called()
             assert steps[-1] == "warned: remove its temp home"
+
+    def describe_timeout() -> None:
+        async def it_raises_a_timeout_holding_what_the_session_left(
+            talker: Mock, held: Mock, steps: list[str]
+        ) -> None:
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker, timeout=0.01).session():
+                    await asyncio.Event().wait()
+            assert raised.value.seconds == 0.01
+            assert raised.value.result is held.result
+            assert astuple(raised.value.result) == (
+                "out\ufffd\n",
+                "err\n",
+                -1,
+                {".claude/projects/a.jsonl": "{}\n"},
+                "CONNECT api.anthropic.com:443\n",
+                "an-agent-123:latest",
+            )
+            assert run_steps(steps) == [
+                "start proxy",
+                "hold session",
+                "release session",
+                f"remove {AGENT}",
+                "settle",
+                f"warned: remove its agent container {AGENT}",
+                "stop proxy",
+                "settle",
+                "read transcript",
+                "warned: read its session artifacts",
+                "settle",
+                "remove temp home",
+                "warned: remove its temp home",
+            ]
+
+        async def it_times_the_whole_block_not_each_step(talker: Mock) -> None:
+            with pytest.raises(Timeout):
+                async with Botbox(talker, timeout=0.05).session():
+                    for _ in range(50):
+                        await asyncio.sleep(0.01)
+
+        async def it_times_the_wait_for_the_cli_to_exit(talker: Mock, held: Mock) -> None:
+            held.stdin.close.side_effect = None
+            with pytest.raises(Timeout):
+                async with Botbox(talker, timeout=0.01).session():
+                    pass
+
+        async def it_takes_the_calls_timeout_over_the_boxs(talker: Mock) -> None:
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker, timeout=600).session(timeout=0.01):
+                    await asyncio.Event().wait()
+            assert raised.value.seconds == 0.01
+
+        async def it_leaves_a_session_that_ends_in_time(talker: Mock, held: Mock) -> None:
+            async with Botbox(talker, timeout=60).session():
+                pass
+            assert held.result is not None
+            assert held.result.exit_code == 3
+
+        async def it_holds_an_empty_result_when_the_session_never_started(
+            talker: Mock, lockdown: Mock
+        ) -> None:
+            lockdown.side_effect = stuck_lockdown
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker, timeout=0.01).session():
+                    pass
+            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+
+        async def it_lets_another_timeout_error_through(talker: Mock) -> None:
+            with pytest.raises(TimeoutError, match="docker hung") as raised:
+                async with Botbox(talker, timeout=60).session():
+                    raise TimeoutError("docker hung")
+            assert type(raised.value) is TimeoutError
+
+        @pytest.mark.parametrize("seconds", [0, -1])
+        async def it_refuses_a_timeout_that_is_not_positive_before_building(
+            talker: Mock, docker_build: Mock, seconds: float
+        ) -> None:
+            with pytest.raises(ValueError, match="timeout"):
+                async with Botbox(talker).session(timeout=seconds):
+                    pass
+            docker_build.assert_not_called()
