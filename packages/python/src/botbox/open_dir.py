@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+DIRECTORY = os.O_DIRECTORY | os.O_NOFOLLOW
 
 
 def open_dir(root: Path, parts: tuple[str, ...]) -> int:

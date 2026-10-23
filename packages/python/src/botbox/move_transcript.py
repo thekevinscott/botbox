@@ -16,7 +16,7 @@ def move_transcript(home: Path, pattern: str, staging: Path, dest: Path) -> None
     `staging`. `staging` and `dest` must be on `home`'s filesystem; a file that won't move is
     skipped.
     """
-    dest.mkdir(mode=0o700, exist_ok=True)
+    dest.mkdir(mode=0o700)
     staging.mkdir(mode=0o700)
     staged = os.open(staging, DIRECTORY)
     try:

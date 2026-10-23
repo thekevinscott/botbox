@@ -70,6 +70,29 @@ def describe_move_transcript() -> None:
         move_transcript(home, "*.jsonl", staging, dest)
         assert (dest / "a.jsonl").read_text() == "a"
 
+    def it_moves_a_file_nested_below_the_matched_dirs(
+        home: Path, staging: Path, dest: Path
+    ) -> None:
+        (home / "sessions" / "a" / "b").mkdir(parents=True)
+        (home / "sessions" / "a" / "b" / "c.jsonl").write_text("c")
+        move_transcript(home, "sessions/**/*.jsonl", staging, dest)
+        assert kept(dest) == {"sessions/a/b/c.jsonl": "c"}
+
+    def it_keeps_what_it_makes_to_its_owner(home: Path, staging: Path, dest: Path) -> None:
+        (home / "sessions" / "a.jsonl").write_text("a")
+        (home / "sessions" / "a.jsonl").chmod(0o777)
+        move_transcript(home, "sessions/*.jsonl", staging, dest)
+        modes = {
+            p: p.stat().st_mode & 0o777
+            for p in (dest, staging, dest / "sessions", dest / "sessions" / "a.jsonl")
+        }
+        assert modes == {
+            dest: 0o700,
+            staging: 0o700,
+            dest / "sessions": 0o700,
+            dest / "sessions" / "a.jsonl": 0o600,
+        }
+
     def it_skips_directories_that_match(home: Path, staging: Path, dest: Path) -> None:
         (home / "sessions" / "dir.jsonl").mkdir()
         move_transcript(home, "sessions/*.jsonl", staging, dest)

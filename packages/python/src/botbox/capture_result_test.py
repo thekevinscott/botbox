@@ -76,6 +76,14 @@ def describe_capture_result() -> None:
             result = capture(scratch)
         assert result.proxy.read_text() == ""
 
+    def it_points_the_warning_at_its_caller(scratch: Path) -> None:
+        (scratch / "proxy" / "tinyproxy.log").unlink()
+        with pytest.warns(RuntimeWarning) as w:
+            capture_result(
+                made, scratch / "home", "sessions/*.jsonl", scratch / "proxy" / "tinyproxy.log"
+            )
+        assert w[0].filename == __file__
+
     def it_cleans_the_result_up_when_moving_the_transcript_fails(scratch: Path, move: Mock) -> None:
         results: list[Mock] = []
 

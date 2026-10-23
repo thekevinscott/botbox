@@ -31,6 +31,13 @@ def describe_run_result() -> None:
             "files",
         ]
 
+    def it_compares_and_shows_only_its_fields(files: Path) -> None:
+        one = RunResult("out", "err", 0, "an-image", files)
+        assert one == RunResult("out", "err", 0, "an-image", files)
+        assert repr(one) == (
+            f"RunResult(stdout='out', stderr='err', exit_code=0, image='an-image', files={files!r})"
+        )
+
     def it_is_frozen(result: RunResult) -> None:
         with pytest.raises(dataclasses.FrozenInstanceError):
             result.exit_code = 1  # type: ignore[misc]

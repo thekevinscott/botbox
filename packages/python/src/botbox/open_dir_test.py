@@ -32,6 +32,11 @@ def describe_open_dir() -> None:
         with pytest.raises(OSError):
             open_dir(root, ("link", "b"))
 
+    def it_refuses_a_file_on_the_way(root: Path) -> None:
+        (root / "a" / "file").write_text("")
+        with pytest.raises(NotADirectoryError):
+            open_dir(root, ("a", "file"))
+
     def it_refuses_a_root_that_is_a_link(root: Path, tmp_path: Path) -> None:
         (tmp_path / "linked").symlink_to(root)
         with pytest.raises(OSError):
