@@ -1,0 +1,8 @@
+/* Right-hand outline: show a section's subheadings only while you're in it. */
+.VPDocAsideOutline .outline-link + .nested {
+  display: none;
+}
+
+.VPDocAsideOutline li:has(.outline-link.active) > .nested {
+  display: block;
+}
