@@ -1,0 +1,1 @@
+**Added**: the Python Docker client accepts caller-owned files and descriptors for stdout and stderr alongside captured bytearrays. File output goes directly to the Docker process, without an in-memory capture or capture-size limit; callers retain ownership of their streams.
