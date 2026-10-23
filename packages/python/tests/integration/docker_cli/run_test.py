@@ -217,12 +217,12 @@ def describe_run() -> None:
             await box.run("true", mounts=[(tests / "a_test.py", "/a_test.py", "ro")])
             assert volume(agent_run(daemon), "/a_test.py") == (str(tests / "a_test.py"), "ro")
 
-        async def it_raises_before_anything_when_a_host_path_is_missing(
+        async def it_creates_a_missing_host_path_as_a_directory_and_mounts_it(
             box: Botbox, daemon: Daemon, tmp_path: Path
         ) -> None:
-            with pytest.raises(FileNotFoundError, match="gone"):
-                await box.run("true", mounts=[(tmp_path / "gone", "/gone", "ro")])
-            assert daemon.calls == []
+            await box.run("true", mounts=[(tmp_path / "new", "/new", "rw")])
+            assert (tmp_path / "new").is_dir()
+            assert volume(agent_run(daemon), "/new") == (str(tmp_path / "new"), "rw")
 
     def describe_workdir() -> None:
         async def it_accepts_the_agents_home(box: Botbox, daemon: Daemon) -> None:

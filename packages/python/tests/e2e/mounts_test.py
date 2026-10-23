@@ -1,6 +1,7 @@
 """Bind mounts and `workdir` in a real run, and the setup errors that stop one before it starts."""
 
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -66,8 +67,9 @@ def describe_workdir() -> None:
 
 
 def describe_a_missing_host_path() -> None:
-    def it_raises_before_any_container(box: Botbox, tmp_path: Path) -> None:
-        before = leftovers()
-        with pytest.raises(FileNotFoundError):
-            asyncio.run(box.run("true", mounts=[(tmp_path / "gone", "/gone", "ro")]))
-        assert leftovers() == before
+    def it_is_created_owned_by_the_host_user_and_writable(box: Botbox, tmp_path: Path) -> None:
+        missing = tmp_path / "new" / "out"
+        result = asyncio.run(box.run("echo made > /out/x.txt", mounts=[(missing, "/out", "rw")]))
+        assert result.exit_code == 0
+        assert missing.stat().st_uid == os.getuid()
+        assert (missing / "x.txt").read_text() == "made\n"
