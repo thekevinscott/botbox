@@ -178,6 +178,15 @@ def describe_run() -> None:
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
+    async def it_persists_streams_when_output_is_supplied(
+        box: Botbox, runs: Runs, tmp_path: Path
+    ) -> None:
+        result = await box.run("echo out; echo err >&2; exit 5", output=tmp_path / "output")
+        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
+        assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
+        assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
+        assert runs.leftovers() == []
+
     async def it_returns_an_exit_of_125_from_the_container(box: Botbox, runs: Runs) -> None:
         assert (await box.run("exit 125")).exit_code == 125
         assert runs.leftovers() == []

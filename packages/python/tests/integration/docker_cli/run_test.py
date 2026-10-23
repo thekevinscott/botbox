@@ -380,3 +380,50 @@ def describe_the_agent_user() -> None:
         [agent] = daemon.runs("botbox-agent-")
         assert option(agent, "--user") == f"{os.getuid()}:{os.getgid()}"
         assert "HOME=/home/user" in agent
+
+
+def describe_run_output() -> None:
+    async def it_preserves_large_streams_in_files(
+        box: Botbox, daemon: Daemon, tmp_path: Path
+    ) -> None:
+        stdout, stderr = "x" * 200_000, "y" * 200_000
+        daemon.agent("true", stdout=stdout, stderr=stderr, exit=7)
+        result = await box.run("true", output=tmp_path)
+        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 7)
+        assert (tmp_path / "stdout.txt").read_text() == stdout
+        assert (tmp_path / "stderr.txt").read_text() == stderr
+        assert daemon.containers == []
+
+    async def it_points_to_stderr_when_the_container_never_ran(
+        box: Botbox, daemon: Daemon, tmp_path: Path
+    ) -> None:
+        daemon.agent("true", missing=True)
+        with pytest.raises(DockerException) as raised:
+            await box.run("true", output=tmp_path)
+        assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+        assert "Unable to find image" in (tmp_path / "stderr.txt").read_text()
+        assert daemon.containers == []
+
+    async def it_keeps_live_files_after_cancellation(
+        box: Botbox, daemon: Daemon, tmp_path: Path
+    ) -> None:
+        daemon.agent("sleep 600", stdout="partial\n", stderr="error\n", mode="hang")
+        task = asyncio.create_task(box.run("sleep 600", output=tmp_path))
+        await daemon.hanging()
+        assert (tmp_path / "stdout.txt").read_text() == "partial\n"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert (tmp_path / "stderr.txt").read_text() == "error\n"
+        assert daemon.containers == []
+
+    async def it_keeps_files_and_empty_stream_fields_after_timeout(
+        box: Botbox, daemon: Daemon, tmp_path: Path
+    ) -> None:
+        daemon.agent("sleep 600", stdout="partial\n", mode="hang")
+        with pytest.raises(Timeout) as raised:
+            await box.run("sleep 600", output=tmp_path, timeout=2)
+        result = raised.value.result
+        assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+        assert (tmp_path / "stdout.txt").read_text() == "partial\n"
+        assert daemon.containers == []

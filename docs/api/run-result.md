@@ -2,6 +2,9 @@
 
 Nothing parsed.
 
+When [`run(output=...)`](./run) is used, `stdout` and `stderr` are empty strings;
+read `stdout.txt` and `stderr.txt` in that directory instead. Other fields are unchanged.
+
 | Field       | What it is                                                           |
 | ----------- | -------------------------------------------------------------------- |
 | `stdout`    | The command's standard output.                                       |

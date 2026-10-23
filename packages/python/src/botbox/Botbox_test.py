@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import astuple
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -1295,3 +1295,80 @@ def describe_session() -> None:
                 async with Botbox(talker).session(timeout=seconds):
                     pass
             docker_build.assert_not_called()
+
+
+@pytest.fixture
+def file_run(docker_run: Mock) -> Mock:
+    async def attached(
+        _args: list[str], *, stdout: IO[bytes], stderr: IO[bytes], **_options: Any
+    ) -> int:
+        os.write(stdout.fileno(), b"out\xff\n")
+        os.write(stderr.fileno(), b"err\n")
+        return 3
+
+    docker_run.side_effect = attached
+    return docker_run
+
+
+@pytest.fixture
+def setup_failures(runner: Mock, reap: Mock, docker_build: Mock, lockdown: Mock) -> dict[str, Mock]:
+    return {"reap": reap, "build": docker_build, "staging": runner.stage_auth, "proxy": lockdown}
+
+
+def describe_run_output() -> None:
+    @pytest.mark.parametrize("form", ["path", "string", "relative"])
+    async def it_passes_files_to_docker_and_leaves_the_stream_fields_empty(
+        runner: Mock, file_run: Mock, agent_exit: Mock, tmp_path: Path, form: str
+    ) -> None:
+        output = tmp_path / "nested" / "output"
+        destination: dict[str, str | Path] = {
+            "path": output,
+            "string": str(output),
+            "relative": os.path.relpath(output),
+        }
+        result = await Botbox(runner).run("true", output=destination[form])
+        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
+        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+        assert result.proxy == "CONNECT api.anthropic.com:443\n"
+        assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
+        assert (output / "stderr.txt").read_bytes() == b"err\n"
+        assert file_run.call_args.kwargs["stdout"].closed
+        assert file_run.call_args.kwargs["stderr"].closed
+        assert agent_exit.call_args.args[3] == f"See {output / 'stderr.txt'}"
+
+    @pytest.mark.usefixtures("file_run")
+    async def it_truncates_streams_but_preserves_other_files(runner: Mock, tmp_path: Path) -> None:
+        (tmp_path / "stdout.txt").write_text("old stdout contents")
+        (tmp_path / "stderr.txt").write_text("old stderr contents")
+        (tmp_path / "keep").write_text("keep")
+        await Botbox(runner).run("true", output=tmp_path)
+        assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
+        assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
+        assert (tmp_path / "keep").read_text() == "keep"
+
+    @pytest.mark.parametrize("phase", ["reap", "build", "staging", "proxy"])
+    async def it_clears_previous_streams_before_setup_can_fail(
+        runner: Mock,
+        setup_failures: dict[str, Mock],
+        tmp_path: Path,
+        phase: str,
+        docker_run: Mock,
+    ) -> None:
+        (tmp_path / "stdout.txt").write_text("previous stdout")
+        (tmp_path / "stderr.txt").write_text("previous stderr")
+        setup_failures[phase].side_effect = RuntimeError("setup failed")
+        with pytest.raises(RuntimeError, match="setup failed"):
+            await Botbox(runner).run("true", output=tmp_path)
+        assert (tmp_path / "stdout.txt").read_bytes() == b""
+        assert (tmp_path / "stderr.txt").read_bytes() == b""
+        docker_run.assert_not_called()
+
+    async def it_closes_the_files_when_docker_raises(
+        runner: Mock, file_run: Mock, tmp_path: Path, claim: Mock
+    ) -> None:
+        file_run.side_effect = OSError("cannot start")
+        with pytest.raises(OSError, match="cannot start"):
+            await Botbox(runner).run("true", output=tmp_path)
+        assert file_run.call_args.kwargs["stdout"].closed
+        assert file_run.call_args.kwargs["stderr"].closed
+        claim.return_value.cleanup.assert_called_once()
