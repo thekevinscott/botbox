@@ -9,7 +9,8 @@ export default defineConfig({
   // the build. The changelog/migration fragment folders are the raw record
   // (one file per PR, see docs/internals/repo.md); they never publish either.
   // internals/ is contributor/agent-facing material, also excluded.
-  srcExclude: ['**/AGENTS.md', 'changelog.d/**', 'migrations.d/**', 'internals/**'],
+  // migrations.md is a pointer stub at the conventional path.
+  srcExclude: ['**/AGENTS.md', 'changelog.d/**', 'migrations.d/**', 'internals/**', 'migrations.md'],
   themeConfig: {
     sidebar: [
       {
@@ -42,7 +43,6 @@ export default defineConfig({
       {
         items: [
           { text: 'API Reference', link: '/reference/' },
-          { text: 'Migrations', link: '/migrations' },
         ],
       },
     ],
