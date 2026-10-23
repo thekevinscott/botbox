@@ -41,8 +41,14 @@ export default defineConfig({
         ],
       },
       {
+        text: 'API',
         items: [
-          { text: 'API Reference', link: '/reference/' },
+          { text: 'Botbox', link: '/api/botbox' },
+          { text: 'build()', link: '/api/build' },
+          { text: 'run()', link: '/api/run' },
+          { text: 'RunResult', link: '/api/run-result' },
+          { text: 'session()', link: '/api/session' },
+          { text: 'reap()', link: '/api/reap' },
         ],
       },
     ],
