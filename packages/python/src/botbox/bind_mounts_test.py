@@ -58,6 +58,13 @@ def describe_bind_mounts() -> None:
         bind_mounts([(tmp_path / "file", "/file", "ro")], workdir=None, home=HOME)
         assert (tmp_path / "file").read_text() == "kept"
 
+    def it_tolerates_a_host_path_created_after_any_existence_check(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "raced").mkdir()
+        monkeypatch.setattr(Path, "exists", lambda _: False)
+        bind_mounts([(tmp_path / "raced", "/raced", "rw")], workdir=None, home=HOME)
+
     def describe_workdir() -> None:
         @pytest.mark.parametrize("workdir", ["/work", "/work/", "/work/pkg", Path("/work/a/b")])
         def it_accepts_a_mounted_path_or_one_inside_it(work: Path, workdir: str | Path) -> None:
