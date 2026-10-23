@@ -52,6 +52,52 @@ def describe_Capture() -> None:
             await capture.eof
         assert into == b"line\nmore"
 
+    async def it_pauses_reading_at_high_until_resumed() -> None:
+        into = bytearray()
+        async with Capture(into, high=4) as capture:
+            os.write(capture.write, b"abcd")
+            await asyncio.wait_for(capture.grew.wait(), 1)
+            os.write(capture.write, b"ef")
+            await asyncio.sleep(0.01)
+            assert into == b"abcd"
+            del into[:]
+            capture.resume()
+            capture.release()
+            await asyncio.wait_for(capture.eof, 1)
+        assert into == b"ef"
+
+    async def it_pauses_reading_past_high() -> None:
+        into = bytearray()
+        async with Capture(into, high=4) as capture:
+            os.write(capture.write, b"abcdef")
+            await asyncio.wait_for(capture.grew.wait(), 1)
+            os.write(capture.write, b"gh")
+            await asyncio.sleep(0.01)
+            assert into == b"abcdef"
+            capture.unblock()
+            capture.release()
+            await asyncio.wait_for(capture.eof, 1)
+
+    async def it_reads_to_the_end_once_unblocked() -> None:
+        into = bytearray()
+        async with Capture(into, high=2) as capture:
+            os.write(capture.write, b"ab")
+            await asyncio.wait_for(capture.grew.wait(), 1)
+            os.write(capture.write, b"cd")
+            capture.unblock()
+            capture.release()
+            await asyncio.wait_for(capture.eof, 1)
+        assert into == b"abcd"
+
+    async def it_resumes_reading_that_was_never_paused() -> None:
+        into = bytearray()
+        async with Capture(into, high=4) as capture:
+            capture.resume()
+            os.write(capture.write, b"ab")
+            capture.release()
+            await asyncio.wait_for(capture.eof, 1)
+        assert into == b"ab"
+
     async def it_releases_its_write_end_once() -> None:
         async with Capture(bytearray()) as capture:
             capture.release()

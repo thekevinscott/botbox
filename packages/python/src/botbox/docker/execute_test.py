@@ -24,6 +24,7 @@ class Capture:
         if not open:
             self.eof.set_result(None)
         self.release = Mock()
+        self.unblock = Mock()
 
 
 async def forever(*_args: object) -> None:
@@ -121,6 +122,27 @@ def describe_execute() -> None:
     ) -> None:
         await run(captures, "version")
         assert [capture.release.call_args_list for capture in captures] == [[call()]] * 2
+
+    async def it_stops_pausing_the_captures_once_the_client_exits(
+        exit_code: AsyncMock, captures: tuple[Capture, Capture]
+    ) -> None:
+        async def code(_process: Process) -> int:
+            assert not any(capture.unblock.called for capture in captures)
+            return 0
+
+        exit_code.side_effect = code
+        await run(captures, "version")
+        assert [capture.unblock.call_args_list for capture in captures] == [[call()]] * 2
+
+    async def it_stops_pausing_the_captures_before_reaping_a_failed_wait(
+        exit_code: AsyncMock, reap: AsyncMock, captures: tuple[Capture, Capture]
+    ) -> None:
+        exit_code.side_effect = OSError("wait failed")
+        unblocked: list[bool] = []
+        reap.side_effect = lambda *_a, **_k: unblocked.extend(c.unblock.called for c in captures)
+        with pytest.raises(OSError, match="wait failed"):
+            await run(captures, "build")
+        assert unblocked == [True, True]
 
     async def it_releases_the_captures_when_the_spawn_fails(
         spawn: AsyncMock, captures: tuple[Capture, Capture], reap: AsyncMock

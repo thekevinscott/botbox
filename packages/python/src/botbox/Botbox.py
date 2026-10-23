@@ -211,6 +211,7 @@ class Botbox:
                     async with hold_session(agent, args) as live:
                         yield live
                         live.stdin.close()
+                        await live.drain()
                         client = await live.client
                     stderr = live.stderr.decode(errors="replace")
                     exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)

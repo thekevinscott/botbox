@@ -16,7 +16,7 @@ async def session_result(
     """Capture a stopped session before its temporary home is removed."""
     transcript = await asyncio.to_thread(read_transcript, home, live.agent.transcripts)
     live.result = RunResult(
-        live.stdout.into.decode(errors="replace"),
+        "",
         live.stderr.decode(errors="replace"),
         exit_code,
         transcript,

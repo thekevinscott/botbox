@@ -104,7 +104,7 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole stderr. A session drops each stdout line once it is read, and stops reading the CLI while 1 MiB of it waits unread; a single line can grow to 1 GiB before the session ends. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit; wrap calls in `asyncio.timeout`.
 
 ### What's Left
 

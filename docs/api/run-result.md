@@ -4,7 +4,7 @@ Nothing parsed.
 
 | Field       | What it is                                                           |
 | ----------- | -------------------------------------------------------------------- |
-| `stdout`    | The command's standard output.                                       |
+| `stdout`    | The command's standard output. Empty from a session. |
 | `stderr`    | The command's standard error.                                        |
 | `exit_code` | The command's exit code.                                             |
 | `transcript`| `dict[str, str]`: path relative to the agent's home → file contents. |

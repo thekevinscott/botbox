@@ -17,16 +17,16 @@ def reader() -> Iterator[Mock]:
 
 
 def describe_session_result() -> None:
-    async def it_retains_partial_output_and_reads_the_agents_transcripts(reader: Mock) -> None:
+    async def it_keeps_no_stdout_and_reads_the_agents_transcripts(reader: Mock) -> None:
         live = Mock(
             agent=Mock(transcripts="*.jsonl"),
-            stdout=Mock(into=bytearray(b"partial\xff")),
+            stdout=Mock(into=bytearray(b"unread")),
             stderr=bytearray(b"error\xff"),
         )
         await session_result(live, Path("/home"), "proxy log", "image", -1)
         reader.assert_called_once_with(Path("/home"), "*.jsonl")
         assert live.result.transcript == {"turn.jsonl": "partial"}
-        assert live.result.stdout == "partial�"
+        assert live.result.stdout == ""
         assert live.result.stderr == "error�"
         assert live.result.proxy == "proxy log"
         assert live.result.exit_code == -1

@@ -67,6 +67,31 @@ def describe_session() -> None:
             assert events == [{"type": "assistant", "said": "die"}]
             assert raised.value.return_code == -9
 
+    def describe_retention() -> None:
+        async def it_holds_a_bounded_window_of_a_long_quadratic_turn(talker: Botbox) -> None:
+            held: list[int] = []
+            updates = 0
+            async with talker.session() as live:
+                async for event in live.stream("think"):
+                    held.append(len(live.stdout.into))
+                    updates += event["type"] == "update"
+            assert updates == 600
+            assert max(held) < 2 * 2**20
+            assert live.result is not None
+            assert live.result.stdout == ""
+
+        async def it_tears_down_promptly_with_output_left_unread(
+            talker: Botbox, daemon: Daemon, temp: Path
+        ) -> None:
+            with pytest.raises(ValueError, match="left"):
+                async with asyncio.timeout(5), talker.session() as live:
+                    async for _ in live.stream("think"):
+                        break
+                    await asyncio.sleep(0.5)
+                    raise ValueError("left")
+            assert daemon.containers == []
+            assert homes(temp) == []
+
     def describe_the_result() -> None:
         async def it_leaves_what_the_session_left_once_the_block_ends(
             talker: Botbox, daemon: Daemon
@@ -76,12 +101,7 @@ def describe_session() -> None:
                 await live.message("hi")
                 assert live.result is None
             assert live.result == RunResult(
-                stdout=(
-                    "booting\n"
-                    '{"type": "assistant", "said": "hi"}\n'
-                    "not json\n"
-                    '{"type": "result", "result": "HI"}\n'
-                ),
+                stdout="",
                 stderr="",
                 exit_code=0,
                 transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
@@ -186,7 +206,7 @@ def describe_session() -> None:
             assert live.result is not None
             assert live.result.exit_code == -1
             assert live.result.transcript
-            assert '"said": "hi"' in live.result.stdout
+            assert live.result.stdout == ""
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -218,7 +238,7 @@ def describe_session() -> None:
             assert result is not None
             assert result.exit_code == -1
             assert result.transcript
-            assert '"said": "hang"' in result.stdout
+            assert result.stdout == ""
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
             assert homes(temp) == []
@@ -246,7 +266,7 @@ def describe_session() -> None:
             assert result is not None
             assert result.exit_code == -1
             assert result.transcript
-            assert '"said": "hang"' in result.stdout
+            assert result.stdout == ""
             assert daemon.containers == []
             assert homes(temp) == []
 

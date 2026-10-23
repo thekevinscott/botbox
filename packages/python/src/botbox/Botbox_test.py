@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -757,7 +757,12 @@ def describe_run() -> None:
 @pytest.fixture
 def held(steps: list[str]) -> Mock:
     """The live session `hold_session` yields: its CLI printed, then exits 3 once input ends."""
-    live = Mock(stdout=Mock(into=bytearray(b"out\xff\n")), stderr=bytearray(b"err\n"), result=None)
+    live = Mock(
+        stdout=Mock(into=bytearray(b"unread\n")),
+        stderr=bytearray(b"err\n"),
+        result=None,
+        drain=AsyncMock(side_effect=lambda: steps.append("drain output")),
+    )
 
     def end_input() -> None:
         steps.append("end input")
@@ -816,12 +821,20 @@ def describe_session() -> None:
             assert live.result is None
         result = live.result
         assert result is not None
-        assert result.stdout == "out�\n"
+        assert result.stdout == ""
         assert result.stderr == "err\n"
         assert result.exit_code == 3
         assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
         assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
+
+    async def it_raises_what_draining_the_output_raises(talker: Mock, held: Mock) -> None:
+        held.drain.side_effect = OverflowError("too long")
+        with pytest.raises(OverflowError):
+            async with Botbox(talker).session() as live:
+                pass
+        assert live.result is not None
+        assert live.result.exit_code == -1
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
         with pytest.raises(TypeError, match=r"^Mock has no session mode$"):
@@ -883,6 +896,7 @@ def describe_session() -> None:
             "hold session",
             "talk",
             "end input",
+            "drain output",
             "release session",
             "read exit code",
             f"remove {AGENT}",

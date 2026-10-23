@@ -24,7 +24,8 @@ async def execute(
     """Run `docker` with `args` to its exit, its output into the captures, and return its code.
 
     If this is cancelled or fails first, the client's group is stopped, starting with `signum`,
-    and reaped before the error propagates.
+    and reaped before the error propagates. Once the client exits or is stopped, the captures
+    read to their end.
     """
     try:
         process = await spawn(args, stdin=stdin, stdout=stdout.write, stderr=stderr.write)
@@ -33,7 +34,12 @@ async def execute(
         stderr.release()
     eofs = (stdout.eof, stderr.eof)
     try:
-        code = await exit_code(process)
+        try:
+            code = await exit_code(process)
+        finally:
+            # A paused pipe never reaches its end, and the client and its group may not stop.
+            stdout.unblock()
+            stderr.unblock()
         async with asyncio.timeout(LINGER):
             await ended(process, eofs)
     except TimeoutError:

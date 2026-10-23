@@ -7,16 +7,22 @@ from typing import Any
 from botbox.agents.agent import SessionAgent
 from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
+from botbox.OutputLimitExceeded import OutputLimitExceeded
 from botbox.RunResult import RunResult
+
+# The longest line a session reads; a longer one ends the session.
+LINE_LIMIT = 2**30
+# Unread output past this pauses reading the CLI until the session reads on.
+WINDOW = 2**20
 
 
 class Session:
     """An agent CLI held open in a locked-down container: one message in, one turn's events out.
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
-    collects them. One turn at a time. The CLI's output lands in the `stdout` capture and in
-    `stderr`, and `client` is its attached `docker run`. `result` is set once the session's
-    block is left.
+    collects them. One turn at a time. The CLI's output lands in the `stdout` capture, which
+    holds only what hasn't been read, and in `stderr`. Lines that aren't events are dropped.
+    `client` is its attached `docker run`. `result` is set once the session's block is left.
     """
 
     def __init__(
@@ -32,7 +38,8 @@ class Session:
         self.stdout = stdout
         self.stderr = stderr
         self.client = client
-        self.read = 0
+        self.scanned = 0
+        self.overflow = False
         self.turn = False
         self.result: RunResult | None = None
         client.add_done_callback(self.ended)
@@ -45,9 +52,10 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines that aren't JSON objects stay in the result's stdout but aren't events. If the
-        CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
-        end before the next message goes.
+        Lines that aren't JSON objects are dropped. If the CLI exits mid-turn, the stream ends
+        with what arrived. A turn left early is read to its end before the next message goes. A
+        line over `LINE_LIMIT` kills the CLI and raises `OutputLimitExceeded`, as does every
+        read after it.
         """
         while self.turn and (event := await self.event()) is not None:
             self.turn = not self.agent.turn_ended(event)
@@ -64,21 +72,36 @@ class Session:
         """Send `text` and return the turn's events, once the agent says the turn is over."""
         return [event async for event in self.stream(text)]
 
+    async def drain(self) -> None:
+        """Read the CLI's output to its exit, dropping the events."""
+        while await self.event() is not None:
+            pass
+
     async def event(self) -> dict[str, Any] | None:
         """The next JSON object the CLI prints; None once it has exited without another."""
         printed, grew = self.stdout.into, self.stdout.grew
         while True:
+            if self.overflow:
+                raise OutputLimitExceeded(f"the agent printed a line over {LINE_LIMIT} bytes")
             grew.clear()
-            end = printed.find(b"\n", self.read)
+            end = printed.find(b"\n", self.scanned)
             if end < 0:
+                self.scanned = len(printed)
+                if len(printed) > LINE_LIMIT:
+                    self.overflow = True
+                    self.client.cancel()
+                    del printed[:]
+                    continue
                 if not self.client.done():
+                    self.stdout.resume()
                     await grew.wait()
                     continue
-                if self.read == len(printed):
+                if not printed:
                     return None
                 end = len(printed)
-            line = bytes(printed[self.read : end])
-            self.read = min(end + 1, len(printed))
+            line = printed[: end + 1]
+            del printed[: end + 1]
+            self.scanned = 0
             with suppress(ValueError):
                 event = json.loads(line)
                 if isinstance(event, dict):

@@ -105,12 +105,19 @@ def describe_hold_session() -> None:
                 assert live is session.return_value
         assert session.call_args.args[0] is agent
 
+    async def it_pauses_the_clis_output_at_the_sessions_window(agent: Mock) -> None:
+        with patch("botbox.hold_session.WINDOW", 3):
+            async with hold_session(agent, []) as live:
+                assert live.stdout.high == 3
+                live.stdin.close()
+                await live.client
+
     async def it_streams_the_clis_output_back_to_the_session(agent: Mock) -> None:
         async with hold_session(agent, []) as live:
             assert await live.message('{"type": "end"}') == [{"type": "end"}]
             live.stdin.close()
             assert await live.client == 7
-        assert live.stdout.into == b'{"type": "end"}\n'
+        assert live.stdout.into == b""
         assert live.stderr == b"bye\n"
 
     async def it_holds_the_input_for_this_process_alone(agent: Mock, owner_only: MagicMock) -> None:

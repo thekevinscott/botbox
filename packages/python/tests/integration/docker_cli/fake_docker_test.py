@@ -14,7 +14,8 @@ REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 
 # Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
 # serves until its stdin closes; each agent does what the plan says for its command. A session
-# answers each message on its stdin with an event, a line that isn't JSON, and a result.
+# answers each message on its stdin with an event, a line that isn't JSON, and a result; "think"
+# adds a few MiB of growing updates first.
 FAKE_DOCKER = """
 import json, os, signal, sys, time
 from pathlib import Path
@@ -122,6 +123,14 @@ else:
                 sys.exit(137)
             if said == "die":
                 os.kill(os.getpid(), signal.SIGKILL)
+            if said == "think":
+                # pi's shape: each update repeats the whole message so far, twice.
+                text = ""
+                for _ in range(600):
+                    text += "x" * 16
+                    partial = {"thinking": text}
+                    update = {"type": "update", "delta": "x" * 16, "partial": partial}
+                    print(json.dumps({**update, "message": partial}))
             print("not json")
             print(json.dumps({"type": "result", "result": said.upper()}), flush=True)
     if mode == "hang":
