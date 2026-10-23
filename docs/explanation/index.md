@@ -16,7 +16,7 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 
 `run()` does this, in order, through the `docker` CLI as asyncio subprocesses:
 
-1. Checks the mounts and `workdir`. A missing host path or a `workdir` outside every mount raises here, before anything is built: Docker would create either one root-owned.
+1. Checks the mounts and `workdir`. A `workdir` outside every mount raises here, before anything is built. Then a missing host path is created as a dir owned by you. Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Sweeps up after runs whose owner died (see [Lifetime](#lifetime)), then makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
