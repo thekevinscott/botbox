@@ -580,6 +580,21 @@ def describe_run() -> None:
         assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert result.exit_code == 3
 
+    async def it_preserves_existing_output_and_a_staged_sessions_directory(
+        output: Path, runner: Mock
+    ) -> None:
+        (output / "transcripts").mkdir(parents=True)
+        marker = output / "caller.txt"
+        marker.write_text("keep")
+        transcript = output / "transcripts" / "previous.jsonl"
+        transcript.write_text("previous")
+        runner.stage_auth.side_effect = lambda home: (home / runner.sessions_dir).mkdir(
+            parents=True
+        )
+        assert (await Botbox(runner).run("true", output=output)).exit_code == 3
+        assert marker.read_text() == "keep"
+        assert transcript.read_text() == "previous"
+
     async def it_takes_its_options_by_keyword_only(output: Path, runner: Mock) -> None:
         with pytest.raises(TypeError):
             await Botbox(runner).run("true", (), output=output)  # type: ignore[misc, arg-type]
@@ -968,6 +983,24 @@ def describe_session() -> None:
             ):
                 pass
         docker_build.assert_not_called()
+
+    async def it_preserves_existing_output_and_a_staged_sessions_directory(
+        output: Path, talker: Mock
+    ) -> None:
+        (output / "transcripts").mkdir(parents=True)
+        marker = output / "caller.txt"
+        marker.write_text("keep")
+        transcript = output / "transcripts" / "previous.jsonl"
+        transcript.write_text("previous")
+        talker.stage_auth.side_effect = lambda home: (home / talker.sessions_dir).mkdir(
+            parents=True
+        )
+        async with Botbox(talker).session(output=output) as live:
+            pass
+        assert live.result is not None
+        assert live.result.exit_code == 3
+        assert marker.read_text() == "keep"
+        assert transcript.read_text() == "previous"
 
     async def it_takes_its_options_by_keyword_only(output: Path, talker: Mock) -> None:
         with pytest.raises(TypeError):
