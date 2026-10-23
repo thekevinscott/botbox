@@ -47,6 +47,6 @@ The API is asyncio. From sync code, wrap each call in `asyncio.run(...)`.
 - [Extending the image](./guide/extending-the-image) — install the tools your task needs.
 - [Allowing hosts](./guide/allowing-hosts) — let the agent reach more than its API.
 - [Reading the result](./guide/reading-the-result) — transcript, proxy log, exit code.
-- [Reference](./reference/) — the full API.
+- [API](./api/botbox) — the full API.
 - [Harnesses](./harnesses/) — Claude Code, Codex or pi.
 - [How It Works](./explanation/) — what botbox does with Docker.

@@ -51,4 +51,4 @@ The container is removed once its exit code is read, along with anything written
 await box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
 ```
 
-Next: the [Reference](../reference/#runresult) for every field, or [how a run works](../explanation/#a-run).
+Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
