@@ -1,0 +1,7 @@
+{
+  "command": "uv run pytest tests/integration/tail_test.py",
+  "ran_at": 1792795788,
+  "exit_code": 0,
+  "commit": "44465cf00964ca47ac6944356deb45e91d316409",
+  "branch": "owner-bound-tail"
+}
