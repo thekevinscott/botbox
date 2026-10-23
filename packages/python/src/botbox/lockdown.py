@@ -105,6 +105,8 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
         "bridge",
         "--pids-limit",
         str(PROXY_PIDS),
+        "--log-driver",
+        "none",
         "--cap-drop",
         "ALL",
         "--security-opt",
