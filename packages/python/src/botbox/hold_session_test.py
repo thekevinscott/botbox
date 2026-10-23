@@ -113,6 +113,15 @@ def describe_hold_session() -> None:
         assert live.stdout.into == b'{"type": "end"}\n'
         assert live.stderr == b"bye\n"
 
+    async def it_reads_a_final_unterminated_event_after_the_client_exits(agent: Mock) -> None:
+        async with hold_session(agent, []) as live:
+            live.stdin.write(b'{"type":"end"}')
+            live.stdin.close()
+            assert await live.client == 7
+            assert await live.event() == {"type": "end"}
+            assert await live.event() is None
+        assert live.stdout.into == b'{"type":"end"}'
+
     async def it_holds_the_input_for_this_process_alone(agent: Mock, owner_only: MagicMock) -> None:
         async with hold_session(agent, []) as live:
             owner_only.assert_called_once_with(live.stdin.transport.get_extra_info("pipe"))
