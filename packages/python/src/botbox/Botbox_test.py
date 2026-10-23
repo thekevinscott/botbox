@@ -561,11 +561,11 @@ def hang_forever(steps: list[str]) -> Any:
     """A `docker run` that prints part of its output, then never exits."""
 
     async def hang(
-        _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
+        _args: list[str], *, stdout: IO[bytes], stderr: IO[bytes], **_options: Any
     ) -> int:
         steps.append("run agent")
-        stdout.extend(b"partial\n")
-        stderr.extend(b"err\n")
+        os.write(stdout.fileno(), b"partial\n")
+        os.write(stderr.fileno(), b"err\n")
         await asyncio.Event().wait()
         return 0
 
@@ -742,22 +742,22 @@ def describe_run() -> None:
 
     def describe_failure() -> None:
         async def it_lets_a_failed_docker_command_through_after_tearing_down(
-            runner: Mock, agent_exit: Mock, steps: list[str]
+            runner: Mock, agent_exit: Mock, steps: list[str], output: Path
         ) -> None:
             failed = CommandFailed()
             agent_exit.side_effect = failed
             with pytest.raises(CommandFailed) as raised:
-                await Botbox(runner).run("true")
+                await Botbox(runner).run("true", output=output)
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp home"
 
         async def it_lets_other_errors_through_after_tearing_down(
-            runner: Mock, docker_run: Mock, steps: list[str]
+            runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = FileNotFoundError("docker")
             with pytest.raises(FileNotFoundError):
-                await Botbox(runner).run("true")
+                await Botbox(runner).run("true", output=output)
             assert run_steps(steps) == [
                 "start proxy",
                 f"remove {AGENT}",
@@ -770,30 +770,34 @@ def describe_run() -> None:
             ]
 
         async def it_removes_the_temp_home_when_staging_fails(
-            runner: Mock, lockdown: Mock, steps: list[str]
+            runner: Mock, lockdown: Mock, steps: list[str], output: Path
         ) -> None:
             runner.stage_auth.side_effect = PermissionError("no credentials")
             with pytest.raises(PermissionError):
-                await Botbox(runner).run("true")
+                await Botbox(runner).run("true", output=output)
             lockdown.assert_not_called()
             assert steps[-1] == "warned: remove its temp home"
 
         async def it_tears_down_when_cancelled_mid_run(
-            runner: Mock, docker_run: Mock, steps: list[str]
+            runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             started = asyncio.Event()
 
-            async def hang(*_args: object, **_options: object) -> int:
+            async def hang(*_args: object, stdout: IO[bytes], **_options: object) -> int:
+                os.write(stdout.fileno(), b"partial\n")
                 started.set()
                 await asyncio.Event().wait()
                 return 0
 
             docker_run.side_effect = hang
-            task = asyncio.create_task(Botbox(runner).run("sleep 600"))
+            task = asyncio.create_task(Botbox(runner).run("sleep 600", output=output))
             await started.wait()
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
+            assert (output / "stdout.txt").read_bytes() == b"partial\n"
+            assert docker_run.call_args.kwargs["stdout"].closed
+            assert docker_run.call_args.kwargs["stderr"].closed
             assert run_steps(steps) == [
                 "start proxy",
                 f"remove {AGENT}",
@@ -806,16 +810,35 @@ def describe_run() -> None:
             ]
 
     def describe_timeout() -> None:
+        async def it_keeps_partial_streams_in_a_legacy_timeout_result(
+            runner: Mock, docker_run: Mock
+        ) -> None:
+            async def hang(
+                _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
+            ) -> int:
+                stdout.extend(b"partial\n")
+                stderr.extend(b"err\n")
+                await asyncio.Event().wait()
+                return 0
+
+            docker_run.side_effect = hang
+            with pytest.raises(Timeout) as raised:
+                await Botbox(runner, timeout=0.01).run("sleep 600")
+            result = raised.value.result
+            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+
         async def it_raises_a_timeout_holding_what_the_run_left(
-            runner: Mock, docker_run: Mock, steps: list[str]
+            runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = hang_forever(steps)
             with pytest.raises(Timeout) as raised:
-                await Botbox(runner, timeout=0.01).run("sleep 600")
+                await Botbox(runner, timeout=0.01).run("sleep 600", output=output)
+            assert (output / "stdout.txt").read_bytes() == b"partial\n"
+            assert (output / "stderr.txt").read_bytes() == b"err\n"
             assert raised.value.seconds == 0.01
             assert astuple(raised.value.result) == (
-                "partial\n",
-                "err\n",
+                "",
+                "",
                 -1,
                 {".claude/projects/a.jsonl": "{}\n"},
                 "CONNECT api.anthropic.com:443\n",
@@ -823,11 +846,11 @@ def describe_run() -> None:
             )
 
         async def it_tears_down_and_reads_the_transcript_before_removing_the_home(
-            runner: Mock, docker_run: Mock, steps: list[str]
+            runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = hang_forever(steps)
             with pytest.raises(Timeout):
-                await Botbox(runner, timeout=0.01).run("sleep 600")
+                await Botbox(runner, timeout=0.01).run("sleep 600", output=output)
             assert run_steps(steps) == [
                 "start proxy",
                 "run agent",
@@ -844,49 +867,51 @@ def describe_run() -> None:
             ]
 
         async def it_takes_the_calls_timeout_over_the_boxs(
-            runner: Mock, docker_run: Mock, steps: list[str]
+            runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = hang_forever(steps)
             with pytest.raises(Timeout) as raised:
-                await Botbox(runner, timeout=600).run("sleep 600", timeout=0.01)
+                await Botbox(runner, timeout=600).run("sleep 600", output=output, timeout=0.01)
             assert raised.value.seconds == 0.01
 
-        async def it_returns_a_run_that_ends_in_time(runner: Mock) -> None:
-            result = await Botbox(runner, timeout=60).run("true")
+        async def it_returns_a_run_that_ends_in_time(runner: Mock, output: Path) -> None:
+            result = await Botbox(runner, timeout=60).run("true", output=output)
             assert result.exit_code == 3
 
         async def it_starts_the_clock_once_the_image_is_built(
-            runner: Mock, docker_build: Mock
+            runner: Mock, docker_build: Mock, output: Path
         ) -> None:
             async def slow_build(*_args: object, **_options: object) -> None:
                 await asyncio.sleep(0.05)
 
             docker_build.side_effect = slow_build
-            result = await Botbox(runner, timeout=0.02).run("true")
+            result = await Botbox(runner, timeout=0.02).run("true", output=output)
             assert result.exit_code == 3
 
         async def it_holds_an_empty_result_when_the_agent_never_started(
-            runner: Mock, lockdown: Mock, read_transcript: Mock
+            runner: Mock, lockdown: Mock, read_transcript: Mock, output: Path
         ) -> None:
             lockdown.side_effect = stuck_lockdown
             read_transcript.side_effect = None
             read_transcript.return_value = {}
             with pytest.raises(Timeout) as raised:
-                await Botbox(runner, timeout=0.01).run("true")
+                await Botbox(runner, timeout=0.01).run("true", output=output)
             assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
 
-        async def it_lets_another_timeout_error_through(runner: Mock, docker_run: Mock) -> None:
+        async def it_lets_another_timeout_error_through(
+            runner: Mock, docker_run: Mock, output: Path
+        ) -> None:
             docker_run.side_effect = TimeoutError("docker hung")
             with pytest.raises(TimeoutError, match="docker hung") as raised:
-                await Botbox(runner, timeout=60).run("true")
+                await Botbox(runner, timeout=60).run("true", output=output)
             assert type(raised.value) is TimeoutError
 
         @pytest.mark.parametrize("seconds", [0, -1])
         async def it_refuses_a_timeout_that_is_not_positive_before_building(
-            runner: Mock, docker_build: Mock, seconds: float
+            runner: Mock, docker_build: Mock, seconds: float, output: Path
         ) -> None:
             with pytest.raises(ValueError, match="timeout"):
-                await Botbox(runner).run("true", timeout=seconds)
+                await Botbox(runner).run("true", output=output, timeout=seconds)
             docker_build.assert_not_called()
 
 
@@ -1298,10 +1323,11 @@ def describe_session() -> None:
 
 
 @pytest.fixture
-def file_run(docker_run: Mock) -> Mock:
+def file_run(docker_run: Mock, steps: list[str]) -> Mock:
     async def attached(
         _args: list[str], *, stdout: IO[bytes], stderr: IO[bytes], **_options: Any
     ) -> int:
+        steps.append("run agent")
         os.write(stdout.fileno(), b"out\xff\n")
         os.write(stderr.fileno(), b"err\n")
         return 3
@@ -1372,3 +1398,9 @@ def describe_run_output() -> None:
         assert file_run.call_args.kwargs["stdout"].closed
         assert file_run.call_args.kwargs["stderr"].closed
         claim.return_value.cleanup.assert_called_once()
+
+
+@pytest.fixture
+def output(tmp_path: Path, file_run: Mock) -> Path:
+    file_run.assert_not_called()
+    return tmp_path / "output"

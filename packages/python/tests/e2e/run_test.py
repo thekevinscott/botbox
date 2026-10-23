@@ -28,11 +28,13 @@ HOSTILE = (
     " while :; do sleep 1; done"
 )
 
+PRINT = "echo partial; echo err >&2; "
+
 OWNER = f"""
-import asyncio
+import asyncio, sys
 from botbox import Botbox, ClaudeAgent
 
-asyncio.run(Botbox(ClaudeAgent()).run({HOSTILE!r}))
+asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=sys.argv[2]))
 """
 
 SESSION_OWNER = f"""
@@ -187,51 +189,67 @@ def describe_run() -> None:
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
         assert runs.leftovers() == []
 
-    async def it_returns_an_exit_of_125_from_the_container(box: Botbox, runs: Runs) -> None:
-        assert (await box.run("exit 125")).exit_code == 125
+    async def it_returns_an_exit_of_125_from_the_container(
+        box: Botbox, runs: Runs, output: Path
+    ) -> None:
+        assert (await box.run("exit 125", output=output)).exit_code == 125
         assert runs.leftovers() == []
 
     def describe_cancelling() -> None:
         @pytest.mark.parametrize("command", ["sleep 600", HOSTILE], ids=["plain", "hostile"])
         async def it_removes_the_runs_containers_and_home(
-            box: Botbox, runs: Runs, command: str
+            box: Botbox, runs: Runs, command: str, output: Path
         ) -> None:
-            task = asyncio.ensure_future(box.run(command))
+            task = asyncio.ensure_future(box.run(PRINT + command, output=output))
             await runs.started()
+            await printed(output)
             assert await cancelled(task) < GRACE
             assert runs.leftovers() == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
-        async def it_finishes_through_a_second_cancel(box: Botbox, runs: Runs) -> None:
-            task = asyncio.ensure_future(box.run("sleep 600"))
+        async def it_finishes_through_a_second_cancel(
+            box: Botbox, runs: Runs, output: Path
+        ) -> None:
+            task = asyncio.ensure_future(box.run(PRINT + "sleep 600", output=output))
             await runs.started()
+            await printed(output)
             assert await cancelled(task, twice=True) < GRACE
             assert runs.leftovers() == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
-        async def it_removes_the_run_when_a_timeout_fires(box: Botbox, runs: Runs) -> None:
+        async def it_removes_the_run_when_a_timeout_fires(
+            box: Botbox, runs: Runs, output: Path
+        ) -> None:
             started = time.monotonic()
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(8):
-                    await box.run("sleep 600")
+                    await box.run(PRINT + "sleep 600", output=output)
             assert time.monotonic() - started < 8 + GRACE
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
 
         async def it_removes_the_run_and_keeps_what_it_left_when_its_timeout_runs_out(
-            box: Botbox, runs: Runs
+            box: Botbox, runs: Runs, output: Path
         ) -> None:
             started = time.monotonic()
             with pytest.raises(Timeout) as raised:
-                await box.run("echo partial; echo err >&2; sleep 600", timeout=8)
+                await box.run("echo partial; echo err >&2; sleep 600", output=output, timeout=8)
             assert time.monotonic() - started < 8 + GRACE
             result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+            assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+            assert (output / "stdout.txt").read_text() == "partial\n"
+            assert (output / "stderr.txt").read_text() == "err\n"
             assert "Starting main loop" in result.proxy
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 
     def describe_a_task_group() -> None:
         async def it_raises_the_failed_runs_error_and_removes_its_siblings(
-            box: Botbox, runs: Runs, tmp_path: Path
+            box: Botbox, runs: Runs, tmp_path: Path, output: Path
         ) -> None:
             layer = tmp_path / "Dockerfile"
             layer.write_text("FROM botbox-claude:latest\nRUN exit 3\n")
@@ -239,17 +257,24 @@ def describe_run() -> None:
 
             async def fail_once_up() -> None:
                 await runs.started(2)
-                await broken.run("true")
+                await printed(output / "sleeping")
+                await printed(output / "hostile")
+                await broken.run("true", output=output / "failed")
 
             with pytest.raises(ExceptionGroup) as raised:
                 async with asyncio.TaskGroup() as group:
-                    group.create_task(box.run("sleep 600"))
-                    group.create_task(box.run(HOSTILE))
+                    group.create_task(box.run(PRINT + "sleep 600", output=output / "sleeping"))
+                    group.create_task(box.run(PRINT + HOSTILE, output=output / "hostile"))
                     group.create_task(fail_once_up())
             [error] = raised.value.exceptions
             assert isinstance(error, DockerException)
             assert len(runs.tokens) == 2
             assert runs.leftovers() == []
+            for name in ("sleeping", "hostile"):
+                assert (output / name / "stdout.txt").read_text() == "partial\n"
+                assert (output / name / "stderr.txt").read_text() == "err\n"
+            assert (output / "failed" / "stdout.txt").read_text() == ""
+            assert (output / "failed" / "stderr.txt").read_text() == ""
 
     def describe_sigkill_of_the_owner() -> None:
         @pytest.mark.parametrize(
@@ -264,10 +289,14 @@ def describe_run() -> None:
             child = tmp_path / "child"
             # Its own process group, so a forked child dies with it even before its pid is known.
             owner = subprocess.Popen(
-                [sys.executable, "-c", holder, str(child)], env=env, start_new_session=True
+                [sys.executable, "-c", holder, str(child), str(tmp_path / "output")],
+                env=env,
+                start_new_session=True,
             )
             try:
                 await runs.started()
+                if holder == OWNER:
+                    await printed(tmp_path / "output")
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
                 owner.send_signal(signal.SIGKILL)
                 owner.wait()
@@ -281,9 +310,27 @@ def describe_run() -> None:
                 assert [s for h in runs.homes() for s in (h / "sockets").glob("*")] == []
                 assert await reap() == [token]
                 assert runs.leftovers() == []
+                if holder == OWNER:
+                    assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
+                    assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
                 with suppress(ProcessLookupError):
                     os.killpg(owner.pid, signal.SIGKILL)
                 owner.wait()
+
+
+@pytest.fixture
+def output(tmp_path: Path) -> Path:
+    return tmp_path / "output"
+
+
+async def printed(output: Path) -> None:
+    """Wait for both streams before interrupting a live run."""
+    async with asyncio.timeout(30):
+        while ((output / "stdout.txt").read_text(), (output / "stderr.txt").read_text()) != (
+            "partial\n",
+            "err\n",
+        ):
+            await asyncio.sleep(0.05)
