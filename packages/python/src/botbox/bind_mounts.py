@@ -11,18 +11,20 @@ def bind_mounts(
 ) -> list[tuple[str, str, str]]:
     """Check `mounts` and `workdir` and return the mounts as docker volumes.
 
-    A missing host path raises: Docker would create it, root-owned. So would a `workdir`
-    outside every mount, the agent's home included, so that raises too.
+    A missing host path is created as a dir owned by the caller: Docker would create it,
+    root-owned. A `workdir` outside every mount, the agent's home included, raises, and
+    nothing is created.
     """
-    volumes: list[tuple[str, str, str]] = []
-    for host, container, mode in mounts:
-        source = Path(host).resolve()
-        if not source.exists():
-            raise FileNotFoundError(f"mount source {host} does not exist")
-        volumes.append((str(source), Path(container).as_posix(), mode))
+    volumes: list[tuple[str, str, str]] = [
+        (str(Path(host).resolve()), Path(container).as_posix(), mode)
+        for host, container, mode in mounts
+    ]
     if workdir is not None:
         start = posixpath.normpath(Path(workdir).as_posix())
         targets = [home, *(posixpath.normpath(target) for _, target, _ in volumes)]
         if not any(start == t or start.startswith(t.rstrip("/") + "/") for t in targets):
             raise ValueError(f"workdir {workdir} is not a mounted path or inside one")
+    for source, _, _ in volumes:
+        if not Path(source).exists():
+            Path(source).mkdir(parents=True)
     return volumes
