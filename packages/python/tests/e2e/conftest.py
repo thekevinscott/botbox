@@ -57,14 +57,23 @@ def box() -> Botbox:
     return box
 
 
-@pytest.fixture(scope="session")
-def probe(box: Botbox) -> Probe:
+@pytest.fixture(scope="module")
+def probe(output: Path, box: Botbox) -> Probe:
     """Run named shell probes in one container; return the result and each probe's output."""
 
     def run(probes: Mapping[str, str], **options: Any) -> tuple[RunResult, dict[str, str]]:
         script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-        result = asyncio.run(box.run(script, **options))
-        fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+        result = asyncio.run(box.run(script, **options, output=output))
+        fields = (
+            line.split("\t", 1)
+            for line in (output / "stdout.txt").read_text(errors="replace").splitlines()
+            if "\t" in line
+        )
         return result, {name: value.strip() for name, value in fields}
 
     return run
+
+
+@pytest.fixture(scope="module")
+def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("output")

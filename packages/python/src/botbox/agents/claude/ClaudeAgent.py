@@ -14,7 +14,7 @@ class ClaudeAgent:
     image = "botbox-claude:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
-    transcripts = ".claude/projects/**/*.jsonl"
+    sessions_dir = ".claude/projects"
     allow: tuple[str, ...] = ("api.anthropic.com",)
 
     def __init__(

@@ -176,13 +176,13 @@ The crate's logic is tested in Rust (`cargo test`). The Python wrapper ships a s
 import subprocess
 
 def it_runs_the_tool(tmp_path):
-    result = subprocess.run(
+    completed = subprocess.run(
         ["mynewproduct", "run", "--input", str(tmp_path / "in.json")],
         capture_output=True,
         text=True,
         check=True,
     )
-    assert "done" in result.stdout
+    assert "done" in completed.stdout
 ```
 
 ### Pure-Python utilities

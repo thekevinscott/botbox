@@ -22,16 +22,15 @@ class Live:
             turn_ended=lambda event: event.get("type") == "end",
         )
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
-        self.stdout = Mock(into=bytearray(), grew=asyncio.Event())
-        self.stderr = bytearray()
+        self.stdout = asyncio.StreamReader()
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
-        self.session = Session(self.agent, self.stdin, self.stdout, self.stderr, self.client)
+        self.session = Session(self.agent, self.stdin, self.stdout, self.client)
 
     def print(self, data: bytes) -> None:
-        self.stdout.into.extend(data)
-        self.stdout.grew.set()
+        self.stdout.feed_data(data)
 
     def exit(self, code: int = 0) -> None:
+        self.stdout.feed_eof()
         self.client.set_result(code)
 
     @property
@@ -63,7 +62,6 @@ def describe_Session() -> None:
         assert session.agent is live.agent
         assert session.stdin is live.stdin
         assert session.stdout is live.stdout
-        assert session.stderr is live.stderr
         assert session.client is live.client
 
     async def it_has_no_result_until_the_session_is_left(live: Live) -> None:
@@ -74,7 +72,7 @@ def describe_Session() -> None:
     ) -> None:
         live.exit()
         await asyncio.sleep(0)
-        assert live.stdout.grew.is_set()
+        assert live.stdout.at_eof()
         abort_writer.assert_called_once_with(live.stdin)
 
     def describe_stream() -> None:
@@ -213,3 +211,30 @@ def describe_Session() -> None:
             live.print(lines({"n": 1}, "noise", {"type": "end"}))
             assert await live.session.message("hi") == [{"n": 1}, {"type": "end"}]
             assert live.sent == b"<hi>\n"
+
+
+def describe_large_lines() -> None:
+    async def it_parses_a_line_larger_than_the_pipe_limit(live: Live) -> None:
+        event = {"type": "end", "text": "x" * 200000}
+        live.print(lines(event))
+        assert await live.session.message("hi") == [event]
+        assert live.session.partial == b""
+
+    async def it_keeps_a_partial_line_across_cancellation(live: Live) -> None:
+        live.print(b'{"text":"' + b"x" * 200000)
+        reading = asyncio.create_task(live.session.event())
+        await asyncio.sleep(0.01)
+        reading.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await reading
+        live.print(b'","type":"end"}\n')
+        assert await live.session.event() == {"text": "x" * 200000, "type": "end"}
+
+
+def describe_client_exit() -> None:
+    async def it_ends_while_tails_pipe_is_still_open(live: Live) -> None:
+        pending = asyncio.create_task(live.session.event())
+        await asyncio.sleep(0.01)
+        live.client.set_result(0)
+        assert await asyncio.wait_for(pending, 1) is None
+        assert not live.stdout.at_eof()

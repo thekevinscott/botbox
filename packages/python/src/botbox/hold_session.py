@@ -3,18 +3,21 @@ import os
 import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from botbox.agents.agent import SessionAgent
 from botbox.docker.abort_writer import abort_writer
-from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
 from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
 from botbox.Session import Session
+from botbox.tail import tail
 
 
 @asynccontextmanager
-async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[Session]:
+async def hold_session(
+    agent: SessionAgent, args: list[str], output: Path
+) -> AsyncIterator[Session]:
     """Start an attached `docker run` with `args` and yield a session on the agent's CLI in it.
 
     The client runs as the session's `client` task. Leaving the block kills it if it is still
@@ -31,22 +34,26 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[Se
             )
             stdin = asyncio.StreamWriter(transport, protocol, None, loop)
             try:
-                async with Capture(bytearray()) as out, Capture(bytearray()) as err:
-                    # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
-                    client = asyncio.ensure_future(
-                        execute(
-                            ["run", *args],
-                            stdin=read,
-                            stdout=out,
-                            stderr=err,
-                            signum=signal.SIGKILL,
+                with (
+                    (output / "stdout.txt").open("wb") as out,
+                    (output / "stderr.txt").open("wb") as err,
+                ):
+                    async with tail(output / "stdout.txt") as reader:
+                        # SIGKILL, as `docker.run` does: the client outlives SIGTERM.
+                        client = asyncio.ensure_future(
+                            execute(
+                                ["run", *args],
+                                stdin=read,
+                                stdout=out,
+                                stderr=err,
+                                signum=signal.SIGKILL,
+                            )
                         )
-                    )
-                    try:
-                        yield Session(agent, stdin, out, err.into, client)
-                    finally:
-                        client.cancel()
-                        await settle(asyncio.gather(client, return_exceptions=True))
+                        try:
+                            yield Session(agent, stdin, reader, client)
+                        finally:
+                            client.cancel()
+                            await settle(asyncio.gather(client, return_exceptions=True))
             finally:
                 abort_writer(stdin)
     finally:

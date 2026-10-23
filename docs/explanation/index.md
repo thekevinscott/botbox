@@ -8,7 +8,7 @@ botbox is that container. It gives each run:
 2. **No capabilities, no privilege escalation.** See [The Container](#the-container).
 3. **Network only to an allowlist.** See [Network](#network).
 4. **Mounted directories,** read-only or read-write.
-5. **Logs.** The agent's transcript and the proxy's log come back on the result. See [Home and Credentials](#home-and-credentials).
+5. **Logs.** Output streams, transcripts and the proxy log are written live into the caller's output folder. See [Home and Credentials](#home-and-credentials).
 
 This page is what botbox does with Docker to get there. For how to call it, see [Getting Started](../getting-started).
 
@@ -20,13 +20,13 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Sweeps up after runs whose owner died (see [Lifetime](#lifetime)), then makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. The client gets `output/stdout.txt` and `output/stderr.txt` as its output file descriptors; Python neither writes nor buffers these streams.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Reads the transcript and the proxy log out of the temporary directory, stops and removes the proxy, and deletes the directory.
+7. Stops and removes the proxy and deletes the temporary home. The output folder stays in place.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. Output already written remains in the output folder, including transcripts and the proxy log.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets the sweep find it.
 
@@ -51,7 +51,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. It writes its log into the host temporary directory as it goes, and that log becomes `result.proxy`.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. Tinyproxy logs to stdout in foreground mode. Its attached Docker client writes stdout and stderr directly to `output/proxy.log`; no log directory is mounted into the container and no permissions are changed in the caller’s output folder.
 
 ### Lifetime
 
@@ -71,18 +71,15 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
-After the container exits, every file matching the harness's transcript pattern becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
-
-- A match that resolves outside the home is a link to a host file, and is skipped. The container has exited by then, so no link can change after the check.
-- Bytes that aren't UTF-8 are replaced, and a file that won't open is skipped. The agent can't break the run's result.
+botbox creates the harness's sessions directory in the temporary home before Docker starts, then bind-mounts `output/transcripts/` over it read-write. The directories are `.claude/projects`, `.codex/sessions` and `.pi/agent/sessions`. Files land directly in the output folder. botbox never reads them; their content and links are controlled by the agent.
 
 ## Sessions
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr go directly to the output files. A `tail -n +1 -F` subprocess follows stdout from the beginning. Python reads its pipe line by line, retaining only the current partial line; tail is killed at teardown. A shell wrapper holds a stdin pipe owned only by the Python process; when the owner dies, EOF makes the wrapper stop and reap tail. No `--pid` option is needed, so this works on macOS too. `stream()` and `message()` write one line in the harness's input format, then read tail's pipe line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
-The block's end closes stdin, waits for the client, reads the exit code, removes the container and reads the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
+The block's end closes stdin, waits for the client, reads the exit code, removes the container and temporary home as `run()` does. Output stays on disk. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
 ## Images
 
@@ -92,7 +89,7 @@ Each build runs `docker buildx build --load --progress=quiet` as an asyncio subp
 
 Two `docker build`s of one tag at once fail: the loser looks up an image id that no longer exists. So each build takes a file lock keyed by the tag, in the system temp directory, and concurrent builds from any process take turns. It polls for the lock every 50ms without blocking, so the event loop keeps running while it waits. A blocking `flock` in a thread would keep waiting after the task was cancelled.
 
-Each harness image stands alone, with no shared base. A harness is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to call the CLI. Adding one means one Dockerfile, one class, and one row in the [harness table](../harnesses/).
+Each harness image stands alone, with no shared base. A harness is a Dockerfile plus a class that knows the home path, the credentials file, the sessions directory, the hosts the CLI needs, and how to call the CLI. Adding one means one Dockerfile, one class, and one row in the [harness table](../harnesses/).
 
 ## Claude Code
 
@@ -101,7 +98,7 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 - **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
 - **Credentials:** `.credentials.json` is copied into `.claude/`. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
 - **Hosts:** `api.anthropic.com`.
-- **Transcript:** `.claude/projects/**/*.jsonl`.
+- **Transcript:** `.claude/projects/`.
 
 ### Login Expiry
 
@@ -116,7 +113,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Session:** none. Codex's only long-running mode, `codex app-server`, needs a per-session handshake.
 - **Credentials:** `auth.json` is copied into `.codex/`. With `api_key`, a fresh `.codex/auth.json` holds the key in API-key mode.
 - **Hosts:** `chatgpt.com` for a copied login, `api.openai.com` with `api_key`.
-- **Transcript:** `.codex/sessions/**/*.jsonl`.
+- **Transcript:** `.codex/sessions/`.
 
 ## pi
 
@@ -125,6 +122,6 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
 - **Credentials:** `auth.json`, and `models.json` if present, are copied into `.pi/agent/`. With `api_key`, a fresh `.pi/agent/auth.json` holds the key for `provider` and nothing else.
 - **Hosts:** `openrouter.ai` for `openrouter`. For any other provider, the host of its `baseUrl` in `models.json`.
-- **Transcript:** `.pi/agent/sessions/**/*.jsonl`.
+- **Transcript:** `.pi/agent/sessions/`.
 
 In every harness the prompt, model and effort are shell-quoted before they go into the command.

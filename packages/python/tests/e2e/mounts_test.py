@@ -59,17 +59,27 @@ def describe_workdir() -> None:
     def it_starts_the_command_there(report: dict[str, str]) -> None:
         assert report["pwd"] == "/rw"
 
-    def it_raises_outside_every_mount_before_any_container(box: Botbox, tmp_path: Path) -> None:
+    def it_raises_outside_every_mount_before_any_container(
+        output: Path, box: Botbox, tmp_path: Path
+    ) -> None:
         before = leftovers()
         with pytest.raises(ValueError, match="workdir"):
-            asyncio.run(box.run("true", mounts=[(tmp_path, "/rw", "rw")], workdir="/elsewhere"))
+            asyncio.run(
+                box.run(
+                    "true", mounts=[(tmp_path, "/rw", "rw")], workdir="/elsewhere", output=output
+                )
+            )
         assert leftovers() == before
 
 
 def describe_a_missing_host_path() -> None:
-    def it_is_created_owned_by_the_host_user_and_writable(box: Botbox, tmp_path: Path) -> None:
+    def it_is_created_owned_by_the_host_user_and_writable(
+        output: Path, box: Botbox, tmp_path: Path
+    ) -> None:
         missing = tmp_path / "new" / "out"
-        result = asyncio.run(box.run("echo made > /out/x.txt", mounts=[(missing, "/out", "rw")]))
+        result = asyncio.run(
+            box.run("echo made > /out/x.txt", output=output, mounts=[(missing, "/out", "rw")])
+        )
         assert result.exit_code == 0
         assert missing.stat().st_uid == os.getuid()
         assert (missing / "x.txt").read_text() == "made\n"

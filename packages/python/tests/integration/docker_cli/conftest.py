@@ -42,3 +42,8 @@ def box(tmp_path: Path) -> Botbox:
     home.mkdir()
     (home / ".credentials.json").write_text(CREDENTIALS)
     return Botbox(ClaudeAgent(host_home=home))
+
+
+@pytest.fixture
+def output(tmp_path: Path) -> Path:
+    return tmp_path / "output"

@@ -18,5 +18,5 @@ features:
   - title: Network only to an allowlist
     details: No network access beyond the whitelist.
   - title: Logs available
-    details: The agent's transcript and the proxy's log come back on the result.
+    details: Output streams, transcripts and proxy logs stay in the output folder.
 ---

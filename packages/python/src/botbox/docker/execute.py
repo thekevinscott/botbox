@@ -17,8 +17,8 @@ async def execute(
     args: Sequence[str],
     *,
     stdin: Stream,
-    stdout: Capture,
-    stderr: Capture,
+    stdout: Capture | Stream,
+    stderr: Capture | Stream,
     signum: int = signal.SIGTERM,
 ) -> int:
     """Run `docker` with `args` to its exit, its output into the captures, and return its code.
@@ -26,12 +26,18 @@ async def execute(
     If this is cancelled or fails first, the client's group is stopped, starting with `signum`,
     and reaped before the error propagates.
     """
+    captures = [stream for stream in (stdout, stderr) if isinstance(stream, Capture)]
     try:
-        process = await spawn(args, stdin=stdin, stdout=stdout.write, stderr=stderr.write)
+        process = await spawn(
+            args,
+            stdin=stdin,
+            stdout=stdout.write if isinstance(stdout, Capture) else stdout,
+            stderr=stderr.write if isinstance(stderr, Capture) else stderr,
+        )
     finally:
-        stdout.release()
-        stderr.release()
-    eofs = (stdout.eof, stderr.eof)
+        for capture in captures:
+            capture.release()
+    eofs = tuple(capture.eof for capture in captures)
     try:
         code = await exit_code(process)
         async with asyncio.timeout(LINGER):

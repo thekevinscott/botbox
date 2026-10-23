@@ -23,7 +23,13 @@ class Capture:
         self.eof: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         if not open:
             self.eof.set_result(None)
-        self.release = Mock()
+        self.release: Mock = Mock()
+
+
+@pytest.fixture(autouse=True)
+def capture_type() -> Iterator[None]:
+    with patch("botbox.docker.execute.Capture", Capture):
+        yield
 
 
 async def forever(*_args: object) -> None:

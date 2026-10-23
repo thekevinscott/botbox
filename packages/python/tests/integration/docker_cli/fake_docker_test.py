@@ -89,11 +89,8 @@ elif option("--name").startswith("botbox-proxy-"):
     if plan.get("proxy_fails"):
         fail("tinyproxy: bad config\\n")
     settle(name, "running")
-    log = volume("/var/log/tinyproxy") / "tinyproxy.log"
-    log.write_bytes(plan.get("proxy_log", "").encode("latin-1"))
-    if plan.get("proxy_log_unreadable"):
-        log.unlink()
-        log.mkdir()
+    sys.stdout.buffer.write(plan.get("proxy_log", "").encode("latin-1"))
+    sys.stdout.buffer.flush()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
     exit_container(name)
@@ -103,8 +100,12 @@ else:
     if agent.get("missing"):
         fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
-    session = volume("/home/user") / ".claude" / "projects" / "-work"
-    session.mkdir(parents=True)
+    mounts = (argv[i + 1].split(":") for i, flag in enumerate(argv) if flag == "--volume")
+    session = next(
+        Path(source) for source, target, _ in mounts
+        if target.endswith(("/projects", "/sessions"))
+    ) / "-work"
+    session.mkdir(parents=True, exist_ok=True)
     (session / "abc.jsonl").write_text('{"type": "user"}\\n')
     sys.stdout.write(agent.get("stdout", ""))
     sys.stderr.write(agent.get("stderr", ""))

@@ -75,13 +75,13 @@ def runs(temp: Path) -> Iterator[Runs]:
 
 
 @pytest.fixture(scope="module")
-def session(harness: str) -> tuple[Turns, list[float], RunResult]:
+def session(output: Path, harness: str) -> tuple[Turns, list[float], RunResult]:
     """Three messages in one session; for the first, when each event arrived."""
     make, _, _ = HARNESSES[harness]
     box = Botbox(make())
 
     async def talk() -> tuple[Turns, list[float], RunResult]:
-        async with box.session() as live:
+        async with box.session(output=output) as live:
             arrivals, first = [], []
             async for event in live.stream(
                 "Remember the codeword heron. Use bash to run exactly:"
@@ -143,27 +143,47 @@ def describe_a_session() -> None:
         _, _, reply = HARNESSES[harness]
         assert "heron" in reply(turns[2]).lower()
 
-    def it_exits_zero_once_the_block_ends(session: tuple[Turns, list[float], RunResult]) -> None:
+    def it_exits_zero_once_the_block_ends(
+        output: Path, session: tuple[Turns, list[float], RunResult]
+    ) -> None:
         _, _, result = session
-        assert result.exit_code == 0, result.stderr
+        assert result.exit_code == 0, (output / "stderr.txt").read_text(errors="replace")
 
-    def it_returns_the_transcript(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        assert result.transcript
-        assert all(result.transcript.values())
+    def it_returns_the_transcript(
+        output: Path, session: tuple[Turns, list[float], RunResult]
+    ) -> None:
+        _, _, _result = session
+        assert {
+            str(p.relative_to(output / "transcripts")): p.read_text()
+            for p in (output / "transcripts").rglob("*.jsonl")
+            if p.is_file()
+        }
+        assert all(
+            {
+                str(p.relative_to(output / "transcripts")): p.read_text()
+                for p in (output / "transcripts").rglob("*.jsonl")
+                if p.is_file()
+            }.values()
+        )
 
-    def it_reaches_for_no_refused_host(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+    def it_reaches_for_no_refused_host(
+        output: Path, session: tuple[Turns, list[float], RunResult]
+    ) -> None:
+        _, _, _result = session
+        refused = [
+            line
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
+            if "Proxying refused" in line
+        ]
         assert refused == []
 
 
 def describe_cancelling_mid_turn() -> None:
-    async def it_removes_the_sessions_containers_and_home(runs: Runs) -> None:
+    async def it_removes_the_sessions_containers_and_home(output: Path, runs: Runs) -> None:
         box = Botbox(claude())
 
         async def talk() -> None:
-            async with box.session() as live:
+            async with box.session(output=output) as live:
                 async for _ in live.stream("Use bash to run exactly: sleep 600"):
                     pass
 

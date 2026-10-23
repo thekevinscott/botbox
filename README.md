@@ -15,7 +15,7 @@ An experiment that puts an agent in a box needs five things:
 2. **No capabilities, no privilege escalation.** `--cap-drop ALL`, `no-new-privileges`, no setuid binaries.
 3. **Network only to an allowlist.** No network access beyond the whitelist.
 4. **Mounted directories.** Read-only or read-write.
-5. **Logs available.** The agent's transcript and the proxy's log come back on the result.
+5. **Logs available.** Output streams, transcripts and proxy logs stay in the output folder.
 
 The Python SDK is the public API.
 
@@ -38,6 +38,7 @@ Requires Docker.
 
 ```python
 import asyncio
+from pathlib import Path
 
 from botbox import Botbox, ClaudeAgent
 
@@ -46,6 +47,7 @@ async def main() -> None:
     agent = ClaudeAgent(model="claude-opus-5", effort="high")
     async with Botbox(agent) as box:
         result = await box.run(
+            output="output",
             command=agent.command("Make the failing tests pass please"),
             mounts=[
                 ("./tests", "/tests", "ro"),
@@ -53,15 +55,15 @@ async def main() -> None:
             ],
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
-    print(result.stdout)
-    print(result.proxy)
+    print(Path("output/stdout.txt").read_text())
+    print(Path("output/proxy.log").read_text())
 
 
 asyncio.run(main())
 ```
 
 
-`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, stops the proxy, and returns.
+`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command with output written live to the output folder, deletes the temporary home, stops the proxy, and returns the exit code.
 
 The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
@@ -87,6 +89,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 await box.run(
     command: str,
     *,
+    output: str | Path,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
     workdir: str | Path | None = None,
 ) -> RunResult
@@ -98,17 +101,17 @@ await box.run(
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
+`RunResult` contains only `exit_code`, with -1 when no exit code was available. Output is written live into the required folder:
 
-| Field        | What it is                                                                     |
-| ------------ | ------------------------------------------------------------------------------ |
-| `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
-| `proxy`      | `str`: the proxy log.                                                           |
-| `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+```text
+output/
+  stdout.txt
+  stderr.txt
+  transcripts/
+  proxy.log
+```
 
-The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
-
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+Use a separate folder per run or session. The folder is created if needed, and unrelated caller files remain. Output survives teardown, cancellation, timeout and a killed owner to the extent it reached disk. botbox does not read transcripts or logs into the result. See [Reading the result](https://thekevinscott.github.io/botbox/guide/reading-the-result).
 
 ### `build()`
 
@@ -135,7 +138,7 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. The sessions directory is mounted from `output/transcripts/`. After the command exits, the temporary home is deleted and output remains.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 
@@ -157,7 +160,7 @@ The container runs with `--network none`. The only way out is a unix socket to a
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `result.proxy`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
+Every connection, admitted or refused, is logged to `output/proxy.log`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 
@@ -214,7 +217,7 @@ Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-fo
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")
-await box.run(agent.command("Fix the tests"))
+await box.run(agent.command("Fix the tests"), output="output")
 ```
 
 ## Sample consumer Dockerfile extension
@@ -245,6 +248,7 @@ agent = ClaudeAgent(model=model, effort=effort)
 box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
 result = await box.run(
+    output="output",
     command=agent.command(prompt),
     mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
     workdir="/target",
@@ -258,6 +262,6 @@ MIT. See [LICENSE](./LICENSE).
 ## Internal - Checks
 
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
-- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
+- [x] Transcripts are bind-mounted into the caller’s output folder, and the Docker clients write stdout, stderr and proxy logs directly to files there during the run. The output folder remains after teardown; `RunResult` contains only the exit code.
 - [x] add test for docker daemon dying
 - [x] add test for concurrent builds of one tag

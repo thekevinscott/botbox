@@ -29,14 +29,14 @@ HOSTILE = (
 )
 
 OWNER = f"""
-import asyncio
+import asyncio, tempfile
 from botbox import Botbox, ClaudeAgent
 
-asyncio.run(Botbox(ClaudeAgent()).run({HOSTILE!r}))
+asyncio.run(Botbox(ClaudeAgent()).run({HOSTILE!r}, output=tempfile.mkdtemp()))
 """
 
 SESSION_OWNER = f"""
-import asyncio
+import asyncio, tempfile
 from botbox import Botbox, ClaudeAgent
 
 class Hostile(ClaudeAgent):
@@ -44,7 +44,7 @@ class Hostile(ClaudeAgent):
         return {HOSTILE!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=tempfile.mkdtemp()) as live:
         await live.message("never answered")
 
 asyncio.run(main())
@@ -52,6 +52,7 @@ asyncio.run(main())
 
 # A worker forked by the owner outlives it and inherits its descriptors.
 FORKING_OWNER = f"""
+import tempfile
 import asyncio, os, sys, time
 from botbox import Botbox, ClaudeAgent
 
@@ -60,7 +61,7 @@ class Hostile(ClaudeAgent):
         return {HOSTILE!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=tempfile.mkdtemp()) as live:
         child = os.fork()
         if child == 0:
             time.sleep(600)
@@ -169,60 +170,77 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
-    async def it_returns_what_the_command_left(box: Botbox, runs: Runs) -> None:
-        result = await box.run("echo out; echo err >&2; exit 5")
-        assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
-        assert result.image == "botbox-claude:latest"
-        assert result.transcript == {}
-        assert "Starting main loop" in result.proxy
+    async def it_returns_what_the_command_left(output: Path, box: Botbox, runs: Runs) -> None:
+        result = await box.run("echo out; echo err >&2; exit 5", output=output)
+        assert (
+            (output / "stdout.txt").read_text(errors="replace"),
+            (output / "stderr.txt").read_text(errors="replace"),
+            result.exit_code,
+        ) == ("out\n", "err\n", 5)
+        assert {
+            str(p.relative_to(output / "transcripts")): p.read_text()
+            for p in (output / "transcripts").rglob("*.jsonl")
+            if p.is_file()
+        } == {}
+        assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
-    async def it_returns_an_exit_of_125_from_the_container(box: Botbox, runs: Runs) -> None:
-        assert (await box.run("exit 125")).exit_code == 125
+    async def it_returns_an_exit_of_125_from_the_container(
+        output: Path, box: Botbox, runs: Runs
+    ) -> None:
+        assert (await box.run("exit 125", output=output)).exit_code == 125
         assert runs.leftovers() == []
 
     def describe_cancelling() -> None:
         @pytest.mark.parametrize("command", ["sleep 600", HOSTILE], ids=["plain", "hostile"])
         async def it_removes_the_runs_containers_and_home(
-            box: Botbox, runs: Runs, command: str
+            output: Path, box: Botbox, runs: Runs, command: str
         ) -> None:
-            task = asyncio.ensure_future(box.run(command))
+            task = asyncio.ensure_future(box.run(command, output=output))
             await runs.started()
             assert await cancelled(task) < GRACE
             assert runs.leftovers() == []
 
-        async def it_finishes_through_a_second_cancel(box: Botbox, runs: Runs) -> None:
-            task = asyncio.ensure_future(box.run("sleep 600"))
+        async def it_finishes_through_a_second_cancel(
+            output: Path, box: Botbox, runs: Runs
+        ) -> None:
+            task = asyncio.ensure_future(box.run("sleep 600", output=output))
             await runs.started()
             assert await cancelled(task, twice=True) < GRACE
             assert runs.leftovers() == []
 
-        async def it_removes_the_run_when_a_timeout_fires(box: Botbox, runs: Runs) -> None:
+        async def it_removes_the_run_when_a_timeout_fires(
+            output: Path, box: Botbox, runs: Runs
+        ) -> None:
             started = time.monotonic()
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(8):
-                    await box.run("sleep 600")
+                    await box.run("sleep 600", output=output)
             assert time.monotonic() - started < 8 + GRACE
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 
         async def it_removes_the_run_and_keeps_what_it_left_when_its_timeout_runs_out(
-            box: Botbox, runs: Runs
+            output: Path, box: Botbox, runs: Runs
         ) -> None:
             started = time.monotonic()
             with pytest.raises(Timeout) as raised:
-                await box.run("echo partial; echo err >&2; sleep 600", timeout=8)
+                await box.run("echo partial; echo err >&2; sleep 600", timeout=8, output=output)
             assert time.monotonic() - started < 8 + GRACE
             result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
-            assert "Starting main loop" in result.proxy
+            assert (
+                (output / "stdout.txt").read_text(errors="replace"),
+                (output / "stderr.txt").read_text(errors="replace"),
+                result.exit_code,
+            ) == ("partial\n", "err\n", -1)
+            assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 
     def describe_a_task_group() -> None:
         async def it_raises_the_failed_runs_error_and_removes_its_siblings(
-            box: Botbox, runs: Runs, tmp_path: Path
+            output: Path, box: Botbox, runs: Runs, tmp_path: Path
         ) -> None:
             layer = tmp_path / "Dockerfile"
             layer.write_text("FROM botbox-claude:latest\nRUN exit 3\n")
@@ -230,12 +248,12 @@ def describe_run() -> None:
 
             async def fail_once_up() -> None:
                 await runs.started(2)
-                await broken.run("true")
+                await broken.run("true", output=output)
 
             with pytest.raises(ExceptionGroup) as raised:
                 async with asyncio.TaskGroup() as group:
-                    group.create_task(box.run("sleep 600"))
-                    group.create_task(box.run(HOSTILE))
+                    group.create_task(box.run("sleep 600", output=output))
+                    group.create_task(box.run(HOSTILE, output=output))
                     group.create_task(fail_once_up())
             [error] = raised.value.exceptions
             assert isinstance(error, DockerException)

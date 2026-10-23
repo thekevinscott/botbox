@@ -21,6 +21,7 @@ from conftest import leftovers
 from botbox import Botbox
 
 HOLDER = """
+import tempfile
 import asyncio, importlib, sys
 from pathlib import Path
 from botbox import Botbox, ClaudeAgent
@@ -41,7 +42,7 @@ module.docker_run = wrapped
 
 async def main():
     async with Botbox(ClaudeAgent()) as box:
-        await box.run("sleep 600")
+        await box.run("sleep 600", output=tempfile.mkdtemp())
 
 asyncio.run(main())
 """

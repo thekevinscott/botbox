@@ -1,7 +1,6 @@
 import asyncio
 import os
 import re
-import warnings
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +17,6 @@ from botbox.wait_for_proxy import wait_for_proxy
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
 PROXY_IMAGE = "botbox-proxy:latest"
-PROXY_LOG_DIR = "/var/log/tinyproxy"
 # tinyproxy's uid in the image, pinned so a rebuilt image can't drift onto the agent's.
 PROXY_USER = "100:101"
 # tinyproxy's threads and socat's per-connection children, at MaxClients/max-children 100 each.
@@ -30,7 +28,6 @@ RELAY_DIR = Path(__file__).with_name("relay")
 RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
-OUTPUT_LIMIT = 64 * 1024
 
 
 class Lockdown:
@@ -40,11 +37,12 @@ class Lockdown:
         self.proxy = proxy
         self.sockets = sockets
         self.envs = envs
-        self.log = ""
 
 
 @asynccontextmanager
-async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIterator[Lockdown]:
+async def lockdown(
+    allow: Iterable[str], scratch: Path, token: str, output_dir: Path
+) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
     The container gets no network. Its only way out is a unix socket in `scratch`, served by
@@ -57,7 +55,7 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     remove itself: leaving the block closes its stdin and removes it, through any number of
     cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`. The
     last 64 KiB of its output is the error if it won't start. tinyproxy writes its log into
-    `scratch` as it runs; it is read into `Lockdown.log` on exit.
+    `output_dir/proxy.log` through the attached client and it remains there after exit.
     """
     async with build_lock(PROXY_IMAGE):
         await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
@@ -85,12 +83,7 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
     allowlist.chmod(0o644)
-    log_dir = scratch / "proxy"
-    log_dir.mkdir()
-    log_dir.chmod(0o755)
-    log = log_dir / "tinyproxy.log"
-    log.touch()
-    log.chmod(0o666)
+    log = output_dir / "proxy.log"
 
     args = [
         "--interactive",
@@ -114,31 +107,20 @@ async def lockdown(allow: Iterable[str], scratch: Path, token: str) -> AsyncIter
         "--volume",
         f"{allowlist}:/etc/tinyproxy/filter:ro",
         "--volume",
-        f"{log_dir}:{PROXY_LOG_DIR}:rw",
-        "--volume",
         f"{sockets}:{SOCKET_DIR}:rw",
         PROXY_IMAGE,
     ]
-    output = bytearray()
     # Created here, not by the spawn, so the write end is owner-only before any fork can copy it.
     read, write = os.pipe()
     stdin = os.fdopen(write, "wb")
     try:
-        with owner_only(stdin):
-            client = asyncio.ensure_future(
-                run(args, stdin=read, stdout=output, stderr=output, limit=OUTPUT_LIMIT)
-            )
+        with owner_only(stdin), log.open("wb") as output:
+            client = asyncio.ensure_future(run(args, stdin=read, stdout=output, stderr=output))
             try:
-                await wait_for_proxy(sockets / "proxy.sock", client, output, PROXY_READY_SECONDS)
+                await wait_for_proxy(sockets / "proxy.sock", client, log, PROXY_READY_SECONDS)
                 yield jail
             finally:
                 await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
     finally:
+        stdin.close()
         os.close(read)
-        try:
-            jail.log = log.read_text(encoding="utf-8", errors="replace")
-        except OSError as error:
-            # 3: past contextlib's __aexit__, to whoever entered the block.
-            warnings.warn(
-                f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
-            )

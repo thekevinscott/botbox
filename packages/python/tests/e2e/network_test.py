@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from conftest import LINE, Probe, docker_lines
@@ -86,8 +87,9 @@ def report(session: tuple[RunResult, dict[str, str]]) -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def proxy(session: tuple[RunResult, dict[str, str]]) -> str:
-    return session[0].proxy
+def proxy(output: Path, session: tuple[RunResult, dict[str, str]]) -> str:
+    assert session[0].exit_code == 0
+    return (output / "proxy.log").read_text(errors="replace")
 
 
 def describe_a_request_through_the_proxy() -> None:
@@ -143,15 +145,22 @@ def describe_the_proxy_log() -> None:
 
 
 def describe_allow() -> None:
-    def it_admits_an_extra_host() -> None:
+    def it_admits_an_extra_host(
+        output: Path,
+    ) -> None:
         box = Botbox(ClaudeAgent(), allow=["example.com"])
-        result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}"))
-        assert result.stdout.strip() == "200"
-        assert 'Established connection to host "example.com"' in result.proxy
+        result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}", output=output))
+        assert result.exit_code == 0
+        assert (output / "stdout.txt").read_text(errors="replace").strip() == "200"
+        assert 'Established connection to host "example.com"' in (output / "proxy.log").read_text(
+            errors="replace"
+        )
 
 
 @pytest.fixture(scope="module")
-def other_run() -> Iterator[str]:
+def other_run(
+    output: Path,
+) -> Iterator[str]:
     """Another run's proxy, live, admitting example.com: its address on the default bridge.
 
     The session is held open on a thread of its own, with its own event loop, for the module.
@@ -160,7 +169,7 @@ def other_run() -> Iterator[str]:
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(ClaudeAgent(), allow=["example.com"]).session():
+        async with Botbox(ClaudeAgent(), allow=["example.com"]).session(output=output):
             up.set()
             await asyncio.to_thread(done.wait)
 
@@ -183,9 +192,12 @@ def other_run() -> Iterator[str]:
 
 
 def describe_another_runs_proxy() -> None:
-    def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str) -> None:
-        result = asyncio.run(box.run(f"{CONNECT} example.com {other_run}:8888"))
-        assert result.stdout.strip() == "error ENETUNREACH", result.stdout
+    def it_is_out_of_reach_of_this_run(output: Path, box: Botbox, other_run: str) -> None:
+        result = asyncio.run(box.run(f"{CONNECT} example.com {other_run}:8888", output=output))
+        assert result.exit_code == 0
+        assert (output / "stdout.txt").read_text(errors="replace").strip() == "error ENETUNREACH", (
+            output / "stdout.txt"
+        ).read_text(errors="replace")
 
 
 def describe_a_container_outside_the_run() -> None:
@@ -235,7 +247,7 @@ def upstream_log(name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
+def plain_http(output: Path, upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
     """Plain-HTTP requests to an allowed host, and what that host saw."""
     name, ip = upstream
     probes = {
@@ -244,8 +256,13 @@ def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
         "other port by host": f'{REQUEST} {PROXY} "GET / HTTP/1.0|Host: {ip}:8022||"',
     }
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-    result = asyncio.run(Botbox(ClaudeAgent(), allow=[ip]).run(script))
-    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    result = asyncio.run(Botbox(ClaudeAgent(), allow=[ip]).run(script, output=output))
+    assert result.exit_code == 0
+    fields = (
+        line.split("\t", 1)
+        for line in (output / "stdout.txt").read_text(errors="replace").splitlines()
+        if "\t" in line
+    )
     return {n: v.strip() for n, v in fields}, upstream_log(name)
 
 

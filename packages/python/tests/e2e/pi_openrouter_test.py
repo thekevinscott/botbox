@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
 
@@ -14,25 +15,55 @@ if not OPENROUTER_API_KEY:
 
 
 @pytest.fixture(scope="module")
-def result() -> RunResult:
+def result(
+    output: Path,
+) -> RunResult:
     agent = PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY)
-    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong"), output=output))
 
 
 def describe_a_pi_session_on_openrouter() -> None:
-    def it_exits_zero(result: RunResult) -> None:
-        assert result.exit_code == 0, result.stderr
+    def it_exits_zero(output: Path, result: RunResult) -> None:
+        assert result.exit_code == 0, (output / "stderr.txt").read_text(errors="replace")
 
-    def it_answers(result: RunResult) -> None:
-        assert "pong" in result.stdout
+    @pytest.mark.usefixtures("result")
+    def it_answers(
+        output: Path,
+    ) -> None:
+        assert "pong" in (output / "stdout.txt").read_text(errors="replace")
 
-    def it_returns_the_transcript(result: RunResult) -> None:
-        assert result.transcript
-        assert all(result.transcript.values())
+    @pytest.mark.usefixtures("result")
+    def it_returns_the_transcript(
+        output: Path,
+    ) -> None:
+        assert {
+            str(p.relative_to(output / "transcripts")): p.read_text()
+            for p in (output / "transcripts").rglob("*.jsonl")
+            if p.is_file()
+        }
+        assert all(
+            {
+                str(p.relative_to(output / "transcripts")): p.read_text()
+                for p in (output / "transcripts").rglob("*.jsonl")
+                if p.is_file()
+            }.values()
+        )
 
-    def it_reaches_openrouter_through_the_proxy(result: RunResult) -> None:
-        assert 'Established connection to host "openrouter.ai"' in result.proxy
+    @pytest.mark.usefixtures("result")
+    def it_reaches_openrouter_through_the_proxy(
+        output: Path,
+    ) -> None:
+        assert 'Established connection to host "openrouter.ai"' in (output / "proxy.log").read_text(
+            errors="replace"
+        )
 
-    def it_reaches_for_no_refused_host(result: RunResult) -> None:
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+    @pytest.mark.usefixtures("result")
+    def it_reaches_for_no_refused_host(
+        output: Path,
+    ) -> None:
+        refused = [
+            line
+            for line in (output / "proxy.log").read_text(errors="replace").splitlines()
+            if "Proxying refused" in line
+        ]
         assert refused == []

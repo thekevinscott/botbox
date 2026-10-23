@@ -1,14 +1,17 @@
 # `RunResult`
 
-Nothing parsed.
+A frozen dataclass containing only `exit_code`, the command's exit code. A non-zero exit is a normal result. The code is -1 if no exit code was available, including a timeout or interrupted session.
 
-| Field       | What it is                                                           |
-| ----------- | -------------------------------------------------------------------- |
-| `stdout`    | The command's standard output.                                       |
-| `stderr`    | The command's standard error.                                        |
-| `exit_code` | The command's exit code.                                             |
-| `transcript`| `dict[str, str]`: path relative to the agent's home → file contents. |
-| `proxy`     | `str`: the proxy log. Every connection, admitted or refused.         |
-| `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+Output is written live into the required `output` folder:
 
-The container is removed once its exit code is read; what it wrote outside the mounts and the agent's home goes with it. If the Docker daemon goes away mid-run, [`run()`](./run) returns what arrived, with `exit_code` -1. A [`Timeout`](./botbox#timeout) holds what arrived the same way.
+```text
+output/
+  stdout.txt
+  stderr.txt
+  transcripts/
+  proxy.log
+```
+
+The folder is created if needed. Use a separate folder for each run or session: stdout and stderr are opened afresh, while existing transcript files and unrelated caller files remain. botbox leaves this folder in place after success, failure, cancellation or timeout. After a process is killed, whatever reached disk remains; unflushed output and power loss are outside this guarantee.
+
+See [Reading the result](../guide/reading-the-result) for examples.
