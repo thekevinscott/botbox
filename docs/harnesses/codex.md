@@ -15,7 +15,7 @@ CodexAgent(model: str | None = None, effort: str | None = None, *, api_key: str 
 ```python
 agent = CodexAgent("gpt-5.5", "low")
 async with Botbox(agent) as box:
-    result = await box.run(agent.command("Fix the tests"))
+    result = await box.run(agent.command("Fix the tests"), output="output")
 ```
 
 ## Credentials

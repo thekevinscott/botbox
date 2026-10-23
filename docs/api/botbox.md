@@ -27,4 +27,4 @@ A sync caller wraps each call in `asyncio.run(...)`.
 
 ## `Timeout`
 
-A run or session that runs out of time tears down as a cancel does, then raises `botbox.Timeout`. It is a `TimeoutError`, so `except TimeoutError` catches it. `result` holds the [`RunResult`](./run-result) captured so far, with `exit_code` -1. `seconds` is the limit that ran out. A timeout that runs out before the agent starts leaves `stdout`, `stderr`, `transcript` and `proxy` empty.
+A run or session that runs out of time tears down as a cancel does, then raises `botbox.Timeout`. It is a `TimeoutError`, so `except TimeoutError` catches it. `result` is a [`RunResult`](./run-result) with `exit_code` -1. Output remains in the required output folder. `seconds` is the limit that ran out. A timeout before the agent starts may leave only some of the output files.

@@ -28,7 +28,7 @@ class ArtifactAgent(ClaudeAgent):
 
 def describe_session_artifacts() -> None:
     @pytest.mark.parametrize("outcome", ["normal", "error", "cancel"])
-    async def it_retains_artifacts_and_removes_containers(outcome: str) -> None:
+    async def it_retains_artifacts_and_removes_containers(output: Path, outcome: str) -> None:
         agent = ArtifactAgent()
         box = Botbox(agent)
         error = ValueError("caller failed")
@@ -36,7 +36,7 @@ def describe_session_artifacts() -> None:
 
         async def run() -> None:
             nonlocal live
-            async with box.session() as live:
+            async with box.session(output=output) as live:
                 assert (await live.message("hi"))[-1]["result"] == "ready"
                 if outcome == "error":
                     raise error
@@ -50,9 +50,13 @@ def describe_session_artifacts() -> None:
                 await run()
         assert live is not None
         assert live.result is not None
-        assert live.result.transcript == {".claude/projects/turn.jsonl": "transcript\n"}
-        assert "ready" in live.result.stdout
-        assert live.result.stderr == "diagnostic\n"
+        assert {
+            str(p.relative_to(output / "transcripts")): p.read_text()
+            for p in (output / "transcripts").rglob("*.jsonl")
+            if p.is_file()
+        } == {"turn.jsonl": "transcript\n"}
+        assert "ready" in (output / "stdout.txt").read_text(errors="replace")
+        assert (output / "stderr.txt").read_text(errors="replace") == "diagnostic\n"
         assert live.result.exit_code == (0 if outcome == "normal" else -1)
         scratch = agent.staged_home.parent
         token = scratch.name

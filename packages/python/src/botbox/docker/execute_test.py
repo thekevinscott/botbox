@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
+from botbox.docker.Capture import Capture as RealCapture
 from botbox.docker.execute import LINGER, execute
 
 TIMEOUT = asyncio.timeout
@@ -15,7 +16,7 @@ class Process:
         self.code = code
 
 
-class Capture:
+class Capture(RealCapture):
     """A fake capture: its pipe's write end and an `eof` that resolves unless held `open`."""
 
     def __init__(self, fd: int, *, open: bool = False) -> None:
@@ -23,7 +24,7 @@ class Capture:
         self.eof: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         if not open:
             self.eof.set_result(None)
-        self.release = Mock()
+        self.release: Mock = Mock()
 
 
 async def forever(*_args: object) -> None:
@@ -84,7 +85,7 @@ async def lingering(timeout: Mock) -> tuple[Capture, Capture]:
 
 async def run(captures: tuple[Capture, Capture], *args: str, **options: int) -> int:
     stdout, stderr = captures
-    return await execute(args, stdin=7, stdout=stdout, stderr=stderr, **options)  # type: ignore[arg-type]
+    return await execute(args, stdin=7, stdout=stdout, stderr=stderr, **options)
 
 
 async def cancelled(task: asyncio.Task[int]) -> None:
@@ -100,7 +101,7 @@ def describe_execute() -> None:
 
     async def it_takes_its_streams_by_keyword_only(captures: tuple[Capture, Capture]) -> None:
         with pytest.raises(TypeError):
-            await execute(("version",), 7, *captures)  # type: ignore[call-arg, arg-type]
+            await execute(("version",), 7, *captures)  # type: ignore[call-arg]
 
     async def it_returns_the_clients_exit_code(
         spawn: AsyncMock, captures: tuple[Capture, Capture]

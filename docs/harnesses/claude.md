@@ -15,7 +15,7 @@ ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")
 async with Botbox(agent) as box:
-    result = await box.run(agent.command("Fix the tests"))
+    result = await box.run(agent.command("Fix the tests"), output="output")
 ```
 
 ## Credentials

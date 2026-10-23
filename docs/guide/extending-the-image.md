@@ -50,6 +50,7 @@ agent = ClaudeAgent(model=model, effort=effort)
 box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
 result = await box.run(
+    output="output",
     command=agent.command(prompt),
     mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
     workdir="/target",

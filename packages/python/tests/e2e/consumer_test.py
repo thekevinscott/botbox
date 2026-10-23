@@ -23,18 +23,27 @@ def sample_dockerfile() -> str:
 
 
 @pytest.fixture(scope="module")
-def result(pytestconfig: pytest.Config) -> RunResult:
+def result(output: Path, pytestconfig: pytest.Config) -> RunResult:
     dockerfile = pytestconfig.cache.mkdir("consumer") / "Dockerfile"
     dockerfile.write_text(sample_dockerfile())
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
-    return asyncio.run(box.run("uv --version && pytest --version && vitest --version"))
+    return asyncio.run(
+        box.run("uv --version && pytest --version && vitest --version", output=output)
+    )
 
 
 def describe_the_sample_consumer_dockerfile() -> None:
-    def it_puts_its_tools_on_the_path(result: RunResult) -> None:
-        assert result.exit_code == 0, result.stdout + result.stderr
+    def it_puts_its_tools_on_the_path(output: Path, result: RunResult) -> None:
+        assert result.exit_code == 0, (output / "stdout.txt").read_text(errors="replace") + (
+            output / "stderr.txt"
+        ).read_text(errors="replace")
 
-    def it_runs_the_pinned_versions(result: RunResult) -> None:
-        assert "uv 0.12.10" in result.stdout
-        assert "pytest 9.1.1" in result.stdout + result.stderr
-        assert "vitest/2.1.3" in result.stdout
+    @pytest.mark.usefixtures("result")
+    def it_runs_the_pinned_versions(
+        output: Path,
+    ) -> None:
+        assert "uv 0.12.10" in (output / "stdout.txt").read_text(errors="replace")
+        assert "pytest 9.1.1" in (output / "stdout.txt").read_text(errors="replace") + (
+            output / "stderr.txt"
+        ).read_text(errors="replace")
+        assert "vitest/2.1.3" in (output / "stdout.txt").read_text(errors="replace")

@@ -14,7 +14,7 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `result.stdout` is whatever reached the container's stdout.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `output/stdout.txt` is whatever reached the container's stdout.
 
 ### What's Left
 
@@ -50,7 +50,7 @@ The agent, sending data out. It has nowhere to send it but the proxy.
 
 ### What botbox Does
 
-The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `output/proxy/tinyproxy.log`.
 
 ### What's Left
 
@@ -78,23 +78,19 @@ Everything in a mount is readable: `.env` files, tokens in `.git/config` remote 
 
 Writing to the mount is the feature. botbox can't tell a fix from a planted hook. It could offer a mode that copies a directory in and hands back a diff; that isn't done yet. Until then, mount a fresh clone or a copy, not your working tree, and review what changed before you run anything in it on the host.
 
-## Transcript reads that follow links
+## Transcript links
 
 ### Who Attacks
 
-The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
+The agent can create links and arbitrary files in its mounted transcripts directory.
 
 ### What botbox Does
 
-A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+botbox writes transcripts directly into `output/transcripts/` and never reads them into Python (see [Home and Credentials](./explanation/#home-and-credentials)).
 
 ### What's Left
 
-One case breaks that assumption. If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
-
-### Why botbox Doesn't Close It
-
-It could; it isn't done yet. Opening each file without following links, and keeping only regular files, closes it.
+Callers that open transcript files must treat their contents and links as agent-controlled. A link may point outside the output directory on the host.
 
 ## Resource exhaustion
 

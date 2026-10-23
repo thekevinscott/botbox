@@ -1,39 +1,33 @@
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, and `image`. Nothing is parsed.
-
-## Check the exit code
-
-A non-zero exit is a normal `RunResult`, not an exception. API errors inside the container show up in `exit_code` and `stderr`.
+`run()` returns a `RunResult` containing only `exit_code`. Pass a separate `output` folder for each run or session. Output is written there while the agent runs and remains after teardown, including cancellation and timeout.
 
 ```python
+from pathlib import Path
+
+output = Path("runs/first")
+result = await box.run(agent.command("Fix the failing test."), output=output)
 if result.exit_code != 0:
-    print(result.stderr)
+    print((output / "stderr.txt").read_text(errors="replace"))
+print((output / "stdout.txt").read_text(errors="replace"))
 ```
+
+A non-zero exit is a normal result. When a timeout raises `botbox.Timeout`, its `result.exit_code` is -1 and the files remain available.
 
 ## Read the transcript
 
-`result.transcript` is a `dict[str, str]`: path relative to the agent's home → file contents.
-
-```python
-for path, contents in result.transcript.items():
-    print(path, len(contents))
-```
+`output/transcripts/` contains the files the agent writes into its sessions directory. Their names and format belong to the agent. botbox does not read or parse them. Treat them as agent-controlled files, including any links the agent creates.
 
 ## Read the proxy log
 
-`result.proxy` is a `str`: every connection, admitted or refused.
+`output/proxy/tinyproxy.log` records connections admitted or refused by the proxy.
 
 ```python
-print(result.proxy)
+print((output / "proxy/tinyproxy.log").read_text(errors="replace"))
 ```
 
-## Keep what the run wrote
+## Keep other files
 
-The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
+Use [read-write mounts](./mounting-directories) for other files the agent should leave behind. Unrelated files in the output folder belong to the caller and remain in place.
 
-```python
-await box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
-```
-
-Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
+See the [`RunResult` page](../api/run-result) and [how a run works](../explanation/#a-run).

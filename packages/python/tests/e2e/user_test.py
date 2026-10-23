@@ -25,13 +25,18 @@ PROBES = {
 
 
 @pytest.fixture(scope="module")
-def report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+def report(output: Path, tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     dockerfile = tmp_path_factory.mktemp("unnamed") / "Dockerfile"
     dockerfile.write_text(UNNAMED)
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in PROBES.items())
-    result = asyncio.run(box.run(script))
-    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    result = asyncio.run(box.run(script, output=output))
+    assert result.exit_code == 0
+    fields = (
+        line.split("\t", 1)
+        for line in (output / "stdout.txt").read_text(errors="replace").splitlines()
+        if "\t" in line
+    )
     return {name: value.strip() for name, value in fields}
 
 
@@ -65,7 +70,7 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
     image = await box.build()
     token = uuid4().hex[:12]
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
-    async with lockdown((), scratch, token) as jail:
+    async with lockdown((), scratch, token, scratch / "output") as jail:
         flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
         flags[flags.index("--user") + 1] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         args = ["docker", "run", "--rm", *flags, image, RELAY, "sh", "-c", script]

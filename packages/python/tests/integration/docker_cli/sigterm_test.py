@@ -25,10 +25,10 @@ async def main():
     try:
         async with Botbox(ClaudeAgent(host_home=home)) as box:
             if moment == "session":
-                async with box.session() as live:
+                async with box.session(output=home.parent / "output") as live:
                     await live.message("hang")
             else:
-                await box.run("hang")
+                await box.run("hang", output=home.parent / "output")
     except asyncio.CancelledError:
         sys.exit(7)
 

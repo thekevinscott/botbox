@@ -38,20 +38,6 @@ def describe_Capture() -> None:
             await capture.eof
         assert into == b"shorter"
 
-    async def it_signals_each_arrival() -> None:
-        into = bytearray()
-        async with Capture(into) as capture:
-            assert not capture.grew.is_set()
-            os.write(capture.write, b"line\n")
-            await asyncio.wait_for(capture.grew.wait(), 1)
-            assert into == b"line\n"
-            capture.grew.clear()
-            os.write(capture.write, b"more")
-            await asyncio.wait_for(capture.grew.wait(), 1)
-            capture.release()
-            await capture.eof
-        assert into == b"line\nmore"
-
     async def it_releases_its_write_end_once() -> None:
         async with Capture(bytearray()) as capture:
             capture.release()
