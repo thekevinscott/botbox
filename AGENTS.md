@@ -19,6 +19,11 @@ Conventions, supervision rules, and per-language style live under
 
 ## Workflow
 
+- **PRs are S, or at most M.** S is under ~100 changed lines, M under ~400,
+  counting tests and docs but not lockfiles or generated files. A change that
+  won't fit is several PRs: split it before writing code, land each on `main`
+  in turn, and never stack them. If a PR grows past M while in progress, stop
+  and split it rather than finishing it.
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
 - `just test-e2e` reads `.env` from the checkout root. In a worktree under
   `.worktrees/<name>/`, symlink it first: `ln -s ../../.env .env`.
