@@ -1,9 +1,9 @@
 import argparse
 import asyncio
 import os
-from dataclasses import astuple
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from dataclasses import astuple
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, call, patch
