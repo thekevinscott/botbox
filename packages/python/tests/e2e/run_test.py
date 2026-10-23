@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException, reap
+from botbox import Botbox, ClaudeAgent, DockerException, Timeout, reap
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -204,6 +204,19 @@ def describe_run() -> None:
                 async with asyncio.timeout(8):
                     await box.run("sleep 600")
             assert time.monotonic() - started < 8 + GRACE
+            assert len(runs.tokens) == 1
+            assert runs.leftovers() == []
+
+        async def it_removes_the_run_and_keeps_what_it_left_when_its_timeout_runs_out(
+            box: Botbox, runs: Runs
+        ) -> None:
+            started = time.monotonic()
+            with pytest.raises(Timeout) as raised:
+                await box.run("echo partial; echo err >&2; sleep 600", timeout=8)
+            assert time.monotonic() - started < 8 + GRACE
+            result = raised.value.result
+            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+            assert "Starting main loop" in result.proxy
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 
