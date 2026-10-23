@@ -1,7 +1,7 @@
 {
-  "command": "just test-e2e",
-  "ran_at": 1792783874,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/api_key_test.py tests/e2e/claude_test.py tests/e2e/codex_test.py tests/e2e/daemon_test.py tests/e2e/network_test.py tests/e2e/pi_openrouter_test.py tests/e2e/run_test.py tests/e2e/session_test.py",
+  "ran_at": 1792790305,
   "exit_code": 0,
-  "commit": "b436c8a9bdfd688839b44b4b00f651d9f9caa8b2",
+  "commit": "4b7c27de3c41afbe7989f70e10a10a143be64607",
   "branch": "output-folder"
 }
