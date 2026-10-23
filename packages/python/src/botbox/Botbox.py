@@ -159,6 +159,8 @@ class Botbox:
         if output is not None:
             output = Path(output).resolve()
             output.mkdir(parents=True, exist_ok=True)
+            (output / "stdout.txt").open("wb").close()
+            (output / "stderr.txt").open("wb").close()
         await reap()
         image = await self.build()
         token = uuid4().hex[:12]

@@ -33,11 +33,11 @@ result = await box.run("echo hello", output=output)
 print((output / "stdout.txt").read_text())
 ```
 
-Existing stream files are truncated when the agent starts; other files in the directory
-are preserved. Use a separate directory for each concurrent run. Stream files remain
-after success, failure, timeout or cancellation once opened. Earlier setup failures may
-leave only the directory. Agent Docker failures put the absolute `stderr.txt` path in
-`DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.
+Stream files are created or truncated immediately after the output directory is created
+or reused, before setup starts; other files in the directory are preserved. Use a separate directory for each concurrent run. Stream files remain
+after success, failure, timeout or cancellation. If reap, build, credential staging or
+proxy setup fails, both stream files are empty. Agent Docker failures put the absolute
+`stderr.txt` path in `DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.
 Omit `output` to keep stdout and stderr in the result as before.
 
 - When `timeout` runs out, the run tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout). Its `result` holds the output, transcript and proxy log so far, with `exit_code` -1.

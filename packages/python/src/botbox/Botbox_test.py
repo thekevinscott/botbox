@@ -1310,6 +1310,11 @@ def file_run(docker_run: Mock) -> Mock:
     return docker_run
 
 
+@pytest.fixture
+def setup_failures(runner: Mock, reap: Mock, docker_build: Mock, lockdown: Mock) -> dict[str, Mock]:
+    return {"reap": reap, "build": docker_build, "staging": runner.stage_auth, "proxy": lockdown}
+
+
 def describe_run_output() -> None:
     @pytest.mark.parametrize("form", ["path", "string", "relative"])
     async def it_passes_files_to_docker_and_leaves_the_stream_fields_empty(
@@ -1340,6 +1345,23 @@ def describe_run_output() -> None:
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
+
+    @pytest.mark.parametrize("phase", ["reap", "build", "staging", "proxy"])
+    async def it_clears_previous_streams_before_setup_can_fail(
+        runner: Mock,
+        setup_failures: dict[str, Mock],
+        tmp_path: Path,
+        phase: str,
+        docker_run: Mock,
+    ) -> None:
+        (tmp_path / "stdout.txt").write_text("previous stdout")
+        (tmp_path / "stderr.txt").write_text("previous stderr")
+        setup_failures[phase].side_effect = RuntimeError("setup failed")
+        with pytest.raises(RuntimeError, match="setup failed"):
+            await Botbox(runner).run("true", output=tmp_path)
+        assert (tmp_path / "stdout.txt").read_bytes() == b""
+        assert (tmp_path / "stderr.txt").read_bytes() == b""
+        docker_run.assert_not_called()
 
     async def it_closes_the_files_when_docker_raises(
         runner: Mock, file_run: Mock, tmp_path: Path, claim: Mock
