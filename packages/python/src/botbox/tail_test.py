@@ -35,3 +35,36 @@ def describe_tail() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert readers[0].at_eof()
+
+
+def describe_startup() -> None:
+    async def it_reaps_a_spawn_that_is_cancelled_before_its_handle_arrives(tmp_path: Path) -> None:
+        from unittest.mock import AsyncMock, patch
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+        process = AsyncMock()
+
+        async def spawn(*_args: object, **_kwargs: object) -> AsyncMock:
+            started.set()
+            await release.wait()
+            return process
+
+        async def abandon(starting: asyncio.Future[AsyncMock]) -> None:
+            release.set()
+            assert await starting is process
+
+        async def follow() -> None:
+            async with tail(tmp_path / "stdout.txt"):
+                pytest.fail("cancelled spawn must not yield")
+
+        with (
+            patch("botbox.tail.asyncio.create_subprocess_exec", side_effect=spawn),
+            patch("botbox.tail.abandon", side_effect=abandon) as abandoned,
+        ):
+            task = asyncio.create_task(follow())
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            abandoned.assert_awaited_once()

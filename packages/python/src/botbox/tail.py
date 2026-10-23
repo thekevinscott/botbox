@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from botbox.docker.abandon import abandon
+from botbox.docker.discard import discard
 from botbox.docker.reap import reap
 from botbox.docker.settle import settle
 
@@ -32,10 +33,5 @@ async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
     try:
         yield process.stdout
     finally:
-        draining = asyncio.ensure_future(_drain(process.stdout))
+        draining = asyncio.ensure_future(discard(process.stdout))
         await settle(reap(process, draining))
-
-
-async def _drain(reader: asyncio.StreamReader) -> None:
-    while await reader.read(65536):
-        pass

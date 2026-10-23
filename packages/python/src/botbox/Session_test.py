@@ -229,3 +229,12 @@ def describe_large_lines() -> None:
             await reading
         live.print(b'","type":"end"}\n')
         assert await live.session.event() == {"text": "x" * 200000, "type": "end"}
+
+
+def describe_client_exit() -> None:
+    async def it_ends_while_tails_pipe_is_still_open(live: Live) -> None:
+        pending = asyncio.create_task(live.session.event())
+        await asyncio.sleep(0.01)
+        live.client.set_result(0)
+        assert await asyncio.wait_for(pending, 1) is None
+        assert not live.stdout.at_eof()
