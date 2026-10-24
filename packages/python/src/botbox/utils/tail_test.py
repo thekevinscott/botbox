@@ -97,6 +97,20 @@ def describe_tail() -> None:
             assert await reader.readline() == b"after\n"
         assert reader.at_eof()
 
+    async def it_preserves_large_line_boundaries_for_existing_and_new_output(
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "stdout.txt"
+        large = b"x" * 200_000 + b"\n"
+        path.write_bytes(large + b"after existing\n")
+        async with asyncio.timeout(5), tail(path) as reader:
+            assert await reader.readline() == large
+            assert await reader.readline() == b"after existing\n"
+            with path.open("ab") as writer:
+                writer.write(large + b"after appended\n")
+            assert await reader.readline() == large
+            assert await reader.readline() == b"after appended\n"
+
     async def it_exits_when_cancelled(
         tmp_path: Path, spawned: list[asyncio.subprocess.Process]
     ) -> None:
