@@ -76,6 +76,17 @@ def describe_Session() -> None:
         assert session.stderr is live.stderr
         assert session.client is live.client
 
+    async def it_accepts_the_existing_constructor_arguments_by_keyword(live: Live) -> None:
+        session = Session(
+            agent=live.agent,
+            stdin=live.stdin,
+            stdout=live.stdout,
+            stderr=live.stderr,
+            client=live.client,
+        )
+        live.print(lines({"type": "end"}))
+        assert await session.message("hi") == [{"type": "end"}]
+
     async def it_has_no_result_until_the_session_is_left(live: Live) -> None:
         assert live.session.result is None
 
