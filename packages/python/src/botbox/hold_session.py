@@ -11,6 +11,7 @@ from botbox.docker.execute import execute
 from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
 from botbox.Session import Session
+from botbox.utils.CapturedLines import CapturedLines
 
 
 @asynccontextmanager
@@ -43,7 +44,14 @@ async def hold_session(agent: SessionAgent, args: list[str]) -> AsyncIterator[Se
                         )
                     )
                     try:
-                        yield Session(agent, stdin, out, err.into, client)
+                        yield Session(
+                            agent,
+                            stdin,
+                            out,
+                            err.into,
+                            client,
+                            _readline=CapturedLines(out, client).readline,
+                        )
                     finally:
                         client.cancel()
                         await settle(asyncio.gather(client, return_exceptions=True))
