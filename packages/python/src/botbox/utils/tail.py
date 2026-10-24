@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,6 +29,7 @@ async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                     start_new_session=True,
+                    limit=sys.maxsize,
                 )
             )
             try:
