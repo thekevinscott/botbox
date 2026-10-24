@@ -22,7 +22,7 @@ async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
                 asyncio.create_subprocess_exec(
                     "sh",
                     "-c",
-                    'tail -n +1 -F "$1" & child=$!; read _; kill "$child"; wait "$child"',
+                    'tail -n +1 -F -- "$1" & child=$!; read _; kill "$child"; wait "$child"',
                     "sh",
                     str(path),
                     stdin=read,

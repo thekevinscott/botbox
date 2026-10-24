@@ -76,6 +76,18 @@ def abandoned(release: asyncio.Event, process: AsyncMock) -> Iterator[Mock]:
 
 
 def describe_tail() -> None:
+    async def it_follows_a_relative_path_starting_with_a_dash(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        path = Path("-stdout.txt")
+        path.write_bytes(b"before\n")
+        async with asyncio.timeout(5), tail(path) as reader:
+            assert await reader.readline() == b"before\n"
+            with path.open("ab") as writer:
+                writer.write(b"after\n")
+            assert await reader.readline() == b"after\n"
+
     async def it_holds_a_lifetime_pipe_owner_only_until_teardown(
         tmp_path: Path,
         lifetimes: list[IO[bytes]],
