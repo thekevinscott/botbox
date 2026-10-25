@@ -2,13 +2,15 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO
+from typing import IO, TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.utils.LineReader import LineReader
 from botbox.utils.tail import tail
+
+if TYPE_CHECKING:
+    from botbox.utils.LineReader import LineReader
 
 
 @pytest.fixture
