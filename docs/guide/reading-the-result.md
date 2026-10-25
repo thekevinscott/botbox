@@ -38,6 +38,8 @@ for path in sorted((output / "transcripts").rglob("*.jsonl")):
 print(result.proxy)
 ```
 
+With `output=`, the log goes to `proxy.log` there instead and `result.proxy` is empty.
+
 ## Keep what the run wrote
 
 The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.

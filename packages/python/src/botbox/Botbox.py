@@ -132,15 +132,16 @@ class Botbox:
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return what it left.
 
-        With `output`, stdout and stderr go directly to stdout.txt and stderr.txt there, and
-        transcripts/ there is mounted over the agent's `sessions_dir`; the result's stream and
-        transcript fields are empty. Existing stream files are truncated; other files are kept.
-        A path with `:` raises `ValueError`, since Docker can't mount it.
+        With `output`, stdout, stderr and the proxy's output go directly to stdout.txt,
+        stderr.txt and proxy.log there, and transcripts/ there is mounted over the agent's
+        `sessions_dir`; those result fields and the transcript are empty. The three files are
+        truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
+        can't mount it.
 
         Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
-        a fresh host temp directory with the credentials staged in; the proxy logs into the same
-        directory. The proxy log, and without `output` the transcript, are read into the result
-        once the container exits, then deleted.
+        a fresh host temp directory with the credentials staged in; without `output`, the proxy
+        logs into the same directory. Without `output`, the proxy log and transcript are read
+        into the result once the container exits, then deleted.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -166,6 +167,7 @@ class Botbox:
             output.mkdir(parents=True, exist_ok=True)
             (output / "stdout.txt").open("wb").close()
             (output / "stderr.txt").open("wb").close()
+            (output / "proxy.log").open("wb").close()
             (output / "transcripts").mkdir(exist_ok=True)
             sessions = f"{agent.home}/{agent.sessions_dir}"
             volumes.append((str(output / "transcripts"), sessions, "rw"))
@@ -189,7 +191,7 @@ class Botbox:
                 return await asyncio.to_thread(read_transcript, home, agent.sessions_dir)
 
             try:
-                async with deadline, lockdown(allow, claim.path, token) as jail:
+                async with deadline, lockdown(allow, claim.path, token, output) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
                         token, [*flags, image, RELAY, "sh", "-c", command], out, err, output

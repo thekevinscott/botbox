@@ -460,13 +460,14 @@ def jail(scratch: Path) -> Mock:
 @pytest.fixture(autouse=True)
 def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
-    async def lockdown(*_args: object) -> AsyncIterator[Mock]:
+    async def lockdown(*args: object) -> AsyncIterator[Mock]:
         steps.append("start proxy")
         try:
             yield jail
         finally:
             steps.append("stop proxy")
-            jail.log = "CONNECT api.anthropic.com:443\n"
+            if len(args) < 4 or args[3] is None:
+                jail.log = "CONNECT api.anthropic.com:443\n"
 
     with patch("botbox.Botbox.lockdown", autospec=True, side_effect=lockdown) as m:
         yield m
@@ -640,7 +641,7 @@ def describe_run() -> None:
     ) -> None:
         await Botbox(runner, allow=["registry.npmjs.org"]).run("true")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN
+            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None
         )
 
     async def it_runs_and_tears_down_in_order(runner: Mock, steps: list[str]) -> None:
@@ -828,6 +829,7 @@ def describe_run() -> None:
             assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
             assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
             assert steps.index("read transcript") < steps.index("remove temp home")
+            assert result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -843,7 +845,7 @@ def describe_run() -> None:
                 "",
                 -1,
                 {},
-                "CONNECT api.anthropic.com:443\n",
+                "",
                 "an-agent-123:latest",
             )
 
@@ -1354,7 +1356,7 @@ def describe_run_output() -> None:
         result = await Botbox(runner).run("true", output=destination[form])
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
         assert result.transcript == {}
-        assert result.proxy == "CONNECT api.anthropic.com:443\n"
+        assert result.proxy == ""
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert file_run.call_args.kwargs["stdout"].closed
@@ -1379,7 +1381,8 @@ def describe_run_output() -> None:
             "/src:/home/user/src:ro",
             f"{output / 'transcripts'}:/home/user/.claude/projects:rw",
         ]
-        assert {p.name for p in output.iterdir()} == {"stderr.txt", "stdout.txt", "transcripts"}
+        files = {p.name for p in output.iterdir()}
+        assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}
         read_transcript.assert_not_called()
 
     @pytest.mark.usefixtures("file_run")
@@ -1390,14 +1393,25 @@ def describe_run_output() -> None:
         assert (await Botbox(runner).run("true", output=output)).exit_code == 3
 
     @pytest.mark.usefixtures("file_run")
+    async def it_logs_the_proxy_into_the_output(
+        runner: Mock, lockdown: Mock, scratch: Path, tmp_path: Path
+    ) -> None:
+        await Botbox(runner).run("true", output=tmp_path / "output")
+        lockdown.assert_called_once_with(
+            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output"
+        )
+
+    @pytest.mark.usefixtures("file_run")
     async def it_truncates_streams_but_preserves_other_files(runner: Mock, tmp_path: Path) -> None:
         (tmp_path / "stdout.txt").write_text("old stdout contents")
         (tmp_path / "stderr.txt").write_text("old stderr contents")
+        (tmp_path / "proxy.log").write_text("old proxy log")
         (tmp_path / "keep").write_text("keep")
         (tmp_path / "transcripts").mkdir()
         (tmp_path / "transcripts" / "old.jsonl").write_text("old")
         await Botbox(runner).run("true", output=tmp_path)
         assert (tmp_path / "transcripts" / "old.jsonl").read_text() == "old"
+        assert (tmp_path / "proxy.log").read_bytes() == b""
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
@@ -1425,11 +1439,13 @@ def describe_run_output() -> None:
     ) -> None:
         (tmp_path / "stdout.txt").write_text("previous stdout")
         (tmp_path / "stderr.txt").write_text("previous stderr")
+        (tmp_path / "proxy.log").write_text("previous proxy log")
         setup_failures[phase].side_effect = RuntimeError("setup failed")
         with pytest.raises(RuntimeError, match="setup failed"):
             await Botbox(runner).run("true", output=tmp_path)
         assert (tmp_path / "stdout.txt").read_bytes() == b""
         assert (tmp_path / "stderr.txt").read_bytes() == b""
+        assert (tmp_path / "proxy.log").read_bytes() == b""
         docker_run.assert_not_called()
 
     async def it_closes_the_files_when_docker_raises(
