@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/process_test.py -W error --basetemp=/tmp/claude/talk-734-151853/pytest-attest",
-  "ran_at": 1792956299,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/process_test.py -W error --basetemp=/tmp/claude/talk-734-153129/pytest-attest",
+  "ran_at": 1792956802,
   "exit_code": 0,
-  "commit": "95d5fc3e3700dc8355a0854ba17975561cddeef2",
+  "commit": "60e0c3e2c4dd6e566bd8550fee2fe10c4b80332f",
   "branch": "process-child"
 }
