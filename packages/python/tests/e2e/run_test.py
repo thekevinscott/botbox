@@ -189,6 +189,19 @@ def describe_run() -> None:
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
         assert runs.leftovers() == []
 
+    async def it_writes_transcripts_into_output_without_credentials(
+        box: Botbox, runs: Runs, output: Path
+    ) -> None:
+        command = (
+            "test -s ~/.claude/.credentials.json"
+            " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
+        )
+        result = await box.run(command, output=output)
+        assert (result.exit_code, result.transcript) == (0, {})
+        assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
+        assert [p.name for p in output.rglob("*credentials*")] == []
+        assert runs.leftovers() == []
+
     async def it_returns_an_exit_of_125_from_the_container(
         box: Botbox, runs: Runs, output: Path
     ) -> None:
