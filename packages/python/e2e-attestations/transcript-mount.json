@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file /home/duncan/work/code/research/botbox/.env pytest tests/e2e/run_test.py tests/e2e/transcript_test.py tests/e2e/session_artifacts_test.py -q -p no:randomly",
-  "ran_at": 1792932797,
+  "ran_at": 1792935848,
   "exit_code": 0,
-  "commit": "89c30321dd5ae4f5659b237052427e301134ea4d",
+  "commit": "c280622f873f7baad3a48f55f40588064eeacb5f",
   "branch": "transcript-mount"
 }
