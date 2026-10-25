@@ -1,0 +1,7 @@
+{
+  "command": "uv run --exclude-newer-package posix-tools=false --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/sigterm_test.py tests/e2e/teardown_test.py tests/e2e/session_test.py",
+  "ran_at": 1792958056,
+  "exit_code": 0,
+  "commit": "740cb88264d71f637c97be17e9d48ff32dbe2e0f",
+  "branch": "posix-tools-dep"
+}
