@@ -20,7 +20,6 @@ from botbox.docker.build import build as docker_build
 from botbox.docker.run import run as docker_run
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
-from botbox.posix_tools.process import settle
 from botbox.read_transcript import read_transcript
 from botbox.reap import reap
 from botbox.remove_within import remove_within
@@ -29,6 +28,7 @@ from botbox.Session import Session
 from botbox.session_result import session_result
 from botbox.Timeout import Timeout
 from botbox.warned import warned
+from posix_tools.process import settle
 
 
 class Botbox:
