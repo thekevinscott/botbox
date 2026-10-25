@@ -70,8 +70,9 @@ def describe_child() -> None:
         close.assert_not_awaited()
         abandon.assert_not_awaited()
 
+    @pytest.mark.parametrize("repeat", [False, True])
     async def it_waits_out_cancelled_startup_through_repeated_cancels(
-        start: AsyncMock, abandon: AsyncMock, close: AsyncMock, process: Mock
+        start: AsyncMock, abandon: AsyncMock, close: AsyncMock, process: Mock, repeat: bool
     ) -> None:
         spawned = asyncio.Event()
         release = asyncio.Event()
@@ -99,7 +100,8 @@ def describe_child() -> None:
         await spawned.wait()
         task.cancel()
         await cleaning.wait()
-        task.cancel()
+        if repeat:
+            task.cancel()
         await asyncio.sleep(0)
         assert not done.is_set()
         release.set()
