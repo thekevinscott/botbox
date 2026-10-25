@@ -1,0 +1,7 @@
+{
+  "command": "uv run pytest src/botbox/utils/tail_test.py && uv run pytest tests/integration/tail_test.py",
+  "ran_at": 1792883550,
+  "exit_code": 0,
+  "commit": "d27fb33935df0907afa59e7ca6eafef415f87d0e",
+  "branch": "tail-dash-path"
+}
