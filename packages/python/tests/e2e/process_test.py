@@ -14,7 +14,7 @@ def describe_child() -> None:
             "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
             "print('ready', flush=True); time.sleep(60)",
             stdout=asyncio.subprocess.PIPE,
-            grace=0.01,
+            grace=0.2,
         ) as process:
             assert process.stdout is not None
             async with asyncio.timeout(5):
