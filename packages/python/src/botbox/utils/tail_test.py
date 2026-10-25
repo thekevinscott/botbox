@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from botbox.utils.LineReader import LineReader
 from botbox.utils.tail import tail
 
 
@@ -76,6 +77,20 @@ def abandoned(release: asyncio.Event, process: AsyncMock) -> Iterator[Mock]:
 
 
 def describe_tail() -> None:
+    async def it_pauses_the_transport_when_the_consumer_stops_reading(
+        tmp_path: Path, spawned: list[asyncio.subprocess.Process]
+    ) -> None:
+        path = tmp_path / "stdout.txt"
+        path.write_bytes(b"line\n" * 1_000_000)
+        async with asyncio.timeout(5), tail(path):
+            stdout = spawned[0].stdout
+            assert stdout is not None
+            # StreamReader exposes no public transport accessor.
+            transport = stdout._transport  # type: ignore[attr-defined]  # noqa: SLF001
+            while transport.is_reading():
+                await asyncio.sleep(0.01)
+            assert not transport.is_reading()
+
     async def it_follows_a_relative_path_starting_with_a_dash(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -129,7 +144,7 @@ def describe_tail() -> None:
         path = tmp_path / "stdout.txt"
         path.touch()
         started = asyncio.Event()
-        readers: list[asyncio.StreamReader] = []
+        readers: list[LineReader] = []
 
         async def follow() -> None:
             async with tail(path) as reader:

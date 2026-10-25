@@ -1,6 +1,5 @@
 import asyncio
 import os
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,10 +9,11 @@ from botbox.docker.discard import discard
 from botbox.docker.reap import reap
 from botbox.docker.settle import settle
 from botbox.owner_only import owner_only
+from botbox.utils.LineReader import LineReader
 
 
 @asynccontextmanager
-async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
+async def tail(path: Path) -> AsyncIterator[LineReader]:
     """Follow a file until teardown or the owner closes its lifetime pipe."""
     read, write = os.pipe()
     try:
@@ -29,7 +29,6 @@ async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
                     start_new_session=True,
-                    limit=sys.maxsize,
                 )
             )
             try:
@@ -39,7 +38,7 @@ async def tail(path: Path) -> AsyncIterator[asyncio.StreamReader]:
                 raise
             assert process.stdout is not None
             try:
-                yield process.stdout
+                yield LineReader(process.stdout)
             finally:
                 draining = asyncio.ensure_future(discard(process.stdout))
                 await settle(reap(process, draining))
