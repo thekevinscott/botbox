@@ -202,10 +202,10 @@ def describe_process_imports() -> None:
             sys.executable,
             "-c",
             "from botbox.utils.tail import abandon, discard, reap, settle, owner_only; "
-            'assert abandon.__module__ == "botbox.process.abandon"; '
-            'assert discard.__module__ == "botbox.process.discard"; '
-            'assert reap.__module__ == "botbox.process.reap"; '
-            'assert settle.__module__ == "botbox.process.settle"; '
-            'assert owner_only.__module__ == "botbox.process.owner_only"; ',
+            'assert abandon.__module__ == "botbox.linux_tools.process.abandon"; '
+            'assert discard.__module__ == "botbox.linux_tools.process.discard"; '
+            'assert reap.__module__ == "botbox.linux_tools.process.reap"; '
+            'assert settle.__module__ == "botbox.linux_tools.process.settle"; '
+            'assert owner_only.__module__ == "botbox.linux_tools.process.owner_only"; ',
         )
         assert await process.wait() == 0

@@ -4,12 +4,14 @@ from unittest.mock import Mock, call, patch
 
 import pytest
 
-from botbox.process.exit_code import POLL, exit_code
+from botbox.linux_tools.process.exit_code import POLL, exit_code
 
 
 @pytest.fixture
 def sleep() -> Iterator[Mock]:
-    with patch("botbox.process.exit_code.asyncio.sleep", side_effect=asyncio.sleep) as m:
+    with patch(
+        "botbox.linux_tools.process.exit_code.asyncio.sleep", side_effect=asyncio.sleep
+    ) as m:
         yield m
 
 

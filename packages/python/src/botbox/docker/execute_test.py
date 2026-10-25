@@ -251,9 +251,9 @@ def describe_process_imports() -> None:
             sys.executable,
             "-c",
             "from botbox.docker.execute import ended, exit_code, reap, settle; "
-            'assert ended.__module__ == "botbox.process.ended"; '
-            'assert exit_code.__module__ == "botbox.process.exit_code"; '
-            'assert reap.__module__ == "botbox.process.reap"; '
-            'assert settle.__module__ == "botbox.process.settle"; ',
+            'assert ended.__module__ == "botbox.linux_tools.process.ended"; '
+            'assert exit_code.__module__ == "botbox.linux_tools.process.exit_code"; '
+            'assert reap.__module__ == "botbox.linux_tools.process.reap"; '
+            'assert settle.__module__ == "botbox.linux_tools.process.settle"; ',
         )
         assert await process.wait() == 0

@@ -4,10 +4,10 @@ from collections.abc import Sequence
 
 from botbox.docker.Capture import Capture
 from botbox.docker.spawn import Stream, spawn
-from botbox.process.ended import ended
-from botbox.process.exit_code import exit_code
-from botbox.process.reap import reap
-from botbox.process.settle import settle
+from botbox.linux_tools.process.ended import ended
+from botbox.linux_tools.process.exit_code import exit_code
+from botbox.linux_tools.process.reap import reap
+from botbox.linux_tools.process.settle import settle
 
 # How long the client's descendants may keep its pipes open after it exits.
 LINGER = 2

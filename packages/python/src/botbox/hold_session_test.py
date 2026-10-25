@@ -213,7 +213,7 @@ def describe_process_imports() -> None:
             sys.executable,
             "-c",
             "from botbox.hold_session import owner_only, settle; "
-            'assert owner_only.__module__ == "botbox.process.owner_only"; '
-            'assert settle.__module__ == "botbox.process.settle"; ',
+            'assert owner_only.__module__ == "botbox.linux_tools.process.owner_only"; '
+            'assert settle.__module__ == "botbox.linux_tools.process.settle"; ',
         )
         assert await process.wait() == 0

@@ -10,8 +10,8 @@ from botbox.authority import authority
 from botbox.build_lock import build_lock
 from botbox.docker.build import build
 from botbox.docker.run import run
-from botbox.process.owner_only import owner_only
-from botbox.process.settle import settle
+from botbox.linux_tools.process.owner_only import owner_only
+from botbox.linux_tools.process.settle import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
 
