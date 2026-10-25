@@ -4,28 +4,26 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from botbox.posix_tools.process.ended import POLL, ended
+from .ended import POLL, ended
 
 PROCESS = Mock(pid=4242)
 
 
 @pytest.fixture(autouse=True)
 def exit_code() -> Iterator[AsyncMock]:
-    with patch("botbox.posix_tools.process.ended.exit_code", autospec=True) as m:
+    with patch(f"{__package__}.ended.exit_code", autospec=True) as m:
         yield m
 
 
 @pytest.fixture(autouse=True)
 def group_running() -> Iterator[Mock]:
-    with patch(
-        "botbox.posix_tools.process.ended.group_running", autospec=True, return_value=False
-    ) as m:
+    with patch(f"{__package__}.ended.group_running", autospec=True, return_value=False) as m:
         yield m
 
 
 @pytest.fixture
 def sleep() -> Iterator[Mock]:
-    with patch("botbox.posix_tools.process.ended.asyncio.sleep", side_effect=asyncio.sleep) as m:
+    with patch(f"{__package__}.ended.asyncio.sleep", side_effect=asyncio.sleep) as m:
         yield m
 
 

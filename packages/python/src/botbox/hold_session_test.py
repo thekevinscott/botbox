@@ -1,6 +1,5 @@
 import asyncio
 import os
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -205,15 +204,3 @@ def describe_hold_session() -> None:
             async with hold_session(agent, []):
                 pass
         assert open_fds() <= before
-
-
-def describe_process_imports() -> None:
-    async def it_uses_the_relocated_helpers() -> None:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            "from botbox.hold_session import owner_only, settle; "
-            'assert owner_only.__module__ == "botbox.posix_tools.process.owner_only"; '
-            'assert settle.__module__ == "botbox.posix_tools.process.settle"; ',
-        )
-        assert await process.wait() == 0

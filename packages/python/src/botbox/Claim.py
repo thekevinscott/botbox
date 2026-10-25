@@ -1,6 +1,6 @@
 import fcntl
 
-from botbox.posix_tools.process.close_held import HELD
+from botbox.posix_tools.process import HELD
 from botbox.remove_tree import remove_tree
 from botbox.run_dir import run_dir
 

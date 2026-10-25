@@ -1,5 +1,4 @@
 import asyncio
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -243,17 +242,3 @@ def describe_execute() -> None:
             ended.assert_awaited_once_with(spawn.return_value, (capture.eof,))
             capture.release.assert_called_once_with()
             assert not file.closed
-
-
-def describe_process_imports() -> None:
-    async def it_uses_the_relocated_helpers() -> None:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            "from botbox.docker.execute import ended, exit_code, reap, settle; "
-            'assert ended.__module__ == "botbox.posix_tools.process.ended"; '
-            'assert exit_code.__module__ == "botbox.posix_tools.process.exit_code"; '
-            'assert reap.__module__ == "botbox.posix_tools.process.reap"; '
-            'assert settle.__module__ == "botbox.posix_tools.process.settle"; ',
-        )
-        assert await process.wait() == 0

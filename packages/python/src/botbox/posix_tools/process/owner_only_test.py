@@ -4,13 +4,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from botbox.posix_tools.process.owner_only import owner_only
+from .owner_only import owner_only
 
 
 @pytest.fixture(autouse=True)
 def held() -> Iterator[set[IO[bytes]]]:
     pipes: set[IO[bytes]] = set()
-    with patch("botbox.posix_tools.process.owner_only.HELD", pipes):
+    with patch(f"{__package__}.owner_only.HELD", pipes):
         yield pipes
 
 

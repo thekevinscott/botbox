@@ -4,10 +4,7 @@ from collections.abc import Sequence
 
 from botbox.docker.Capture import Capture
 from botbox.docker.spawn import Stream, spawn
-from botbox.posix_tools.process.ended import ended
-from botbox.posix_tools.process.exit_code import exit_code
-from botbox.posix_tools.process.reap import reap
-from botbox.posix_tools.process.settle import settle
+from botbox.posix_tools.process import ended, exit_code, reap, settle
 
 # How long the client's descendants may keep its pipes open after it exits.
 LINGER = 2

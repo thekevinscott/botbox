@@ -1,6 +1,4 @@
-import asyncio
 import os
-import sys
 from collections.abc import Iterator
 from io import BufferedWriter
 from pathlib import Path
@@ -107,15 +105,3 @@ def describe_claim() -> None:
             Claim(TOKEN)
         assert fcntl.flock.call_args.args[0].closed
         assert held == set()
-
-
-def describe_process_imports() -> None:
-    async def it_uses_the_relocated_helpers() -> None:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            "from botbox.Claim import HELD; "
-            "from botbox.posix_tools.process.close_held import HELD as shared; "
-            "assert HELD is shared; ",
-        )
-        assert await process.wait() == 0

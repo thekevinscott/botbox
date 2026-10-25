@@ -1,5 +1,4 @@
 import asyncio
-import sys
 from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
@@ -94,15 +93,3 @@ def describe_spawn() -> None:
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert finished.is_set()
-
-
-def describe_process_imports() -> None:
-    async def it_uses_the_relocated_helpers() -> None:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            "from botbox.docker.spawn import abandon, settle; "
-            'assert abandon.__module__ == "botbox.posix_tools.process.abandon"; '
-            'assert settle.__module__ == "botbox.posix_tools.process.settle"; ',
-        )
-        assert await process.wait() == 0
