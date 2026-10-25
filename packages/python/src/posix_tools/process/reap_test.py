@@ -108,16 +108,22 @@ def describe_reap() -> None:
         assert killpg.call_args_list == [call(4242, TERM)]
         await task
 
-    async def it_tolerates_a_group_that_is_already_gone(group: Group, killpg: Mock) -> None:
-        killpg.side_effect = ProcessLookupError
+    @pytest.mark.parametrize("error", [ProcessLookupError, PermissionError])
+    async def it_tolerates_a_group_that_is_already_gone(
+        group: Group, killpg: Mock, error: type[OSError]
+    ) -> None:
+        killpg.side_effect = error
         group.over.set()
         await reap(PROCESS)
 
-    async def it_tolerates_a_group_gone_before_the_kill(group: Group, killpg: Mock) -> None:
+    @pytest.mark.parametrize("error", [ProcessLookupError, PermissionError])
+    async def it_tolerates_a_group_gone_before_the_kill(
+        group: Group, killpg: Mock, error: type[OSError]
+    ) -> None:
         def gone(_pid: int, sig: int) -> None:
             if sig == KILL:
                 group.over.set()
-                raise ProcessLookupError
+                raise error
 
         killpg.side_effect = gone
         await reap(PROCESS, grace=0.01)

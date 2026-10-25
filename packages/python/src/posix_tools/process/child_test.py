@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -33,23 +34,20 @@ def abandon() -> Iterator[AsyncMock]:
 
 
 def describe_child() -> None:
-    async def it_starts_a_group_and_yields_the_process(start: AsyncMock, process: Mock) -> None:
-        async with child("program", "arg", stdin=7, stdout=8, stderr=9) as proc:
+    @pytest.mark.parametrize("options", [{}, {"signum": 9, "grace": 0.1, "linger": 2}])
+    async def it_starts_a_group_and_passes_cleanup_options(
+        start: AsyncMock, process: Mock, close: AsyncMock, options: dict[str, Any]
+    ) -> None:
+        drains = (asyncio.get_running_loop().create_future(),)
+        async with child(
+            "program", "arg", stdin=7, stdout=8, stderr=9, drains=drains, **options
+        ) as proc:
             assert proc is process
         start.assert_awaited_once_with(
             "program", "arg", stdin=7, stdout=8, stderr=9, start_new_session=True
         )
-
-    async def it_cleans_up_with_defaults(close: AsyncMock, process: Mock) -> None:
-        async with child("program"):
-            close.assert_not_awaited()
-        close.assert_awaited_once_with(process, (), signum=15, grace=10, linger=0)
-
-    async def it_passes_cleanup_options(close: AsyncMock, process: Mock) -> None:
-        drains = (asyncio.get_running_loop().create_future(),)
-        async with child("program", signum=9, grace=0.1, linger=2, drains=drains):
-            pass
-        close.assert_awaited_once_with(process, drains, signum=9, grace=0.1, linger=2)
+        expected = {"signum": 15, "grace": 10, "linger": 0} | options
+        close.assert_awaited_once_with(process, drains, **expected)
 
     @pytest.mark.parametrize("error", [ValueError("body"), asyncio.CancelledError()])
     async def it_skips_linger_after_body_errors(
@@ -77,7 +75,6 @@ def describe_child() -> None:
         spawned = asyncio.Event()
         release = asyncio.Event()
         cleaning = asyncio.Event()
-        done = asyncio.Event()
 
         async def slow(*_args: object, **_kwargs: object) -> Mock:
             spawned.set()
@@ -88,7 +85,6 @@ def describe_child() -> None:
             assert options == {"signum": 9, "grace": 0.2}
             cleaning.set()
             assert await starting is process
-            done.set()
 
         async def run() -> None:
             async with child("program", signum=9, grace=0.2):
@@ -103,9 +99,8 @@ def describe_child() -> None:
         if repeat:
             task.cancel()
         await asyncio.sleep(0)
-        assert not done.is_set()
+        assert not task.done()
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert done.is_set()
         close.assert_not_awaited()

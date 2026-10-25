@@ -23,6 +23,7 @@ async def child(  # noqa: PLR0913 — explicit subprocess streams and cleanup po
 ) -> AsyncIterator[asyncio.subprocess.Process]:
     """Own a process group through cancellation, draining its pipes only after the body exits.
 
+    The body must stop reading owned pipes before exiting; cleanup takes over their readers.
     Borrow supplied descriptors. On normal exit, allow `linger` seconds for natural completion;
     otherwise stop the group immediately, escalating from `signum` to SIGKILL after `grace`.
     """

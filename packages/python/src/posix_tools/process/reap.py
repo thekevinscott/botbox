@@ -21,13 +21,13 @@ async def reap(
     `drains` read its pipes. They must keep running until the group is gone: a client blocked
     writing to a full pipe never exits. A group that outlives the SIGKILL is a warning.
     """
-    with suppress(ProcessLookupError):
+    with suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signum)
     try:
         async with asyncio.timeout(grace):
             await ended(process, drains)
     except TimeoutError:
-        with suppress(ProcessLookupError):
+        with suppress(ProcessLookupError, PermissionError):
             os.killpg(process.pid, signal.SIGKILL)
         try:
             async with asyncio.timeout(grace):
