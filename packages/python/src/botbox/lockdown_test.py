@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import re
+import sys
 from collections.abc import AsyncIterator, Awaitable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -459,3 +460,15 @@ def describe_the_shipped_proxy() -> None:
         assert f"TCP-LISTEN:{RELAY_PORT},bind=127.0.0.1" in script
         assert f":{RELAY_PORT:04X} 00000000:0000 0A" in script
         assert "UNIX-CONNECT:/run/botbox/proxy.sock" in script
+
+
+def describe_process_imports() -> None:
+    async def it_uses_the_relocated_helpers() -> None:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "from botbox.lockdown import owner_only, settle; "
+            'assert owner_only.__module__ == "botbox.process.owner_only"; '
+            'assert settle.__module__ == "botbox.process.settle"; ',
+        )
+        assert await process.wait() == 0

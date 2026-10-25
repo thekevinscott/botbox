@@ -1,4 +1,5 @@
 import asyncio
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -193,3 +194,18 @@ def describe_startup() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         abandoned.assert_awaited_once()
+
+
+def describe_process_imports() -> None:
+    async def it_uses_the_relocated_helpers() -> None:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "from botbox.utils.tail import abandon, discard, reap, settle, owner_only; "
+            'assert abandon.__module__ == "botbox.process.abandon"; '
+            'assert discard.__module__ == "botbox.process.discard"; '
+            'assert reap.__module__ == "botbox.process.reap"; '
+            'assert settle.__module__ == "botbox.process.settle"; '
+            'assert owner_only.__module__ == "botbox.process.owner_only"; ',
+        )
+        assert await process.wait() == 0

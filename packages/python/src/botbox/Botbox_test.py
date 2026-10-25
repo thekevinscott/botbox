@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import os
+import sys
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import astuple
@@ -1404,3 +1405,14 @@ def describe_run_output() -> None:
 def output(tmp_path: Path, file_run: Mock) -> Path:
     file_run.assert_not_called()
     return tmp_path / "output"
+
+
+def describe_process_imports() -> None:
+    async def it_uses_the_relocated_helpers() -> None:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-c",
+            "from botbox.Botbox import settle; "
+            'assert settle.__module__ == "botbox.process.settle"; ',
+        )
+        assert await process.wait() == 0
