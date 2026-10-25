@@ -12,7 +12,7 @@ license = "MIT"
 authors = [{ name = "Kevin Scott", email = "me@thekevinscott.com" }]
 dependencies = [
     "json5>=0.17.3",
-    "posix-tools>=0.0.1",
+    "posix-tools>=0.0.3",
 ]
 
 [project.urls]
