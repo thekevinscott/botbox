@@ -187,6 +187,8 @@ def describe_run() -> None:
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
+        assert result.proxy == ""
+        assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
         assert runs.leftovers() == []
 
     async def it_returns_an_exit_of_125_from_the_container(
@@ -243,7 +245,8 @@ def describe_run() -> None:
             assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
-            assert "Starting main loop" in result.proxy
+            assert result.proxy == ""
+            assert "Starting main loop" in (output / "proxy.log").read_text()
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
 

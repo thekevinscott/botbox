@@ -132,12 +132,13 @@ class Botbox:
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return what it left.
 
-        With `output`, stdout and stderr go directly to stdout.txt and stderr.txt there;
-        the result stream fields are empty. Existing stream files are truncated.
+        With `output`, stdout, stderr and the proxy's output go directly to stdout.txt,
+        stderr.txt and proxy.log there; those result fields are empty. The three are truncated.
 
         Mounts and `workdir` are checked before anything is built. The agent's home is a fresh
-        host temp directory with the credentials staged in; the proxy logs into the same
-        directory. Both are read into the result once the container exits, then deleted.
+        host temp directory with the credentials staged in; without `output`, the proxy logs
+        into the same directory. Both are read into the result once the container exits, then
+        deleted.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -161,6 +162,7 @@ class Botbox:
             output.mkdir(parents=True, exist_ok=True)
             (output / "stdout.txt").open("wb").close()
             (output / "stderr.txt").open("wb").close()
+            (output / "proxy.log").open("wb").close()
         await reap()
         image = await self.build()
         token = uuid4().hex[:12]
@@ -175,7 +177,7 @@ class Botbox:
             agent.stage_auth(home)
             allow = (*agent.allow, *self.allow)
             try:
-                async with deadline, lockdown(allow, claim.path, token) as jail:
+                async with deadline, lockdown(allow, claim.path, token, output) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
                         token, [*flags, image, RELAY, "sh", "-c", command], out, err, output

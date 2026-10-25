@@ -89,9 +89,10 @@ elif option("--name").startswith("botbox-proxy-"):
     if plan.get("proxy_fails"):
         fail("tinyproxy: bad config\\n")
     settle(name, "running")
-    log = volume("/var/log/tinyproxy") / "tinyproxy.log"
-    log.write_bytes(plan.get("proxy_log", "").encode("latin-1"))
+    sys.stdout.buffer.write(plan.get("proxy_log", "").encode("latin-1"))
+    sys.stdout.buffer.flush()
     if plan.get("proxy_log_unreadable"):
+        log = Path(os.readlink("/proc/self/fd/1"))
         log.unlink()
         log.mkdir()
     (volume("/run/botbox") / "proxy.sock").touch()

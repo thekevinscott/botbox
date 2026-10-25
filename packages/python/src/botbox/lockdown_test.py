@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 
 from botbox.lockdown import (
-    OUTPUT_LIMIT,
     PROXY_CONF,
     PROXY_DIR,
     RELAY_DIR,
@@ -131,8 +130,8 @@ def scratch(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def jail(scratch: Path, allow: tuple[str, ...] = ALLOW) -> Any:
-    return lockdown(allow, scratch, TOKEN)
+def jail(scratch: Path, allow: tuple[str, ...] = ALLOW, output: Path | None = None) -> Any:
+    return lockdown(allow, scratch, TOKEN, output)
 
 
 RUN = argparse.ArgumentParser()
@@ -236,24 +235,25 @@ def describe_lockdown() -> None:
                 [args] = run.call_args.args
             assert "--rm" not in args
 
-        async def it_keeps_the_last_of_its_output_in_one_buffer(
+        async def it_sends_all_its_output_to_one_log_file_it_closes(
             scratch: Path, run: AsyncMock
         ) -> None:
             async with jail(scratch):
                 options = run.call_args.kwargs
-            assert options["stdout"] is options["stderr"]
-            assert isinstance(options["stdout"], bytearray)
-            assert options["limit"] == OUTPUT_LIMIT == 64 * 1024
+                assert options["stdout"] is options["stderr"]
+                assert options["stdout"].name == str(scratch / "proxy.log")
+                assert "limit" not in options
+            assert options["stdout"].closed
 
         async def it_waits_for_the_socket_with_the_client_and_its_output(
-            scratch: Path, run: AsyncMock, wait: AsyncMock, steps: list[str]
+            scratch: Path, wait: AsyncMock, steps: list[str]
         ) -> None:
             async with jail(scratch):
                 steps.append("body")
             [socket, client, output, timeout] = wait.call_args.args
             assert socket == scratch / "sockets" / "proxy.sock"
             assert isinstance(client, asyncio.Future)
-            assert output is run.call_args.kwargs["stdout"]
+            assert output == scratch / "proxy.log"
             assert timeout == 30
             assert steps.index("proxy up") < steps.index("body")
 
@@ -264,23 +264,19 @@ def describe_lockdown() -> None:
             assert mounts["/etc/tinyproxy/filter"] == (scratch / "filter", "ro")
             assert "/etc/tinyproxy/tinyproxy.conf" not in mounts
 
-        async def it_mounts_the_sockets_and_log_read_write(scratch: Path, run: AsyncMock) -> None:
+        async def it_mounts_only_the_sockets_read_write(scratch: Path, run: AsyncMock) -> None:
             async with jail(scratch):
                 mounts = volumes(run)
             assert mounts["/run/botbox"] == (scratch / "sockets", "rw")
-            assert mounts["/var/log/tinyproxy"] == (scratch / "proxy", "rw")
+            assert set(mounts) == {"/etc/tinyproxy/filter", "/run/botbox"}
 
         async def it_lets_the_proxy_user_create_the_socket(scratch: Path) -> None:
             async with jail(scratch):
                 assert (scratch / "sockets").stat().st_mode & 0o777 == 0o777
 
-        async def it_lets_the_proxy_user_read_the_filter_and_write_the_log(
-            scratch: Path,
-        ) -> None:
+        async def it_lets_the_proxy_user_read_the_filter(scratch: Path) -> None:
             async with jail(scratch):
                 assert (scratch / "filter").stat().st_mode & 0o777 == 0o644
-                assert (scratch / "proxy").stat().st_mode & 0o777 == 0o755
-                assert (scratch / "proxy" / "tinyproxy.log").stat().st_mode & 0o777 == 0o666
 
     def describe_the_allowlist() -> None:
         async def it_admits_each_host_by_connect_on_443_and_plain_http_on_80(
@@ -347,6 +343,17 @@ def describe_lockdown() -> None:
                 pass
             os.close.assert_called_once_with(3)
 
+        async def it_closes_both_ends_when_the_log_will_not_open(
+            tmp_path: Path, scratch: Path, run: AsyncMock, os: MagicMock
+        ) -> None:
+            os.fdopen.side_effect = None
+            with pytest.raises(FileNotFoundError):
+                async with jail(scratch, output=tmp_path / "missing"):
+                    pass
+            run.assert_not_called()
+            os.fdopen.return_value.close.assert_called_once_with()
+            os.close.assert_called_once_with(3)
+
     def describe_teardown() -> None:
         async def it_stops_the_proxy_under_settle_once_the_body_is_done(
             scratch: Path, steps: list[str]
@@ -386,25 +393,25 @@ def describe_lockdown() -> None:
 
         async def it_reads_the_log_on_the_way_out(scratch: Path) -> None:
             async with jail(scratch) as net:
-                (scratch / "proxy" / "tinyproxy.log").write_text(REFUSAL)
+                (scratch / "proxy.log").write_text(REFUSAL)
             assert net.log == REFUSAL
 
         async def it_reads_the_log_when_the_body_raises(scratch: Path) -> None:
             with pytest.raises(KeyError):
                 async with jail(scratch) as net:
-                    (scratch / "proxy" / "tinyproxy.log").write_text(REFUSAL)
+                    (scratch / "proxy.log").write_text(REFUSAL)
                     raise KeyError
             assert net.log == REFUSAL
 
         async def it_reads_the_log_as_utf8_replacing_what_is_not(scratch: Path) -> None:
             async with jail(scratch) as net:
-                (scratch / "proxy" / "tinyproxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
+                (scratch / "proxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
             assert net.log == "GET /café \ufffd\n"
 
         async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:
             with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: ") as w:
                 async with jail(scratch) as net:
-                    unreadable(scratch / "proxy" / "tinyproxy.log")
+                    unreadable(scratch / "proxy.log")
             assert net.log == ""
             assert w[0].filename == __file__
 
@@ -414,8 +421,27 @@ def describe_lockdown() -> None:
                 pytest.raises(KeyError),
             ):
                 async with jail(scratch):
-                    unreadable(scratch / "proxy" / "tinyproxy.log")
+                    unreadable(scratch / "proxy.log")
                     raise KeyError
+
+    def describe_with_output() -> None:
+        async def it_writes_the_log_into_output_and_reads_nothing_back(
+            scratch: Path, tmp_path: Path, run: AsyncMock
+        ) -> None:
+            output = tmp_path / "output"
+            output.mkdir()
+            async with jail(scratch, output=output) as net:
+                run.call_args.kwargs["stdout"].write(REFUSAL.encode())
+            assert net.log == ""
+            assert (output / "proxy.log").read_text() == REFUSAL
+            assert not (scratch / "proxy.log").exists()
+
+        async def it_truncates_a_previous_log(scratch: Path, tmp_path: Path) -> None:
+            output = tmp_path / "output"
+            output.mkdir()
+            (output / "proxy.log").write_text(REFUSAL)
+            async with jail(scratch, output=output):
+                assert (output / "proxy.log").read_bytes() == b""
 
 
 def unreadable(log: Path) -> None:
@@ -440,8 +466,10 @@ def describe_the_shipped_proxy() -> None:
         conf = PROXY_CONF.read_text()
         assert re.findall(r"^Allow .*$", conf, re.M) == ["Allow 127.0.0.1"]
 
-    def it_logs_into_the_mounted_log_directory() -> None:
-        assert 'LogFile "/var/log/tinyproxy/tinyproxy.log"' in PROXY_CONF.read_text().splitlines()
+    def it_logs_to_its_attached_output_rather_than_a_file() -> None:
+        conf = PROXY_CONF.read_text()
+        assert re.findall(r"^LogFile", conf, re.M) == []
+        assert "tinyproxy -d " in (PROXY_DIR / "botbox-proxy").read_text()
 
     def it_denies_by_default() -> None:
         assert "FilterDefaultDeny Yes" in PROXY_CONF.read_text()
