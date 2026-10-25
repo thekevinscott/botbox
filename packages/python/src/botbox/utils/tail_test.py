@@ -80,8 +80,10 @@ def abandoned(release: asyncio.Event, process: AsyncMock) -> Iterator[Mock]:
 
 def describe_tail() -> None:
     async def it_pauses_the_transport_when_the_consumer_stops_reading(
-        tmp_path: Path, spawned: list[asyncio.subprocess.Process]
+        tmp_path: Path, spawned: list[asyncio.subprocess.Process], monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # Bound the single pipe read that can overshoot the pause threshold.
+        monkeypatch.setattr("asyncio.unix_events._UnixReadPipeTransport.max_size", 8192)
         path = tmp_path / "stdout.txt"
         path.write_bytes(b"line\n" * 1_000_000)
         async with asyncio.timeout(5), tail(path):
@@ -91,7 +93,11 @@ def describe_tail() -> None:
             transport = stdout._transport  # type: ignore[attr-defined]  # noqa: SLF001
             while transport.is_reading():
                 await asyncio.sleep(0.01)
-            assert not transport.is_reading()
+            assert stdout._paused  # type: ignore[attr-defined]  # noqa: SLF001
+            assert spawned[0].returncode is None
+            assert not stdout.at_eof()
+            # Pausing happens after a pipe read crosses twice the default limit.
+            assert len(stdout._buffer) <= 2 * 2**16 + 8192  # type: ignore[attr-defined]  # noqa: SLF001
 
     async def it_follows_a_relative_path_starting_with_a_dash(
         tmp_path: Path, monkeypatch: pytest.MonkeyPatch

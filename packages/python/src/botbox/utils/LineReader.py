@@ -13,9 +13,11 @@ class LineReader:
             try:
                 chunk = await self._stream.readuntil(b"\n")
             except asyncio.LimitOverrunError as error:
+                # Keep the consumed prefix and continue assembling this line.
                 self._chunks.append(await self._stream.readexactly(error.consumed))
                 continue
             except asyncio.IncompleteReadError as error:
+                # Return the final unterminated line when the stream reaches EOF.
                 chunk = error.partial
             self._chunks.append(chunk)
             line = b"".join(self._chunks)
