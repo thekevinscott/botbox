@@ -29,6 +29,10 @@ async def close(process: Mock, *, linger: float = 0) -> None:
 
 
 def describe_close() -> None:
+    async def it_requires_keyword_cleanup_options(process: Mock) -> None:
+        with pytest.raises(TypeError):
+            await _close(process, (), 9, 0.1, 0)  # type: ignore[call-arg]
+
     async def it_forwards_the_signal_grace_and_external_drains(
         process: Mock, reap: AsyncMock, ended: AsyncMock
     ) -> None:

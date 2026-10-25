@@ -74,6 +74,10 @@ def describe_abandon() -> None:
 
 
 def describe_cleanup_options() -> None:
+    async def it_requires_keyword_cleanup_options() -> None:
+        with pytest.raises(TypeError):
+            await abandon(started(Mock()), 9, 0.2)  # type: ignore[call-arg, arg-type]
+
     async def it_passes_signal_and_grace_to_reap(reap: AsyncMock) -> None:
         process = Mock(stdout=None, stderr=None)
         await abandon(started(process), signum=9, grace=0.2)  # type: ignore[arg-type]
