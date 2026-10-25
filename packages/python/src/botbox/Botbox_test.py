@@ -410,7 +410,7 @@ def open_umask() -> Iterator[None]:
 def runner() -> Mock:
     """An agent that runs: its home, credentials, hosts and transcripts."""
     agent = Mock(image="an-agent:latest", home="/home/user", allow=("api.anthropic.com",))
-    agent.transcripts = ".claude/**/*.jsonl"
+    agent.sessions_dir = ".claude/projects"
     agent.stage_auth.side_effect = lambda home: (home / ".credentials").write_text("token")
     return agent
 
@@ -664,7 +664,7 @@ def describe_run() -> None:
         runner: Mock, read_transcript: Mock, scratch: Path
     ) -> None:
         await Botbox(runner).run("true")
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/**/*.jsonl")
+        read_transcript.assert_called_once_with(scratch / "home", ".claude/projects")
 
     async def it_reads_the_exit_code_with_the_command_client_and_stderr(
         runner: Mock, docker_run: Mock, agent_exit: Mock
@@ -811,8 +811,8 @@ def describe_run() -> None:
             ]
 
     def describe_timeout() -> None:
-        async def it_keeps_partial_streams_in_a_legacy_timeout_result(
-            runner: Mock, docker_run: Mock
+        async def it_keeps_partial_streams_and_transcripts_in_a_legacy_timeout_result(
+            runner: Mock, docker_run: Mock, steps: list[str]
         ) -> None:
             async def hang(
                 _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
@@ -827,6 +827,8 @@ def describe_run() -> None:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
             result = raised.value.result
             assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+            assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+            assert steps.index("read transcript") < steps.index("remove temp home")
             assert result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_timeout_holding_what_the_run_left(
@@ -842,12 +844,12 @@ def describe_run() -> None:
                 "",
                 "",
                 -1,
-                {".claude/projects/a.jsonl": "{}\n"},
+                {},
                 "",
                 "an-agent-123:latest",
             )
 
-        async def it_tears_down_and_reads_the_transcript_before_removing_the_home(
+        async def it_tears_down_without_reading_the_mounted_transcripts(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = hang_forever(steps)
@@ -860,9 +862,6 @@ def describe_run() -> None:
                 "settle",
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
-                "settle",
-                "read transcript",
-                "warned: read its transcript",
                 "settle",
                 "remove temp home",
                 "warned: remove its temp home",
@@ -1074,7 +1073,7 @@ def describe_session() -> None:
     ) -> None:
         async with Botbox(talker).session():
             pass
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/**/*.jsonl")
+        read_transcript.assert_called_once_with(scratch / "home", ".claude/projects")
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(
@@ -1356,13 +1355,42 @@ def describe_run_output() -> None:
         }
         result = await Botbox(runner).run("true", output=destination[form])
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
-        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
+        assert result.transcript == {}
         assert result.proxy == ""
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert file_run.call_args.kwargs["stdout"].closed
         assert file_run.call_args.kwargs["stderr"].closed
         assert agent_exit.call_args.args[3] == f"See {output / 'stderr.txt'}"
+
+    async def it_mounts_transcripts_over_the_sessions_dir_after_staging(
+        runner: Mock, file_run: Mock, read_transcript: Mock, scratch: Path, output: Path
+    ) -> None:
+        home = scratch / "home"
+
+        async def attached(_args: list[str], **_options: Any) -> int:
+            assert (home / ".credentials").read_text() == "token"
+            assert (home / ".claude" / "projects").is_dir()
+            return 0
+
+        file_run.side_effect = attached
+        await Botbox(runner).run("true", output=output)
+        assert agent_options(file_run)["volume"] == [
+            f"{home}:/home/user:rw",
+            f"{scratch / 'sockets'}:/run/botbox:ro",
+            "/src:/home/user/src:ro",
+            f"{output / 'transcripts'}:/home/user/.claude/projects:rw",
+        ]
+        files = {p.name for p in output.iterdir()}
+        assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}
+        read_transcript.assert_not_called()
+
+    @pytest.mark.usefixtures("file_run")
+    async def it_mounts_over_a_sessions_dir_that_staging_made(runner: Mock, output: Path) -> None:
+        runner.stage_auth.side_effect = lambda home: (home / ".claude" / "projects").mkdir(
+            parents=True
+        )
+        assert (await Botbox(runner).run("true", output=output)).exit_code == 3
 
     @pytest.mark.usefixtures("file_run")
     async def it_logs_the_proxy_into_the_output(
@@ -1379,11 +1407,27 @@ def describe_run_output() -> None:
         (tmp_path / "stderr.txt").write_text("old stderr contents")
         (tmp_path / "proxy.log").write_text("old proxy log")
         (tmp_path / "keep").write_text("keep")
+        (tmp_path / "transcripts").mkdir()
+        (tmp_path / "transcripts" / "old.jsonl").write_text("old")
         await Botbox(runner).run("true", output=tmp_path)
+        assert (tmp_path / "transcripts" / "old.jsonl").read_text() == "old"
         assert (tmp_path / "proxy.log").read_bytes() == b""
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
+
+    async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
+        runner: Mock, reap: Mock, docker_build: Mock, tmp_path: Path
+    ) -> None:
+        output = tmp_path / "a:b"
+        output.mkdir()
+        (output / "stdout.txt").write_text("previous")
+        with pytest.raises(ValueError, match="contains ':'"):
+            await Botbox(runner).run("true", output=output)
+        assert (output / "stdout.txt").read_text() == "previous"
+        assert not (output / "transcripts").exists()
+        reap.assert_not_called()
+        docker_build.assert_not_called()
 
     @pytest.mark.parametrize("phase", ["reap", "build", "staging", "proxy"])
     async def it_clears_previous_streams_before_setup_can_fail(

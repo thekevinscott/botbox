@@ -105,7 +105,9 @@ def describe_run() -> None:
             assert result.exit_code == -1
             assert result.stdout == ""
             assert (output / "stdout.txt").read_text() == "partial\n"
-            assert result.transcript == {".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'}
+            assert result.transcript == {}
+            transcript = output / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
             assert result.proxy == ""
             assert (output / "proxy.log").read_text() == REFUSAL
             assert homes(temp) == []
@@ -368,10 +370,12 @@ def describe_run() -> None:
                 stdout="",
                 stderr="",
                 exit_code=-1,
-                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
+                transcript={},
                 proxy="",
                 image="botbox-claude:latest",
             )
+            transcript = output / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
             assert homes(temp) == []
 

@@ -14,7 +14,7 @@ await box.run(
 | Argument  | What it is                                                              |
 | --------- | ----------------------------------------------------------------------- |
 | `command` | Shell command line, run as `sh -c`, passed through unchanged. |
-| `output` | Optional host directory for `stdout.txt`, `stderr.txt` and `proxy.log`. Created with missing parents; relative paths resolve from the working directory. |
+| `output` | Optional host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Created with missing parents; relative paths resolve from the working directory. A path containing `:` raises `ValueError` before anything is touched. |
 | `mounts`  | Bind mounts: host path, container path, mode. A missing host path is created as a dir owned by you. |
 | `workdir` | Where the command starts. Must be a mounted path or inside one; otherwise `run()` raises. Defaults to the agent's home. |
 | `timeout` | Seconds the run may take once the image is built. Defaults to the box's [`timeout`](./botbox). |
@@ -22,8 +22,13 @@ await box.run(
 Returns a [`RunResult`](./run-result). A non-zero exit is a normal `RunResult`.
 
 With `output`, stdout, stderr and the proxy's log go directly to files without being
-captured in Python. The `stdout`, `stderr` and `proxy` result fields are empty, including in
-`Timeout.result`; transcript and image fields retain their usual behavior. Read the files
+captured in Python. `output/transcripts/` is bind-mounted over the agent's sessions
+directory, such as `~/.claude/projects`, so the CLI writes its transcripts there directly.
+botbox stages credentials outside the sessions directory, so nothing botbox writes to
+`output` contains them. The agent can still print them into a stream or a transcript.
+Everything in `output` is agent-written and untrusted, symlinks included: don't follow links
+out of it. The `stdout`, `stderr`, `proxy` and `transcript` result fields are empty,
+including in `Timeout.result`; the image field retains its usual behavior. Read the files
 yourself when needed:
 
 ```python
@@ -35,11 +40,12 @@ print((output / "stdout.txt").read_text())
 ```
 
 `stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
-output directory is created or reused, before setup starts; other files in the directory are
-preserved. Use a separate directory for each concurrent run. The files remain after success,
-failure, timeout or cancellation. If reap, build or credential staging fails, all three are
-empty. `proxy.log` holds everything the proxy container printed, its startup output included;
-if the proxy won't start, the error also carries the last 64 KiB of it. Agent Docker failures put the absolute
+output directory is created or reused, before setup starts; other files in the directory,
+`transcripts/` included, are preserved. Use a separate directory for each concurrent run. The
+files remain after success, failure, timeout or cancellation. If reap, build or credential
+staging fails, all three are empty. `proxy.log` holds everything the proxy container printed,
+its startup output included; if the proxy won't start, the error also carries the last 64 KiB
+of it. Agent Docker failures put the absolute
 `stderr.txt` path in `DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.
 Omit `output` to keep stdout, stderr and the proxy log in the result as before.
 

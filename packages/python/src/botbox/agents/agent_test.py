@@ -11,7 +11,7 @@ def describe_agent() -> None:
             "dockerfile",
             "home",
             "image",
-            "transcripts",
+            "sessions_dir",
         }
 
     def it_stages_credentials_into_a_home() -> None:
@@ -54,7 +54,7 @@ class OneShot:
     image = "an-agent:latest"
     dockerfile = Path("/agents/an-agent.Dockerfile")
     home = "/home/agent"
-    transcripts = "*.jsonl"
+    sessions_dir = "sessions"
     allow = ()
 
     def stage_auth(self, home: Path) -> None: ...

@@ -104,8 +104,11 @@ else:
     if agent.get("missing"):
         fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
-    session = volume("/home/user") / ".claude" / "projects" / "-work"
-    session.mkdir(parents=True)
+    try:
+        session = volume("/home/user/.claude/projects") / "-work"
+    except StopIteration:
+        session = volume("/home/user") / ".claude" / "projects" / "-work"
+    session.mkdir(parents=True, exist_ok=True)
     (session / "abc.jsonl").write_text('{"type": "user"}\\n')
     sys.stdout.write(agent.get("stdout", ""))
     sys.stderr.write(agent.get("stderr", ""))

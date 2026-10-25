@@ -9,8 +9,8 @@ class Agent(Protocol):
     dockerfile: Path
     home: str
     """Home directory in the container; the per-run temp home is mounted here."""
-    transcripts: str
-    """Glob, relative to `home`, matching the files the CLI writes its transcript to."""
+    sessions_dir: str
+    """Directory, relative to `home`, the CLI writes its `.jsonl` session transcripts under."""
     allow: tuple[str, ...]
     """Hosts the CLI needs the proxy to admit."""
 
