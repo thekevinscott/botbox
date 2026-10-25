@@ -1,7 +1,7 @@
 {
   "command": "uv run pytest src/botbox/utils/tail_test.py src/botbox/utils/LineReader_test.py && uv run pytest tests/integration/tail_test.py",
-  "ran_at": 1792930396,
+  "ran_at": 1792930516,
   "exit_code": 0,
-  "commit": "bf8e1f3d84888f5ab27ea6c6a3c4ee4bf83abf1f",
+  "commit": "82caf081d62544f55a4854931a7ebde4fa870187",
   "branch": "tail-bounded"
 }
