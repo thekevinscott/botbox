@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/session_test.py tests/e2e/teardown_test.py tests/e2e/sigterm_test.py",
+  "ran_at": 1792940130,
+  "exit_code": 0,
+  "commit": "7cf39bf789ba41d9b7757757dc9a71683db3d9b7",
+  "branch": "process-helpers"
+}

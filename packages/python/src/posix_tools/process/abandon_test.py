@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.docker.abandon import abandon
+from .abandon import abandon
 
 
 def stream(data: bytes, *, eof: bool = True) -> asyncio.StreamReader:
@@ -17,7 +17,7 @@ def stream(data: bytes, *, eof: bool = True) -> asyncio.StreamReader:
 
 @pytest.fixture(autouse=True)
 def reap() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.abandon.reap", autospec=True) as m:
+    with patch(f"{__package__}.abandon.reap", autospec=True) as m:
         yield m
 
 
@@ -45,7 +45,8 @@ def describe_abandon() -> None:
         stdout = stream(b"x" * 1024)
         # A plain Mock: an autospec of a coroutine function records the call only once it runs.
         with patch(
-            "botbox.docker.abandon.discard", Mock(side_effect=lambda *_: asyncio.sleep(0))
+            f"{__package__}.abandon.discard",
+            Mock(side_effect=lambda *_: asyncio.sleep(0)),
         ) as discard:
             await abandon(started(Mock(stdout=stdout, stderr=None)))  # type: ignore[arg-type]
         discard.assert_called_once_with(stdout)

@@ -10,10 +10,9 @@ from botbox.authority import authority
 from botbox.build_lock import build_lock
 from botbox.docker.build import build
 from botbox.docker.run import run
-from botbox.docker.settle import settle
-from botbox.owner_only import owner_only
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
+from posix_tools.process import owner_only, settle
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"

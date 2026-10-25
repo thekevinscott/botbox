@@ -4,12 +4,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from botbox.docker.abandon import abandon
-from botbox.docker.discard import discard
-from botbox.docker.reap import reap
-from botbox.docker.settle import settle
-from botbox.owner_only import owner_only
 from botbox.utils.LineReader import LineReader
+from posix_tools.process import abandon, discard, owner_only, reap, settle
 
 
 @asynccontextmanager

@@ -31,7 +31,7 @@ source = "vcs"
 raw-options = { root = "../.." }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/botbox"]
+packages = ["src/botbox", "src/posix_tools"]
 exclude = ["**/*_test.py"]
 
 [tool.hatch.build.targets.sdist]
@@ -49,7 +49,7 @@ select = ["E", "W", "F", "I", "B", "C4", "C90", "UP", "ARG", "SIM", "PTH", "PLR"
 "tests/**/*.py" = ["PLR2004", "PLR0915", "C901"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["botbox"]
+known-first-party = ["botbox", "posix_tools"]
 
 [tool.mypy]
 strict = true

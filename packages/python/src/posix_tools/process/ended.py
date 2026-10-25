@@ -2,8 +2,8 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from botbox.docker.exit_code import exit_code
-from botbox.docker.group_running import group_running
+from .exit_code import exit_code
+from .group_running import group_running
 
 POLL = 0.01
 

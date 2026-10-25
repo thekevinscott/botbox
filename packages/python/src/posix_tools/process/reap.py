@@ -5,7 +5,7 @@ import warnings
 from contextlib import suppress
 from typing import Any
 
-from botbox.docker.ended import ended
+from .ended import ended
 
 GRACE = 10
 

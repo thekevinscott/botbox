@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from botbox.docker.settle import settle
+from .settle import settle
 
 
 async def slow(seconds: float, value: str = "done") -> str:
