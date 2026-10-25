@@ -59,3 +59,6 @@ strict = true
 python_files = ["*_test.py"]
 testpaths = ["src"]
 asyncio_mode = "auto"
+
+[tool.uv]
+exclude-newer-package = { posix-tools = false }
