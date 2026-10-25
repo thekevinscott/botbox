@@ -31,8 +31,12 @@ transcript = result.transcript
 
 # after
 await box.run(command, output=output)
-transcript = {p: p.read_text() for p in (output / "transcripts").rglob("*.jsonl")}
+transcripts = (output / "transcripts").rglob("*.jsonl")
+transcript = {p: p.read_text() for p in transcripts if not p.is_symlink()}
 ```
+
+The agent writes `output`, so its contents are untrusted. Skip symlinks: an agent can plant
+one aimed at any host file you can read.
 
 The built-in agents need no change.
 
@@ -43,6 +47,8 @@ None. `Agent.transcripts` is removed without a deprecation period.
 ## Behavior changes without code changes
 
 - With `output`, `result.transcript` is `{}`, including in `Timeout.result`.
+- With `output`, a path containing `:` raises `ValueError` before streams are truncated or
+  the image is built.
 - With `output`, existing files in `output/transcripts/` are kept; a reused folder
   accumulates sessions.
 - `sessions_dir` is created in the temp home after credentials are staged, with or without

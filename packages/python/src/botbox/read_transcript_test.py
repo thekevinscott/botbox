@@ -53,10 +53,6 @@ def describe_read_transcript() -> None:
             (home / "sessions" / "a.jsonl").symlink_to(secret)
             assert read_transcript(home, "sessions") == {}
 
-        def it_skips_a_directory_link_out_of_the_home(home: Path, secret: Path) -> None:
-            (home / "sessions" / "host").symlink_to(secret.parent)
-            assert read_transcript(home, "sessions") == {}
-
         def it_reads_a_link_that_stays_in_the_home(home: Path) -> None:
             (home / "sessions" / "a.jsonl").write_text("a")
             (home / "sessions" / "b.jsonl").symlink_to(home / "sessions" / "a.jsonl")

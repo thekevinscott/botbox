@@ -21,11 +21,13 @@ for path, contents in result.transcript.items():
 ```
 
 With `run(output=...)`, the agent writes its transcripts straight into `output/transcripts/`
-and `result.transcript` is empty. Read them from disk:
+and `result.transcript` is empty. Read them from disk. The agent wrote that folder, so skip
+symlinks: one can point at any host file you can read.
 
 ```python
 for path in sorted((output / "transcripts").rglob("*.jsonl")):
-    print(path, path.stat().st_size)
+    if not path.is_symlink():
+        print(path, path.stat().st_size)
 ```
 
 ## Read the proxy log

@@ -367,6 +367,8 @@ def describe_run() -> None:
                 proxy=REFUSAL,
                 image="botbox-claude:latest",
             )
+            transcript = output / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
             assert homes(temp) == []
 

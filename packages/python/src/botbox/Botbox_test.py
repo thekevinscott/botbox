@@ -861,8 +861,6 @@ def describe_run() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "warned: read its transcript",
-                "settle",
                 "remove temp home",
                 "warned: remove its temp home",
             ]
@@ -1403,6 +1401,19 @@ def describe_run_output() -> None:
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
+
+    async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
+        runner: Mock, reap: Mock, docker_build: Mock, tmp_path: Path
+    ) -> None:
+        output = tmp_path / "a:b"
+        output.mkdir()
+        (output / "stdout.txt").write_text("previous")
+        with pytest.raises(ValueError, match="contains ':'"):
+            await Botbox(runner).run("true", output=output)
+        assert (output / "stdout.txt").read_text() == "previous"
+        assert not (output / "transcripts").exists()
+        reap.assert_not_called()
+        docker_build.assert_not_called()
 
     @pytest.mark.parametrize("phase", ["reap", "build", "staging", "proxy"])
     async def it_clears_previous_streams_before_setup_can_fail(

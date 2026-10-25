@@ -132,12 +132,15 @@ class Botbox:
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return what it left.
 
-        With `output`, stdout and stderr go directly to stdout.txt and stderr.txt there;
-        the result stream fields are empty. Existing stream files are truncated.
+        With `output`, stdout and stderr go directly to stdout.txt and stderr.txt there, and
+        transcripts/ there is mounted over the agent's `sessions_dir`; the result's stream and
+        transcript fields are empty. Existing stream files are truncated; other files are kept.
+        A path with `:` raises `ValueError`, since Docker can't mount it.
 
-        Mounts and `workdir` are checked before anything is built. The agent's home is a fresh
-        host temp directory with the credentials staged in; the proxy logs into the same
-        directory. Both are read into the result once the container exits, then deleted.
+        Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
+        a fresh host temp directory with the credentials staged in; the proxy logs into the same
+        directory. The proxy log, and without `output` the transcript, are read into the result
+        once the container exits, then deleted.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -150,14 +153,16 @@ class Botbox:
         that takes longer than 30 seconds, is a warning, never the error.
 
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
-        out, the run tears down as a cancel does, reads the transcript, and raises `Timeout`
-        with what the run left and `exit_code` -1.
+        out, the run tears down as a cancel does, reads the transcript unless `output` holds it,
+        and raises `Timeout` with what the run left and `exit_code` -1.
         """
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         if output is not None:
             output = Path(output).resolve()
+            if ":" in str(output):
+                raise ValueError(f"output {output} contains ':', which Docker can't mount")
             output.mkdir(parents=True, exist_ok=True)
             (output / "stdout.txt").open("wb").close()
             (output / "stderr.txt").open("wb").close()
@@ -181,8 +186,6 @@ class Botbox:
             allow = (*agent.allow, *self.allow)
 
             async def read() -> dict[str, str]:
-                if output is not None:
-                    return {}
                 return await asyncio.to_thread(read_transcript, home, agent.sessions_dir)
 
             try:
@@ -191,7 +194,7 @@ class Botbox:
                     exit_code = await self._attach(
                         token, [*flags, image, RELAY, "sh", "-c", command], out, err, output
                     )
-                    transcript = await read()
+                    transcript = {} if output is not None else await read()
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
@@ -200,7 +203,8 @@ class Botbox:
                 async def salvage() -> None:
                     transcript.update(await read())
 
-                await settle(warned(salvage(), "read its transcript"))
+                if output is None:
+                    await settle(warned(salvage(), "read its transcript"))
                 proxy = "" if jail is None else jail.log
                 result = RunResult(
                     out.decode(errors="replace"),
