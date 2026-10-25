@@ -18,6 +18,7 @@ curtaincall = false
 dirsql = false
 labnotes = false
 lamp-the-djinn = false
+posix-tools = false
 pyskillet = false
 repo-name-checker = false
 
@@ -90,6 +91,7 @@ name = "botbox"
 source = { editable = "." }
 dependencies = [
     { name = "json5" },
+    { name = "posix-tools" },
 ]
 
 [package.dev-dependencies]
@@ -102,7 +104,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "json5", specifier = ">=0.17.3" }]
+requires-dist = [
+    { name = "json5", specifier = ">=0.17.3" },
+    { name = "posix-tools", specifier = ">=0.0.1" },
+]
 
 [package.metadata.requires-dev]
 dev = [
@@ -329,6 +334,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
+name = "posix-tools"
+version = "0.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/43/2d1615701aa9c16062637994fa2b6cd1d78e9270f3f6f817237890a31cd4/posix_tools-0.0.1.tar.gz", hash = "sha256:7a84c60d5042b4211f06fc2952e97f9787a24fd22f8cc5373b2f8ff8e9d958e9", size = 26345, upload-time = "2026-10-25T19:47:24.743Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/e7/90230bbad4106377160fc1dc9cde0fd19db74d05a96093a9675b74c19152/posix_tools-0.0.1-py3-none-any.whl", hash = "sha256:fc40f272e91b52073cd3fe2039f8949d8ad1e34e76f884507e056142cf11a32d", size = 1456, upload-time = "2026-10-25T19:47:23.623Z" },
 ]
 
 [[package]]

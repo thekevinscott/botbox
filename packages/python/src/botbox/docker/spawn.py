@@ -2,7 +2,7 @@ import asyncio
 from collections.abc import Sequence
 from typing import IO, Any
 
-from posix_tools.process import abandon, settle
+from botbox.process import abandon, settle
 
 Stream = int | IO[Any] | None
 

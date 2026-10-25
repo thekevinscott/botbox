@@ -1,8 +1,8 @@
 import fcntl
 
+from botbox.process import HELD
 from botbox.remove_tree import remove_tree
 from botbox.run_dir import run_dir
-from posix_tools.process import HELD
 
 
 class Claim:

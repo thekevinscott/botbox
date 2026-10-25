@@ -8,9 +8,9 @@ from botbox.agents.agent import SessionAgent
 from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
+from botbox.process import owner_only, settle
 from botbox.Session import Session
 from botbox.utils.CapturedLines import CapturedLines
-from posix_tools.process import owner_only, settle
 
 
 @asynccontextmanager
