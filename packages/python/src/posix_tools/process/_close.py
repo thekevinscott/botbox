@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from contextlib import suppress
 from typing import Any
 
 from .discard import discard
@@ -12,6 +13,7 @@ from .settle import settle
 async def _close(
     process: asyncio.subprocess.Process,
     drains: Sequence[asyncio.Future[Any]],
+    *,
     signum: int,
     grace: float,
     linger: float,
@@ -35,13 +37,12 @@ async def _close(
                 pass
     finally:
         try:
-            finished = finished or (
-                process.returncode is not None
-                and not group_running(process.pid)
-                and all(drain.done() for drain in (*drains, *readers))
-            )
             if not finished:
-                await settle(reap(process, *drains, *readers, signum=signum, grace=grace))
+                if process.returncode is not None and not group_running(process.pid):
+                    with suppress(TimeoutError):
+                        await settle(asyncio.wait_for(ended(process, (*drains, *readers)), grace))
+                else:
+                    await settle(reap(process, *drains, *readers, signum=signum, grace=grace))
         finally:
             for reader in readers:
                 reader.cancel()

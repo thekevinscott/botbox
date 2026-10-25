@@ -75,23 +75,33 @@ def describe_close() -> None:
         assert process.stdout.at_eof() if eof else reader.cancelled()
 
     @pytest.mark.parametrize(
-        "state",
-        [(0, False, True), (None, False, True), (0, True, True), (0, False, False)],
+        "state", [(0, False, True), (0, False, False), (None, False, True), (0, True, True)]
     )
-    async def it_skips_reaping_only_when_everything_has_finished(
+    async def it_drains_exited_empty_groups_without_signalling(
         process: Mock,
         reap: AsyncMock,
+        ended: AsyncMock,
         group_running: Mock,
         state: tuple[int | None, bool, bool],
     ) -> None:
-        code, running, done = state
-        process.returncode, group_running.return_value = code, running
-        drain = asyncio.get_running_loop().create_future()
-        if done:
-            drain.set_result(None)
-        await _close(process, (drain,), signum=9, grace=0.1, linger=0)
-        if code is not None and not running and done:
+        process.returncode, group_running.return_value, eof = state
+        process.stdout = asyncio.StreamReader()
+        process.stdout.feed_data(b"output")
+        if eof:
+            process.stdout.feed_eof()
+
+        async def drain(_process: Mock, readers: tuple[asyncio.Future[object], ...]) -> None:
+            await asyncio.gather(*map(asyncio.shield, readers))
+
+        ended.side_effect = drain
+        await _close(process, (), signum=9, grace=0.01, linger=0)
+        if state[:2] == (0, False):
             reap.assert_not_awaited()
+            assert process.stdout.at_eof() == eof
+            ended.assert_awaited_once()
         else:
-            reap.assert_awaited_once_with(process, drain, signum=9, grace=0.1)
-        assert not drain.cancelled()
+            reap.assert_awaited_once()
+
+    async def it_requires_keyword_cleanup_options(process: Mock) -> None:
+        with pytest.raises(TypeError):
+            await _close(process, (), 9, 0.1, 0)  # type: ignore[call-arg]
