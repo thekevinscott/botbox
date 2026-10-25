@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/network_test.py",
+  "ran_at": 1792956141,
+  "exit_code": 0,
+  "commit": "72d2e8f4b8767a5078d064a0ad7610b80e47929c",
+  "branch": "e2e-own-proxy"
+}
