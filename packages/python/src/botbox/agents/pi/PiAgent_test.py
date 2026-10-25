@@ -71,8 +71,8 @@ def describe_the_container() -> None:
     def it_lives_in_the_users_home(agent: PiAgent) -> None:
         assert agent.home == "/home/user"
 
-    def it_finds_transcripts_under_the_sessions_directory(agent: PiAgent) -> None:
-        assert agent.transcripts == ".pi/agent/sessions/**/*.jsonl"
+    def it_writes_sessions_to_the_sessions_directory(agent: PiAgent) -> None:
+        assert agent.sessions_dir == ".pi/agent/sessions"
 
 
 def describe_host_home() -> None:

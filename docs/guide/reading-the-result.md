@@ -20,6 +20,14 @@ for path, contents in result.transcript.items():
     print(path, len(contents))
 ```
 
+With `run(output=...)`, the agent writes its transcripts straight into `output/transcripts/`
+and `result.transcript` is empty. Read them from disk:
+
+```python
+for path in sorted((output / "transcripts").rglob("*.jsonl")):
+    print(path, path.stat().st_size)
+```
+
 ## Read the proxy log
 
 `result.proxy` is a `str`: every connection, admitted or refused.

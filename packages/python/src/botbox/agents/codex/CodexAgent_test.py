@@ -48,8 +48,8 @@ def describe_the_container() -> None:
     def it_lives_in_the_users_home(agent: CodexAgent) -> None:
         assert agent.home == "/home/user"
 
-    def it_finds_transcripts_under_the_sessions_directory(agent: CodexAgent) -> None:
-        assert agent.transcripts == ".codex/sessions/**/*.jsonl"
+    def it_writes_sessions_to_the_sessions_directory(agent: CodexAgent) -> None:
+        assert agent.sessions_dir == ".codex/sessions"
 
     def it_allows_only_chatgpt_on_a_chatgpt_login(agent: CodexAgent) -> None:
         assert agent.allow == ("chatgpt.com",)

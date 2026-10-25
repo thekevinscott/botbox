@@ -161,6 +161,9 @@ class Botbox:
             output.mkdir(parents=True, exist_ok=True)
             (output / "stdout.txt").open("wb").close()
             (output / "stderr.txt").open("wb").close()
+            (output / "transcripts").mkdir(exist_ok=True)
+            sessions = f"{agent.home}/{agent.sessions_dir}"
+            volumes.append((str(output / "transcripts"), sessions, "rw"))
         await reap()
         image = await self.build()
         token = uuid4().hex[:12]
@@ -173,25 +176,31 @@ class Botbox:
             # Owner-only, so an agent under another uid can't leave files the host can't delete.
             home.mkdir(mode=0o700)
             agent.stage_auth(home)
+            # Docker would create the mount point root-owned.
+            (home / agent.sessions_dir).mkdir(parents=True, exist_ok=True)
             allow = (*agent.allow, *self.allow)
+
+            async def read() -> dict[str, str]:
+                if output is not None:
+                    return {}
+                return await asyncio.to_thread(read_transcript, home, agent.sessions_dir)
+
             try:
                 async with deadline, lockdown(allow, claim.path, token) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
                         token, [*flags, image, RELAY, "sh", "-c", command], out, err, output
                     )
-                    transcript = await asyncio.to_thread(read_transcript, home, agent.transcripts)
+                    transcript = await read()
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
                 transcript = {}
 
-                async def read() -> None:
-                    transcript.update(
-                        await asyncio.to_thread(read_transcript, home, agent.transcripts)
-                    )
+                async def salvage() -> None:
+                    transcript.update(await read())
 
-                await settle(warned(read(), "read its transcript"))
+                await settle(warned(salvage(), "read its transcript"))
                 proxy = "" if jail is None else jail.log
                 result = RunResult(
                     out.decode(errors="replace"),

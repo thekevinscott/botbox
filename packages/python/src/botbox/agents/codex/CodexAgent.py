@@ -18,7 +18,7 @@ class CodexAgent:
     image = "botbox-codex:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
-    transcripts = ".codex/sessions/**/*.jsonl"
+    sessions_dir = ".codex/sessions"
 
     def __init__(
         self,

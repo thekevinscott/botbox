@@ -14,7 +14,7 @@ await box.run(
 | Argument  | What it is                                                              |
 | --------- | ----------------------------------------------------------------------- |
 | `command` | Shell command line, run as `sh -c`, passed through unchanged. |
-| `output` | Optional host directory for `stdout.txt` and `stderr.txt`. Created with missing parents; relative paths resolve from the working directory. |
+| `output` | Optional host directory for `stdout.txt`, `stderr.txt` and `transcripts/`. Created with missing parents; relative paths resolve from the working directory. |
 | `mounts`  | Bind mounts: host path, container path, mode. A missing host path is created as a dir owned by you. |
 | `workdir` | Where the command starts. Must be a mounted path or inside one; otherwise `run()` raises. Defaults to the agent's home. |
 | `timeout` | Seconds the run may take once the image is built. Defaults to the box's [`timeout`](./botbox). |
@@ -22,8 +22,11 @@ await box.run(
 Returns a [`RunResult`](./run-result). A non-zero exit is a normal `RunResult`.
 
 With `output`, stdout and stderr go directly to files without being captured in Python.
-Their result fields are empty, including in `Timeout.result`; transcript, proxy and image
-fields retain their usual behavior. Read the files yourself when needed:
+`output/transcripts/` is bind-mounted over the agent's sessions directory, such as
+`~/.claude/projects`, so the CLI writes its transcripts there directly. Credentials are
+staged elsewhere in the home and never land in `output`. The `stdout`, `stderr` and
+`transcript` result fields are empty, including in `Timeout.result`; proxy and image fields
+retain their usual behavior. Read the files yourself when needed:
 
 ```python
 from pathlib import Path
@@ -34,7 +37,7 @@ print((output / "stdout.txt").read_text())
 ```
 
 Stream files are created or truncated immediately after the output directory is created
-or reused, before setup starts; other files in the directory are preserved. Use a separate directory for each concurrent run. Stream files remain
+or reused, before setup starts; other files in the directory, `transcripts/` included, are preserved. Use a separate directory for each concurrent run. Stream files remain
 after success, failure, timeout or cancellation. If reap, build, credential staging or
 proxy setup fails, both stream files are empty. Agent Docker failures put the absolute
 `stderr.txt` path in `DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.

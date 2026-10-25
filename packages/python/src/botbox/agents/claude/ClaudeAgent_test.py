@@ -39,8 +39,8 @@ def describe_the_container() -> None:
     def it_lives_in_the_users_home(agent: ClaudeAgent) -> None:
         assert agent.home == "/home/user"
 
-    def it_finds_transcripts_under_the_projects_directory(agent: ClaudeAgent) -> None:
-        assert agent.transcripts == ".claude/projects/**/*.jsonl"
+    def it_writes_sessions_to_the_projects_directory(agent: ClaudeAgent) -> None:
+        assert agent.sessions_dir == ".claude/projects"
 
     def it_allows_only_the_anthropic_api(agent: ClaudeAgent) -> None:
         assert agent.allow == ("api.anthropic.com",)

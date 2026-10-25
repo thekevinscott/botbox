@@ -2,8 +2,9 @@
 
 Nothing parsed.
 
-When [`run(output=...)`](./run) is used, `stdout` and `stderr` are empty strings;
-read `stdout.txt` and `stderr.txt` in that directory instead. Other fields are unchanged.
+When [`run(output=...)`](./run) is used, `stdout` and `stderr` are empty strings and
+`transcript` is empty; read `stdout.txt`, `stderr.txt` and `transcripts/` in that directory
+instead. Other fields are unchanged.
 
 | Field       | What it is                                                           |
 | ----------- | -------------------------------------------------------------------- |
