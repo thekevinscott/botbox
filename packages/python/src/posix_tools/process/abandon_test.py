@@ -71,3 +71,10 @@ def describe_abandon() -> None:
         starting.set_exception(FileNotFoundError("docker"))
         await abandon(starting)  # type: ignore[arg-type]
         reap.assert_not_awaited()
+
+
+def describe_cleanup_options() -> None:
+    async def it_passes_signal_and_grace_to_reap(reap: AsyncMock) -> None:
+        process = Mock(stdout=None, stderr=None)
+        await abandon(started(process), signum=9, grace=0.2)  # type: ignore[arg-type]
+        reap.assert_awaited_once_with(process, signum=9, grace=0.2)

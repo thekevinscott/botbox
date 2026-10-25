@@ -34,7 +34,7 @@ async def child(  # noqa: PLR0913 — explicit subprocess streams and cleanup po
     try:
         process = await asyncio.shield(starting)
     except asyncio.CancelledError:
-        await settle(abandon(starting))
+        await settle(abandon(starting, signum=signum, grace=grace))
         raise
     failed = True
     try:

@@ -83,13 +83,14 @@ def describe_child() -> None:
             await release.wait()
             return process
 
-        async def cleanup(starting: asyncio.Future[object]) -> None:
+        async def cleanup(starting: asyncio.Future[object], **options: object) -> None:
+            assert options == {"signum": 9, "grace": 0.2}
             cleaning.set()
             assert await starting is process
             done.set()
 
         async def run() -> None:
-            async with child("program"):
+            async with child("program", signum=9, grace=0.2):
                 pytest.fail("cancelled spawn entered the body")
 
         start.side_effect = slow
