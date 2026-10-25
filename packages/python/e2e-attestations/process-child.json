@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/process_test.py -W error",
-  "ran_at": 1792946044,
+  "ran_at": 1792946190,
   "exit_code": 0,
-  "commit": "bf422fec50cc33cd59777b71fec65829949c9815",
+  "commit": "091cdd3e274885f35458cb2043691992c66cd939",
   "branch": "process-child"
 }
