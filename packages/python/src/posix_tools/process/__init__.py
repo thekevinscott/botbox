@@ -1,4 +1,5 @@
 from .abandon import abandon
+from .child import child
 from .close_held import HELD, close_held
 from .discard import discard
 from .ended import ended
@@ -11,6 +12,7 @@ from .settle import settle
 __all__ = [
     "HELD",
     "abandon",
+    "child",
     "close_held",
     "discard",
     "ended",
