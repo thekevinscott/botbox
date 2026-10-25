@@ -2,8 +2,8 @@ import asyncio
 from collections.abc import Sequence
 from typing import IO, Any
 
-from botbox.docker.abandon import abandon
-from botbox.docker.settle import settle
+from botbox.process.abandon import abandon
+from botbox.process.settle import settle
 
 Stream = int | IO[Any] | None
 

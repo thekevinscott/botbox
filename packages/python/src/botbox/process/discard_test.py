@@ -1,6 +1,6 @@
 import asyncio
 
-from botbox.docker.discard import CHUNK, discard
+from botbox.process.discard import CHUNK, discard
 
 
 def describe_discard() -> None:

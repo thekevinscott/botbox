@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from botbox.docker.reap import GRACE, reap
+from botbox.process.reap import GRACE, reap
 
 TERM, KILL = 15, 9
 PROCESS = Mock(pid=4242)
@@ -28,7 +28,7 @@ class Group:
 
 @pytest.fixture(autouse=True)
 def signal() -> Iterator[Mock]:
-    with patch("botbox.docker.reap.signal", autospec=True) as m:
+    with patch("botbox.process.reap.signal", autospec=True) as m:
         m.SIGTERM, m.SIGKILL = TERM, KILL
         yield m
 
@@ -40,19 +40,19 @@ async def group() -> Group:
 
 @pytest.fixture(autouse=True)
 def killpg(group: Group) -> Iterator[Mock]:
-    with patch("botbox.docker.reap.os.killpg", autospec=True, side_effect=group.signal) as m:
+    with patch("botbox.process.reap.os.killpg", autospec=True, side_effect=group.signal) as m:
         yield m
 
 
 @pytest.fixture(autouse=True)
 def ended(group: Group) -> Iterator[AsyncMock]:
-    with patch("botbox.docker.reap.ended", autospec=True, side_effect=group.ended) as m:
+    with patch("botbox.process.reap.ended", autospec=True, side_effect=group.ended) as m:
         yield m
 
 
 @pytest.fixture
 def timeout() -> Iterator[Mock]:
-    with patch("botbox.docker.reap.asyncio.timeout", side_effect=asyncio.timeout) as m:
+    with patch("botbox.process.reap.asyncio.timeout", side_effect=asyncio.timeout) as m:
         yield m
 
 

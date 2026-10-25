@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from botbox.close_held import HELD, close_held
+from botbox.process.close_held import HELD, close_held
 
 
 @pytest.fixture(autouse=True)

@@ -2,7 +2,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import IO
 
-from botbox.close_held import HELD
+from .close_held import HELD
 
 
 @contextmanager

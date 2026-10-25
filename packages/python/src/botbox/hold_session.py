@@ -8,8 +8,8 @@ from botbox.agents.agent import SessionAgent
 from botbox.docker.abort_writer import abort_writer
 from botbox.docker.Capture import Capture
 from botbox.docker.execute import execute
-from botbox.docker.settle import settle
-from botbox.owner_only import owner_only
+from botbox.process.owner_only import owner_only
+from botbox.process.settle import settle
 from botbox.Session import Session
 from botbox.utils.CapturedLines import CapturedLines
 

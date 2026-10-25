@@ -1,7 +1,7 @@
 import asyncio
 
-from botbox.docker.discard import discard
-from botbox.docker.reap import reap
+from .discard import discard
+from .reap import reap
 
 
 async def abandon(starting: asyncio.Future[asyncio.subprocess.Process]) -> None:
