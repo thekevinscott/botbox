@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from conftest import LINE, Probe, docker_lines
@@ -150,17 +151,27 @@ def describe_allow() -> None:
         assert 'Established connection to host "example.com"' in result.proxy
 
 
+class TokenAgent(ClaudeAgent):
+    """Records its run's token: the temp home's parent is named after it."""
+
+    token: str
+
+    def stage_auth(self, home: Path) -> None:
+        super().stage_auth(home)
+        self.token = home.parent.name
+
+
 @pytest.fixture(scope="module")
 def other_run() -> Iterator[str]:
     """Another run's proxy, live, admitting example.com: its address on the default bridge.
 
     The session is held open on a thread of its own, with its own event loop, for the module.
     """
-    before = set(docker_lines("ps", "--format", "{{.Names}}"))
+    agent = TokenAgent()
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(ClaudeAgent(), allow=["example.com"]).session():
+        async with Botbox(agent, allow=["example.com"]).session():
             up.set()
             await asyncio.to_thread(done.wait)
 
@@ -168,13 +179,11 @@ def other_run() -> Iterator[str]:
     holder.start()
     try:
         assert up.wait(120)
-        (proxy,) = {
-            n
-            for n in docker_lines("ps", "--format", "{{.Names}}")
-            if n.startswith("botbox-proxy-") and n not in before
-        }
         (ip,) = docker_lines(
-            "inspect", "-f", "{{.NetworkSettings.Networks.bridge.IPAddress}}", proxy
+            "inspect",
+            "-f",
+            "{{.NetworkSettings.Networks.bridge.IPAddress}}",
+            f"botbox-proxy-{agent.token}",
         )
         yield ip
     finally:
