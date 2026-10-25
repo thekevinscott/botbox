@@ -3,7 +3,7 @@ import os
 import re
 import warnings
 from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from botbox.authority import authority
@@ -126,7 +126,8 @@ async def lockdown(
             finally:
                 await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
     finally:
-        stdin.close()
+        with suppress(OSError):
+            stdin.close()
         os.close(read)
         if output is None:
             try:

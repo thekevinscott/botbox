@@ -101,3 +101,14 @@ def describe_wait_for_proxy() -> None:
         assert (
             str(raised.value) == "botbox proxy did not start:\n" + "x" * (64 * 1024 - 1) + "\ufffd"
         )
+
+    async def it_still_raises_from_the_client_when_the_log_will_not_read(
+        output: Path, socket: Path, client: Mock
+    ) -> None:
+        output.unlink()
+        client.done.return_value = True
+        client.exception.return_value = FileNotFoundError("docker")
+        with pytest.raises(RuntimeError) as raised:
+            await wait_for_proxy(socket, client, output, 30)
+        assert str(raised.value) == "botbox proxy did not start:\n"
+        assert raised.value.__cause__ is client.exception.return_value

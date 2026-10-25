@@ -827,6 +827,7 @@ def describe_run() -> None:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
             result = raised.value.result
             assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+            assert result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path

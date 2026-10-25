@@ -1,5 +1,6 @@
 import asyncio
 import time
+from contextlib import suppress
 from pathlib import Path
 
 POLL = 0.05
@@ -15,7 +16,8 @@ async def wait_for_proxy(
     while not socket.exists():
         if client.done() or time.monotonic() > deadline:
             cause = client.exception() if client.done() else None
-            with output.open("rb") as log:
+            text = ""
+            with suppress(OSError), output.open("rb") as log:
                 log.seek(max(0, log.seek(0, 2) - ERROR_BYTES))
                 text = log.read().decode(errors="replace")
             raise RuntimeError(f"botbox proxy did not start:\n{text}") from cause

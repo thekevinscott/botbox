@@ -43,7 +43,7 @@ if the proxy won't start, the error also carries the last 64 KiB of it. Agent Do
 `stderr.txt` path in `DockerException.stderr`; build and proxy setup failures still carry their own diagnostics.
 Omit `output` to keep stdout, stderr and the proxy log in the result as before.
 
-- When `timeout` runs out, the run tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout). Its `result` holds the output, transcript and proxy log so far, with `exit_code` -1.
+- When `timeout` runs out, the run tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout). Its `result` holds the output, transcript and proxy log so far, with `exit_code` -1. With `output`, its `stdout`, `stderr` and `proxy` are empty; read the files instead.
 - Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.
 - The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`. The temp home is `<token>/` in `botbox-<uid>/` under the system temp directory. A process killed outright (SIGKILL) leaves them behind, for [`reap()`](./reap) to remove. Each run calls it first.
 - A Docker failure during setup raises `botbox.DockerException`, with the command in `docker_command`, its `return_code` and its `stderr` as text. So does a Docker client that dies or is killed while the daemon is still up, and a container that never started: an image the daemon can't find raises with `return_code` 125. If the daemon goes away mid-run, `exit_code` is -1.

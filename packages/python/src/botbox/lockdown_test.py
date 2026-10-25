@@ -347,6 +347,7 @@ def describe_lockdown() -> None:
             tmp_path: Path, scratch: Path, run: AsyncMock, os: MagicMock
         ) -> None:
             os.fdopen.side_effect = None
+            os.fdopen.return_value.close.side_effect = OSError("flush failed")
             with pytest.raises(FileNotFoundError):
                 async with jail(scratch, output=tmp_path / "missing"):
                     pass

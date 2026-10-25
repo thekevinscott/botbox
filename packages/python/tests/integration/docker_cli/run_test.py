@@ -283,6 +283,7 @@ def describe_run() -> None:
             daemon.set(proxy_fails=True)
             with pytest.raises(RuntimeError, match="did not start:\ntinyproxy: bad config"):
                 await box.run("true", output=output)
+            assert (output / "proxy.log").read_text() == "tinyproxy: bad config\n"
             assert daemon.runs("botbox-agent-") == []
             assert homes(temp) == []
 
