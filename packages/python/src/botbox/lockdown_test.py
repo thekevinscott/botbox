@@ -468,7 +468,7 @@ def describe_process_imports() -> None:
             sys.executable,
             "-c",
             "from botbox.lockdown import owner_only, settle; "
-            'assert owner_only.__module__ == "botbox.linux_tools.process.owner_only"; '
-            'assert settle.__module__ == "botbox.linux_tools.process.settle"; ',
+            'assert owner_only.__module__ == "botbox.posix_tools.process.owner_only"; '
+            'assert settle.__module__ == "botbox.posix_tools.process.settle"; ',
         )
         assert await process.wait() == 0

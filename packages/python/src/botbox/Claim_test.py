@@ -115,7 +115,7 @@ def describe_process_imports() -> None:
             sys.executable,
             "-c",
             "from botbox.Claim import HELD; "
-            "from botbox.linux_tools.process.close_held import HELD as shared; "
+            "from botbox.posix_tools.process.close_held import HELD as shared; "
             "assert HELD is shared; ",
         )
         assert await process.wait() == 0

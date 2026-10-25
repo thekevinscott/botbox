@@ -22,7 +22,7 @@ from botbox.docker.run_docker import run_docker
 from botbox.docker.spawn import spawn
 from botbox.docker.version import version
 from botbox.docker.wait import wait
-from botbox.linux_tools.process.reap import reap
+from botbox.posix_tools.process.reap import reap
 
 Install = Callable[[str], None]
 
@@ -98,7 +98,7 @@ sys.exit(int(sys.argv[-2]))
 # whose deaf child outlives it, and says when it is done.
 ZOMBIES = """
 import asyncio, ctypes, os, sys
-from botbox.linux_tools.process.reap import reap
+from botbox.posix_tools.process.reap import reap
 from botbox.docker.spawn import spawn
 
 PR_SET_CHILD_SUBREAPER = 36

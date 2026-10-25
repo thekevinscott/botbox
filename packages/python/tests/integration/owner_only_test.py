@@ -1,6 +1,6 @@
 import os
 
-from botbox.linux_tools.process.owner_only import owner_only
+from botbox.posix_tools.process.owner_only import owner_only
 
 
 def describe_owner_only() -> None:

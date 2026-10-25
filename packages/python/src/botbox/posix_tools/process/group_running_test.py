@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from botbox.linux_tools.process.group_running import group_running
+from botbox.posix_tools.process.group_running import group_running
 
 
 def stat(text: str) -> Mock:
@@ -16,7 +16,7 @@ def vanished() -> Mock:
 
 @pytest.fixture
 def proc() -> Iterator[Mock]:
-    with patch("botbox.linux_tools.process.group_running.Path", autospec=True) as m:
+    with patch("botbox.posix_tools.process.group_running.Path", autospec=True) as m:
         yield m.return_value.glob
 
 
