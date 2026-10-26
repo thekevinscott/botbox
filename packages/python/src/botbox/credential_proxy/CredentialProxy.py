@@ -2,8 +2,8 @@ import asyncio
 import os
 from pathlib import Path
 
+from adocker import DockerException
 from adocker.Capture import Capture
-from adocker.DockerException import DockerException
 from adocker.execute import execute
 from botbox.credential_proxy.envoy_config import SECRET_FILE
 from botbox.credential_proxy.preloaded import preloaded

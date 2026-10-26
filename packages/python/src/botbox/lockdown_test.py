@@ -1,8 +1,8 @@
 import argparse
 import asyncio
 import re
-from collections.abc import Awaitable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import IO, Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -57,28 +57,29 @@ def run(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
 
 
 @pytest.fixture
-def volume_fails() -> dict[str, BaseException]:
+def volume_fails() -> dict[str, Exception]:
     """What `docker volume create` or `rm` raises, keyed by subcommand."""
     return {}
 
 
 @pytest.fixture(autouse=True)
-def docker_volume(steps: list[str], volume_fails: dict[str, BaseException]) -> Iterator[None]:
-    """The real `adocker.volume` over a fake `docker volume`."""
+def docker_volume(steps: list[str], volume_fails: dict[str, Exception]) -> Iterator[None]:
+    @asynccontextmanager
+    async def volume(
+        name: str, *, label: str, on_error: Callable[[Exception], None]
+    ) -> AsyncIterator[str]:
+        steps.append(f"create {name} {label}")
+        if "create" in volume_fails:
+            raise volume_fails["create"]
+        try:
+            yield name
+        finally:
+            if "rm" in volume_fails:
+                on_error(volume_fails["rm"])
+            else:
+                steps.append(f"remove {name}")
 
-    async def docker(*args: str) -> str:
-        if args[1] == "create":
-            steps.append(f"create {args[-1]} {args[-2]}")
-        if args[1] in volume_fails:
-            raise volume_fails[args[1]]
-        if args[1] == "rm":
-            steps.append(f"remove {args[-1]}")
-        return ""
-
-    with (
-        patch("adocker.volume.volume.run_docker", side_effect=docker),
-        patch("adocker.volume.remove_volume.run_docker", side_effect=docker),
-    ):
+    with patch("botbox.lockdown.run_volume", volume):
         yield
 
 
@@ -299,7 +300,7 @@ def describe_lockdown() -> None:
             assert steps[-1] == f"remove {VOLUME}"
 
         async def it_starts_nothing_when_it_cannot_be_created(
-            scratch: Path, run: AsyncMock, volume_fails: dict[str, BaseException]
+            scratch: Path, run: AsyncMock, volume_fails: dict[str, Exception]
         ) -> None:
             volume_fails["create"] = RuntimeError("no space")
             with pytest.raises(RuntimeError, match="no space"):
@@ -308,7 +309,7 @@ def describe_lockdown() -> None:
             run.assert_not_called()
 
         async def it_warns_when_it_cannot_be_removed(
-            scratch: Path, volume_fails: dict[str, BaseException]
+            scratch: Path, volume_fails: dict[str, Exception]
         ) -> None:
             volume_fails["rm"] = RuntimeError("volume is in use")
             match = f"^botbox could not remove its volume {VOLUME}: volume is in use$"

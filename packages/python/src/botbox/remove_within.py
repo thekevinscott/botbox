@@ -1,6 +1,6 @@
 import asyncio
 
-from adocker.remove import remove
+from adocker import remove
 
 REMOVE_SECONDS = 30
 

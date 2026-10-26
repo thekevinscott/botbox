@@ -1,6 +1,6 @@
 """botbox - run a coding agent inside a locked-down Docker container."""
 
-from adocker.DockerException import DockerException
+from adocker import DockerException
 from botbox.agents import Agent, ClaudeAgent, CodexAgent, PiAgent, SessionAgent
 from botbox.Botbox import Botbox
 from botbox.RunResult import RunResult

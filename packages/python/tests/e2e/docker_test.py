@@ -10,11 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker.build import build
-from adocker.DockerException import DockerException
-from adocker.remove import remove
-from adocker.run import run
-from adocker.version import version
+from adocker import DockerException, build, remove, run, version
 from adocker.wait import wait
 
 

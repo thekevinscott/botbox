@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from adocker.run import run
+from adocker import run
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,

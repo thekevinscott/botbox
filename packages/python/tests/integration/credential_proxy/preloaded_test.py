@@ -10,9 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker.remove import remove
-from adocker.run import run
-from adocker.run_docker import run_docker
+from adocker import remove, run
 from botbox.credential_proxy.envoy_config import IMAGE
 from botbox.credential_proxy.preloaded import preloaded
 
@@ -40,7 +38,19 @@ async def docker_run_reading(stdin: int, script: str) -> str:
 @pytest.fixture
 async def container() -> AsyncIterator[str]:
     name = f"botbox-test-{uuid4().hex[:12]}"
-    await run_docker("run", "--detach", "--name", name, "--entrypoint", "sleep", IMAGE, "60")
+    process = await asyncio.create_subprocess_exec(
+        "docker",
+        "run",
+        "--detach",
+        "--name",
+        name,
+        "--entrypoint",
+        "sleep",
+        IMAGE,
+        "60",
+        stdout=asyncio.subprocess.DEVNULL,
+    )
+    assert await process.wait() == 0
     yield name
     await remove(name)
 
@@ -70,9 +80,17 @@ def describe_preloaded() -> None:
             assert await docker_exec_reading(container, read, "cat >/tmp/s") == 0
         finally:
             os.close(read)
-        assert (
-            await run_docker("exec", container, "sh", "-c", 'sha256sum </tmp/s | cut -d" " -f1')
-        ).strip() == (digest(secret))
+        process = await asyncio.create_subprocess_exec(
+            "docker",
+            "exec",
+            container,
+            "sh",
+            "-c",
+            'sha256sum </tmp/s | cut -d" " -f1',
+            stdout=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await process.communicate()
+        assert stdout.decode().strip() == digest(secret)
 
     async def it_leaves_no_descriptor_behind() -> None:
         before = {fd.name for fd in Path("/proc/self/fd").iterdir()}

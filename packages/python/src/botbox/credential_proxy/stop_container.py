@@ -1,8 +1,7 @@
 import asyncio
 import warnings
 
-from adocker.remove import remove
-from adocker.run_docker import run_docker
+from adocker import remove, stop
 
 STOP_SECONDS = 5
 REMOVE_SECONDS = 30
@@ -15,7 +14,7 @@ async def stop_container(client: asyncio.Future[int], name: str) -> None:
     """
     try:
         async with asyncio.timeout(REMOVE_SECONDS):
-            await run_docker("stop", "--time", str(STOP_SECONDS), name)
+            await stop(name, STOP_SECONDS)
             await asyncio.wait({client}, timeout=STOP_SECONDS)
             client.cancel()
             await asyncio.gather(client, return_exceptions=True)

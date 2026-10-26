@@ -13,10 +13,10 @@ def steps() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def run_docker(steps: list[str]) -> Iterator[AsyncMock]:
+def stop(steps: list[str]) -> Iterator[AsyncMock]:
     with patch(
-        f"{__package__}.stop_container.run_docker",
-        side_effect=lambda *args: steps.append(" ".join(args)),
+        f"{__package__}.stop_container.stop",
+        side_effect=lambda name, seconds: steps.append(f"stop --time {seconds} {name}"),
     ) as m:
         yield m
 
@@ -29,14 +29,14 @@ def remove(steps: list[str]) -> Iterator[AsyncMock]:
         yield m
 
 
-def exiting_on_stop(run_docker: AsyncMock, steps: list[str]) -> asyncio.Future[int]:
+def exiting_on_stop(stop: AsyncMock, steps: list[str]) -> asyncio.Future[int]:
     client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
 
-    def stop(*args: str) -> None:
-        steps.append(" ".join(args))
+    def exit_on_stop(name: str, seconds: int) -> None:
+        steps.append(f"stop --time {seconds} {name}")
         client.set_result(137)
 
-    run_docker.side_effect = stop
+    stop.side_effect = exit_on_stop
     return client
 
 
@@ -44,10 +44,8 @@ def describe_stop_container() -> None:
     def it_gives_the_daemon_30s() -> None:
         assert REMOVE_SECONDS == 30
 
-    async def it_stops_the_container_then_removes_it(
-        run_docker: AsyncMock, steps: list[str]
-    ) -> None:
-        client = exiting_on_stop(run_docker, steps)
+    async def it_stops_the_container_then_removes_it(stop: AsyncMock, steps: list[str]) -> None:
+        client = exiting_on_stop(stop, steps)
         await stop_container(client, "p")
         assert steps == ["stop --time 5 p", "rm p"]
         assert client.result() == 137
