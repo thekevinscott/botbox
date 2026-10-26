@@ -71,6 +71,8 @@ def describe_envoy_config() -> None:
 CLAUDE = Injection(
     "api.anthropic.com", "/v1/messages(/count_tokens)?", "Authorization", ("x-api-key",)
 )
+# A third-party echo of the request's headers, so the injected value shows. Dummy values only.
+ECHO = Injection("postman-echo.com", "/headers", "Authorization")
 
 
 def request(socket: Path, method: str, path: str) -> str:
@@ -121,3 +123,12 @@ def describe_credential_proxy() -> None:
 
         body = asyncio.run(through_proxy(CLAUDE, "Bearer not-a-real-token", steps))
         assert body == "botbox credential proxy: path not allowed\n"
+
+    def it_sends_a_rotated_secret_from_the_next_request() -> None:
+        async def steps(proxy: CredentialProxy) -> list[str]:
+            first = await asyncio.to_thread(request, proxy.socket, "GET", "/headers")
+            await proxy.rotate("Bearer two")
+            second = await asyncio.to_thread(request, proxy.socket, "GET", "/headers")
+            return [json.loads(body)["headers"]["authorization"] for body in (first, second)]
+
+        assert asyncio.run(through_proxy(ECHO, "Bearer one", steps)) == ["Bearer one", "Bearer two"]
