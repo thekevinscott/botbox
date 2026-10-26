@@ -1,8 +1,8 @@
 import asyncio
 import warnings
 
-from botbox.docker.remove import remove
-from botbox.docker.run_docker import run_docker
+from adocker.remove import remove
+from adocker.run_docker import run_docker
 
 STOP_SECONDS = 5
 REMOVE_SECONDS = 30
