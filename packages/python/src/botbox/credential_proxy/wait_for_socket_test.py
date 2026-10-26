@@ -1,16 +1,42 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
 
+SOCKET = "/run/botbox/c.sock"
+
+
+class DockerException(Exception):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch(f"{__package__}.wait_for_socket.DockerException", DockerException):
+        yield
+
+
+class Through:
+    """A container whose socat probe fails until `ready`."""
+
+    def __init__(self) -> None:
+        self.ready = False
+        self.calls: list[tuple[str, ...]] = []
+
+    async def exec(self, *command: str, **_: Any) -> None:
+        self.calls.append(command)
+        if not self.ready:
+            raise DockerException("connect: No such file or directory")
+
 
 @pytest.fixture
-def socket(tmp_path: Path) -> Path:
-    return tmp_path / "c.sock"
+def through() -> Through:
+    return Through()
 
 
 @pytest.fixture
@@ -27,74 +53,61 @@ async def running() -> AsyncIterator[asyncio.Future[int]]:
     client.cancel()
 
 
-async def serve(socket: Path) -> asyncio.Server:
-    return await asyncio.start_unix_server(lambda _, w: w.close(), socket)
+def wait(through: Through, client: asyncio.Future[int], log: Path, timeout: float) -> Any:
+    return wait_for_socket(through, SOCKET, client, log, timeout)  # type: ignore[arg-type]
 
 
 def describe_wait_for_socket() -> None:
-    async def it_returns_once_the_socket_accepts(
-        socket: Path, log: Path, running: asyncio.Future[int]
+    async def it_connects_to_the_socket_with_socat(
+        through: Through, log: Path, running: asyncio.Future[int]
     ) -> None:
-        server = await serve(socket)
-        try:
-            await wait_for_socket(socket, running, log, 5)
-        finally:
-            server.close()
+        through.ready = True
+        await wait(through, running, log, 5)
+        assert through.calls == [("socat", "-u", "OPEN:/dev/null", f"UNIX-CONNECT:{SOCKET}")]
 
     async def it_waits_for_a_socket_that_comes_later(
-        socket: Path, log: Path, running: asyncio.Future[int]
+        through: Through, log: Path, running: asyncio.Future[int]
     ) -> None:
         loop = asyncio.get_running_loop()
         start = loop.time()
-        later = loop.call_later(0.1, asyncio.ensure_future, serve(socket))
-        await wait_for_socket(socket, running, log, 5)
-        later.cancel()
+        loop.call_later(0.1, setattr, through, "ready", True)
+        await wait(through, running, log, 5)
         assert loop.time() - start < 0.5
 
-    async def it_polls_every_50ms(socket: Path, log: Path, running: asyncio.Future[int]) -> None:
-        with (
-            patch.object(
-                asyncio, "open_unix_connection", wraps=asyncio.open_unix_connection
-            ) as attempts,
-            pytest.raises(RuntimeError),
-        ):
-            await wait_for_socket(socket, running, log, 0.5)
-        assert 5 <= attempts.call_count <= 15
-
-    async def it_does_not_take_a_file_that_refuses_connections(
-        socket: Path, log: Path, running: asyncio.Future[int]
+    async def it_polls_every_50ms(
+        through: Through, log: Path, running: asyncio.Future[int]
     ) -> None:
-        socket.touch()
-        with pytest.raises(RuntimeError, match="did not start"):
-            await wait_for_socket(socket, running, log, 0.1)
+        with pytest.raises(RuntimeError):
+            await wait(through, running, log, 0.5)
+        assert 5 <= len(through.calls) <= 15
 
-    async def it_raises_with_the_log_when_the_client_exits(socket: Path, log: Path) -> None:
+    async def it_raises_with_the_log_when_the_client_exits(through: Through, log: Path) -> None:
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         client.set_result(1)
         with pytest.raises(RuntimeError, match=r"did not start:\nenvoy said this\n$"):
-            await wait_for_socket(socket, client, log, 5)
+            await wait(through, client, log, 5)
 
-    async def it_chains_the_clients_failure(socket: Path, log: Path) -> None:
+    async def it_chains_the_clients_failure(through: Through, log: Path) -> None:
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         client.set_exception(OSError("no docker"))
         with pytest.raises(RuntimeError) as error:
-            await wait_for_socket(socket, client, log, 5)
+            await wait(through, client, log, 5)
         assert str(error.value.__cause__) == "no docker"
 
     async def it_gives_up_after_the_timeout(
-        socket: Path, log: Path, running: asyncio.Future[int]
+        through: Through, log: Path, running: asyncio.Future[int]
     ) -> None:
         loop = asyncio.get_running_loop()
         start = loop.time()
         with pytest.raises(RuntimeError, match="did not start") as error:
-            await wait_for_socket(socket, running, log, 0.2)
+            await wait(through, running, log, 0.2)
         assert loop.time() - start >= 0.2
         assert error.value.__cause__ is None
 
-    async def it_keeps_only_the_end_of_a_long_log(socket: Path, log: Path) -> None:
+    async def it_keeps_only_the_end_of_a_long_log(through: Through, log: Path) -> None:
         log.write_bytes(b"a" * 10 + b"b" * 65536)
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         client.set_result(1)
         with pytest.raises(RuntimeError) as error:
-            await wait_for_socket(socket, client, log, 5)
+            await wait(through, client, log, 5)
         assert str(error.value).endswith(":\n" + "b" * 65536)

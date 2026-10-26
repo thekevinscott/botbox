@@ -3,26 +3,27 @@ import os
 import time
 from pathlib import Path
 
+from adocker import Container, DockerException
+
 POLL = 0.05
 ERROR_BYTES = 64 * 1024
 
 
 async def wait_for_socket(
-    socket: Path, client: asyncio.Future[int], log: Path, timeout: float
+    through: Container, socket: str, client: asyncio.Future[int], log: Path, timeout: float
 ) -> None:
-    """Return once `socket` accepts a connection, which can come a moment after it exists.
+    """Return once `socket` accepts a connection from inside `through`, which needs socat.
 
+    The socket sits in a volume the host can't see, and accepts a moment after it exists.
     Raise with the end of `log` if `client` exits or `timeout` passes first.
     """
     deadline = time.monotonic() + timeout
     while True:
         try:
-            _, writer = await asyncio.open_unix_connection(socket)
-        except OSError:
+            await through.exec("socat", "-u", "OPEN:/dev/null", f"UNIX-CONNECT:{socket}")
+        except DockerException:
             pass
         else:
-            writer.close()
-            await writer.wait_closed()
             return
         if client.done() or time.monotonic() > deadline:
             with log.open("rb") as output:

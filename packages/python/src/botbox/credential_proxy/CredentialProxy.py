@@ -1,5 +1,4 @@
 import os
-from pathlib import Path
 
 from adocker import Container
 from botbox.credential_proxy.envoy_config import SECRET_FILE
@@ -11,9 +10,10 @@ ROTATE = 'cat >"$1.next" && mv "$1.next" "$1"'
 
 
 class CredentialProxy:
-    """A running credential proxy: its container and the socket it serves."""
+    """A running credential proxy: its container and the socket it serves, as a path in the
+    containers that mount the run's volume."""
 
-    def __init__(self, container: Container, socket: Path) -> None:
+    def __init__(self, container: Container, socket: str) -> None:
         self.container = container
         self.socket = socket
 

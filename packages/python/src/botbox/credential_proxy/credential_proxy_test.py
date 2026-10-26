@@ -19,14 +19,14 @@ class FakeMount:
     read_only: bool = False
 
 
-@pytest.fixture(autouse=True)
-def fake_mount() -> Iterator[None]:
-    with patch("botbox.credential_proxy.credential_proxy.Mount", FakeMount):
-        yield
-
-
 MODULE = f"{__package__}.credential_proxy"
 INJECTION = object()
+
+
+@dataclass(frozen=True)
+class Credential:
+    injection: object
+    secret: str
 
 
 class Container:
@@ -44,6 +44,17 @@ def container() -> Iterator[None]:
 
 
 PROXY = Container("botbox-proxy-t")
+
+
+class Volume:
+    name = "botbox-run-t"
+
+    def mount(self, target: str) -> FakeMount:
+        return FakeMount("volume", self.name, target)
+
+
+VOLUME = Volume()
+SOCKET = "/run/botbox/credentials.sock"
 
 
 class Client:
@@ -130,52 +141,42 @@ def stop_container(steps: list[str]) -> Iterator[AsyncMock]:
 
 
 @pytest.fixture
-def sockets(tmp_path: Path) -> Path:
-    return tmp_path / "sockets"
-
-
-@pytest.fixture
 def log(tmp_path: Path) -> Path:
     return tmp_path / "envoy.log"
 
 
-def start(sockets: Path, log: Path) -> Any:
+def start(log: Path) -> Any:
     return credential_proxy(
-        INJECTION,  # type: ignore[arg-type]
-        "Bearer one",
+        Credential(INJECTION, "Bearer one"),  # type: ignore[arg-type]
         proxy=PROXY,  # type: ignore[arg-type]
-        sockets=sockets,
+        volume=VOLUME,  # type: ignore[arg-type]
         token="t",
         log=log,
     )
 
 
 def describe_credential_proxy() -> None:
-    async def it_yields_the_container_and_its_socket(
-        sockets: Path, log: Path, client: Client
-    ) -> None:
-        async with start(sockets, log) as proxy:
+    async def it_yields_the_container_and_its_socket(log: Path, client: Client) -> None:
+        async with start(log) as proxy:
             assert proxy.container is client.container
             assert proxy.container.name == "botbox-credentials-t"
-            assert proxy.socket == sockets / "credentials.sock"
+            assert proxy.socket == SOCKET
 
     async def it_feeds_the_first_secret_on_stdin(
-        sockets: Path, log: Path, sds_secret: Mock, preloaded: Mock
+        log: Path, sds_secret: Mock, preloaded: Mock
     ) -> None:
-        async with start(sockets, log):
+        async with start(log):
             sds_secret.assert_called_once_with("Bearer one")
             preloaded.assert_called_once_with(b"the-sds")
 
-    async def it_serves_the_injection_on_the_mounted_socket(
-        sockets: Path, log: Path, envoy_config: Mock
-    ) -> None:
-        async with start(sockets, log):
-            envoy_config.assert_called_once_with(INJECTION, "/run/botbox/credentials.sock")
+    async def it_serves_the_injection_on_the_mounted_socket(log: Path, envoy_config: Mock) -> None:
+        async with start(log):
+            envoy_config.assert_called_once_with(INJECTION, SOCKET)
 
     async def it_locks_the_container_down_in_the_proxys_pid_namespace(
-        sockets: Path, log: Path, client: Client
+        log: Path, client: Client
     ) -> None:
-        async with start(sockets, log):
+        async with start(log):
             pass
         options = {
             k: v for k, v in client.options.items() if k not in ("stdin", "stdout", "stderr")
@@ -191,15 +192,15 @@ def describe_credential_proxy() -> None:
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges"],
             "tmpfs": ["/secrets:uid=101,gid=101,mode=0700"],
-            "mounts": [FakeMount("bind", str(sockets), "/run/botbox")],
+            "mounts": [FakeMount("volume", "botbox-run-t", "/run/botbox")],
             "entrypoint": "sh",
         }
         assert client.options["stdout"] is client.options["stderr"]
 
     async def it_writes_the_secret_then_execs_envoy_on_the_config(
-        sockets: Path, log: Path, client: Client
+        log: Path, client: Client
     ) -> None:
-        async with start(sockets, log):
+        async with start(log):
             pass
         assert client.image == "envoy-image"
         start_script = client.command[1]
@@ -207,50 +208,48 @@ def describe_credential_proxy() -> None:
         assert start_script.startswith('cat >"$1" && exec envoy ')
         assert start_script.endswith(' --config-yaml "$2"')
 
-    async def it_logs_envoys_output_to_the_file(sockets: Path, log: Path) -> None:
-        async with start(sockets, log):
+    async def it_logs_envoys_output_to_the_file(log: Path) -> None:
+        async with start(log):
             pass
         assert log.read_bytes() == b"envoy said this\n"
 
     async def it_waits_for_the_socket_before_yielding(
-        sockets: Path, log: Path, steps: list[str], wait_for_socket: AsyncMock, client: Client
+        log: Path, steps: list[str], wait_for_socket: AsyncMock, client: Client
     ) -> None:
-        async with start(sockets, log):
+        async with start(log):
             steps.append("yielded")
-        (socket, waited, waited_log, timeout), _ = wait_for_socket.call_args
-        assert (socket, waited_log, timeout) == (sockets / "credentials.sock", log, 30)
+        (through, socket, waited, waited_log, timeout), _ = wait_for_socket.call_args
+        assert (through, socket, waited_log, timeout) == (PROXY, SOCKET, log, 30)
         assert waited is client.container.client
         assert steps == ["ready", "yielded", "stop botbox-credentials-t"]
 
-    async def it_stops_the_container_when_the_block_raises(
-        sockets: Path, log: Path, steps: list[str]
-    ) -> None:
+    async def it_stops_the_container_when_the_block_raises(log: Path, steps: list[str]) -> None:
         with pytest.raises(ValueError):
-            async with start(sockets, log):
+            async with start(log):
                 raise ValueError
         assert steps[-1] == "stop botbox-credentials-t"
 
     async def it_stops_the_container_when_it_never_gets_ready(
-        sockets: Path, log: Path, steps: list[str], wait_for_socket: AsyncMock
+        log: Path, steps: list[str], wait_for_socket: AsyncMock
     ) -> None:
         wait_for_socket.side_effect = RuntimeError("did not start")
         with pytest.raises(RuntimeError, match="did not start"):
-            async with start(sockets, log):
+            async with start(log):
                 pytest.fail("yielded")
         assert steps == ["stop botbox-credentials-t"]
 
-    def it_takes_the_containers_by_keyword_only(sockets: Path, log: Path) -> None:
+    def it_takes_the_containers_by_keyword_only(log: Path) -> None:
         with pytest.raises(TypeError):
-            credential_proxy(INJECTION, "s", "botbox-proxy-t", sockets, "t", log)  # type: ignore[arg-type, call-arg]
+            credential_proxy(Credential(INJECTION, "s"), PROXY, VOLUME, "t", log)  # type: ignore[arg-type, call-arg]
 
-    async def it_closes_the_stdin_pipe(sockets: Path, log: Path, client: Client) -> None:
-        async with start(sockets, log):
+    async def it_closes_the_stdin_pipe(log: Path, client: Client) -> None:
+        async with start(log):
             os.fstat(client.stdin)
         with pytest.raises(OSError):
             os.fstat(client.stdin)
 
     async def it_closes_the_stdin_pipe_when_the_container_will_not_start(
-        sockets: Path, log: Path, client: Client, preloaded: Mock
+        log: Path, client: Client, preloaded: Mock
     ) -> None:
         stdin = os.open(os.devnull, os.O_RDONLY)
         preloaded.side_effect = lambda _: stdin
@@ -260,25 +259,25 @@ def describe_credential_proxy() -> None:
 
         client.run = refused  # type: ignore[method-assign]
         with pytest.raises(RuntimeError, match="no such image"):
-            async with start(sockets, log):
+            async with start(log):
                 pytest.fail("yielded")
         with pytest.raises(OSError):
             os.fstat(stdin)
 
     async def it_removes_a_container_that_would_not_start(
-        sockets: Path, log: Path, client: Client, steps: list[str]
+        log: Path, client: Client, steps: list[str]
     ) -> None:
         async def refused(*_: str, **__: Any) -> Mock:
             raise RuntimeError("name in use")
 
         client.run = refused  # type: ignore[method-assign]
         with pytest.raises(RuntimeError, match="name in use"):
-            async with start(sockets, log):
+            async with start(log):
                 pytest.fail("yielded")
         assert steps == ["stop botbox-credentials-t"]
 
     async def it_removes_a_container_whose_start_was_cancelled(
-        sockets: Path, log: Path, client: Client, steps: list[str]
+        log: Path, client: Client, steps: list[str]
     ) -> None:
         running = asyncio.Event()
 
@@ -290,7 +289,7 @@ def describe_credential_proxy() -> None:
         client.run = hung  # type: ignore[method-assign]
 
         async def held() -> None:
-            async with start(sockets, log):
+            async with start(log):
                 pytest.fail("yielded")
 
         task = asyncio.create_task(held())

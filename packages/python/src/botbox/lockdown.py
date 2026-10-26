@@ -8,6 +8,7 @@ from typing import cast
 
 from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
+from botbox.credential_proxy import Credential, CredentialProxy, credential_proxy
 from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
@@ -27,21 +28,35 @@ RELAY_DIR = Path(__file__).with_name("relay")
 RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
+# Tells the relay the run asked for injection, so a missing credential socket is an error.
+CREDENTIALS_ENV = "BOTBOX_CREDENTIALS"
 
 
 class Lockdown:
     """The proxy a locked-down container shares a PID namespace with, and the volume holding its
     socket."""
 
-    def __init__(self, proxy: Container, volume: Volume, envs: dict[str, str]) -> None:
+    def __init__(
+        self,
+        proxy: Container,
+        volume: Volume,
+        envs: dict[str, str],
+        credentials: CredentialProxy | None = None,
+    ) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
+        self.credentials = credentials
 
 
 @asynccontextmanager
 async def lockdown(
-    allow: Iterable[str], scratch: Path, token: str, output: Path | None = None
+    allow: Iterable[str],
+    scratch: Path,
+    token: str,
+    output: Path | None = None,
+    *,
+    credential: Credential | None = None,
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -56,9 +71,9 @@ async def lockdown(
     cancels. The volume is removed after it. An owner killed outright leaves both, the sidecar
     stopped, labelled `botbox.run=<token>`.
 
-    All of the sidecar's output goes to `scratch/proxy.log`, removed with `scratch`, and to
-    `output/proxy.log` too if given, which stays. The last 64 KiB of it is the error if it
-    won't start.
+    The tinyproxy log goes to `scratch/proxy.log` and to `output/proxy.log` when given.
+    With a `credential`, an Envoy sidecar serves it on `credentials.sock` in the same volume, and
+    its output goes to `credentials.log` in `output`, or `scratch` without one.
     """
     image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
 
@@ -72,6 +87,8 @@ async def lockdown(
         "https_proxy": url,
         "NO_PROXY": "localhost,127.0.0.1",
     }
+    if credential is not None:
+        envs[CREDENTIALS_ENV] = "1"
 
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
@@ -108,6 +125,13 @@ async def lockdown(
                 await wait_for_proxy(
                     cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
                 )
-                yield Lockdown(proxy, socket, envs)
+                if credential is None:
+                    yield Lockdown(proxy, socket, envs)
+                else:
+                    credential_log = (scratch if output is None else output) / "credentials.log"
+                    async with credential_proxy(
+                        credential, proxy=proxy, volume=socket, token=token, log=credential_log
+                    ) as credentials:
+                        yield Lockdown(proxy, socket, envs, credentials)
             finally:
                 await settle(stop_proxy(proxy, PROXY_EXIT_SECONDS))

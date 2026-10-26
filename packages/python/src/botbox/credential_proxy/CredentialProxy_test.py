@@ -1,6 +1,5 @@
 import os
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -41,22 +40,22 @@ def container() -> Mock:
 
 def describe_CredentialProxy() -> None:
     def it_holds_its_container_and_socket(container: Mock) -> None:
-        proxy = CredentialProxy(container, Path("/s/c.sock"))
+        proxy = CredentialProxy(container, "/s/c.sock")
         assert proxy.container is container
-        assert proxy.socket == Path("/s/c.sock")
+        assert proxy.socket == "/s/c.sock"
 
     def describe_rotate() -> None:
         async def it_renames_the_new_secret_over_the_file_in_its_container(
             container: Mock,
         ) -> None:
-            await CredentialProxy(container, Path("/s")).rotate("Bearer two")
+            await CredentialProxy(container, "/s").rotate("Bearer two")
             execute = container.exec
             assert execute.command == ("sh", "-c", ROTATE, "sh", "/secrets/s.json")
             assert ROTATE == 'cat >"$1.next" && mv "$1.next" "$1"'
             assert execute.stdin == b"sds Bearer two"
 
         async def it_closes_the_pipe(container: Mock) -> None:
-            await CredentialProxy(container, Path("/s")).rotate("v")
+            await CredentialProxy(container, "/s").rotate("v")
             with pytest.raises(OSError):
                 os.fstat(container.exec.stdin_fd)
 
@@ -64,6 +63,6 @@ def describe_CredentialProxy() -> None:
             execute = container.exec
             execute.raises = RuntimeError("No such container: p")
             with pytest.raises(RuntimeError, match="No such container: p"):
-                await CredentialProxy(container, Path("/s")).rotate("v")
+                await CredentialProxy(container, "/s").rotate("v")
             with pytest.raises(OSError):
                 os.fstat(execute.stdin_fd)

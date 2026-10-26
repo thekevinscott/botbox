@@ -10,6 +10,7 @@ import pytest
 
 import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
+    CREDENTIALS_ENV,
     PROXY_CONF,
     PROXY_DIR,
     RELAY_DIR,
@@ -186,6 +187,66 @@ LABELS = {"botbox.run": TOKEN}
 
 
 def describe_lockdown() -> None:
+    async def it_starts_credentials_in_the_volume_after_tinyproxy(
+        scratch: Path, steps: list[str]
+    ) -> None:
+        credential: Any = object()  # Passed only to the mocked sidecar.
+
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            steps.append("credentials up")
+            try:
+                yield Mock()
+            finally:
+                steps.append("credentials stopped")
+
+        with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
+            async with lockdown(ALLOW, scratch, TOKEN, credential=credential) as net:
+                steps.append("body")
+                assert net.credentials is not None
+                assert net.envs[CREDENTIALS_ENV] == "1"
+            start.assert_called_once_with(
+                credential,
+                proxy=net.proxy,
+                volume=net.volume,
+                token=TOKEN,
+                log=scratch / "credentials.log",
+            )
+        assert steps.index("proxy up") < steps.index("credentials up") < steps.index("body")
+        assert steps.index("credentials stopped") < steps.index("proxy stopped")
+
+    async def it_logs_credentials_to_the_output_when_given(scratch: Path) -> None:
+        output = scratch / "output"
+        output.mkdir()
+
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            yield Mock()
+
+        with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
+            async with lockdown(ALLOW, scratch, TOKEN, output, credential=Mock()):
+                pass
+        assert start.call_args.kwargs["log"] == output / "credentials.log"
+
+    async def it_takes_the_credential_by_keyword_only(scratch: Path) -> None:
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            yield Mock()
+
+        with (
+            patch("botbox.lockdown.credential_proxy", side_effect=sidecar),
+            pytest.raises(TypeError),
+        ):
+            async with lockdown(ALLOW, scratch, TOKEN, None, Mock()):  # type: ignore[call-arg]
+                pass
+
+    async def it_starts_no_credentials_without_a_credential(scratch: Path) -> None:
+        with patch("botbox.lockdown.credential_proxy") as start:
+            async with lockdown(ALLOW, scratch, TOKEN) as net:
+                assert net.credentials is None
+                assert CREDENTIALS_ENV not in net.envs
+        start.assert_not_called()
+
     async def it_yields_what_a_locked_down_container_needs(scratch: Path, image: Image) -> None:
         async with jail(scratch) as net:
             assert net.proxy is image.container
@@ -499,9 +560,9 @@ def describe_the_shipped_proxy() -> None:
         assert "max-children=" in script
         assert "UNIX-LISTEN:/run/botbox/proxy.sock" in script
 
-    def it_gives_the_socket_directory_to_the_proxy_user_for_the_volume_to_copy() -> None:
+    def it_shares_the_socket_directory_with_the_proxy_group_for_the_volume_to_copy() -> None:
         assert (
-            "install -d -o tinyproxy -g tinyproxy -m 0755 /run/botbox"
+            "install -d -o tinyproxy -g tinyproxy -m 1775 /run/botbox"
             in (PROXY_DIR / "Dockerfile").read_text()
         )
 
