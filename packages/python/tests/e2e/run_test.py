@@ -22,7 +22,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException, Timeout
+from botbox import Botbox, ClaudeAgent, DockerException, RunResult, Timeout
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -30,24 +30,25 @@ HOSTILE = (
 )
 
 PRINT = "echo partial; echo err >&2; "
+TRANSCRIPT = "echo '{}' > ~/.claude/projects/t.jsonl; "
 
 OWNER = f"""
 import asyncio, sys
 from botbox import Botbox, ClaudeAgent
 
-asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=sys.argv[2]))
+asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + TRANSCRIPT + HOSTILE)!r}, output=sys.argv[2]))
 """
 
 SESSION_OWNER = f"""
-import asyncio
+import asyncio, sys
 from botbox import Botbox, ClaudeAgent
 
 class Hostile(ClaudeAgent):
     def session_command(self):
-        return {HOSTILE!r}
+        return {("echo err >&2; " + TRANSCRIPT + HOSTILE)!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=sys.argv[2]) as live:
         await live.message("never answered")
 
 asyncio.run(main())
@@ -60,10 +61,10 @@ from botbox import Botbox, ClaudeAgent
 
 class Hostile(ClaudeAgent):
     def session_command(self):
-        return {HOSTILE!r}
+        return {("echo err >&2; " + TRANSCRIPT + HOSTILE)!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=sys.argv[2]) as live:
         child = os.fork()
         if child == 0:
             time.sleep(600)
@@ -180,22 +181,13 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
-    async def it_returns_what_the_command_left(box: Botbox, runs: Runs) -> None:
-        result = await box.run("echo out; echo err >&2; exit 5")
-        assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
-        assert result.image == "botbox-claude:latest"
-        assert "Starting main loop" in result.proxy
-        assert len(runs.tokens) == 1
-        assert runs.leftovers() == []
-
     async def it_persists_streams_when_output_is_supplied(
         box: Botbox, runs: Runs, tmp_path: Path
     ) -> None:
         result = await box.run("echo out; echo err >&2; exit 5", output=tmp_path / "output")
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
+        assert result == RunResult(5)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
-        assert result.proxy == ""
         assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
         assert runs.leftovers() == []
 
@@ -207,7 +199,7 @@ def describe_run() -> None:
             " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
         )
         result = await box.run(command, output=output)
-        assert result.exit_code == 0
+        assert result == RunResult(0)
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
         assert [p.name for p in output.rglob("*credentials*")] == []
         assert runs.leftovers() == []
@@ -262,11 +254,9 @@ def describe_run() -> None:
             with pytest.raises(Timeout) as raised:
                 await box.run("echo partial; echo err >&2; sleep 600", output=output, timeout=8)
             assert time.monotonic() - started < 8 + GRACE
-            result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+            assert raised.value.result == RunResult(-1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
-            assert result.proxy == ""
             assert "Starting main loop" in (output / "proxy.log").read_text()
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
@@ -319,8 +309,8 @@ def describe_run() -> None:
             )
             try:
                 await runs.started()
-                if holder == OWNER:
-                    await printed(tmp_path / "output")
+                stdout = "partial\n" if holder == OWNER else ""
+                await wrote(tmp_path / "output", stdout)
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
                 owner.send_signal(signal.SIGKILL)
                 owner.wait()
@@ -333,9 +323,11 @@ def describe_run() -> None:
                 assert volumes(token) == [f"botbox-run-{token}"]
                 listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
                 assert docker_lines(*listing, "ls", "-A", "/v") == []
-                if holder == OWNER:
-                    assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
-                    assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
+                output = tmp_path / "output"
+                assert (output / "stdout.txt").read_text() == stdout
+                assert (output / "stderr.txt").read_text() == "err\n"
+                assert (output / "transcripts" / "t.jsonl").read_text() == "{}\n"
+                assert "Starting main loop" in (output / "proxy.log").read_text()
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
@@ -356,4 +348,16 @@ async def printed(output: Path) -> None:
             "partial\n",
             "err\n",
         ):
+            await asyncio.sleep(0.05)
+
+
+async def wrote(output: Path, stdout: str) -> None:
+    """Wait for both streams and the transcript before killing the owner."""
+    transcript = output / "transcripts" / "t.jsonl"
+    async with asyncio.timeout(30):
+        while (
+            (output / "stdout.txt").read_text(),
+            (output / "stderr.txt").read_text(),
+            transcript.exists() and transcript.read_text(),
+        ) != (stdout, "err\n", "{}\n"):
             await asyncio.sleep(0.05)

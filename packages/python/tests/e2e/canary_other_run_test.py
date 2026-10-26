@@ -31,16 +31,17 @@ class CanaryAgent(ClaudeAgent):
 
 
 @pytest.fixture(scope="module")
-def other_run() -> Iterator[tuple[Path, str]]:
+def other_run(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Path, str]]:
     """Another run's session, held open for the module: its staged home and canary value.
 
     Held on a thread of its own, with its own event loop.
     """
     agent = CanaryAgent(f"canary-{secrets.token_hex(16)}")
+    output = tmp_path_factory.mktemp("other-run")
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(agent).session():
+        async with Botbox(agent).session(output=output):
             up.set()
             await asyncio.to_thread(done.wait)
 
