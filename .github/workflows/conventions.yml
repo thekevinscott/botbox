@@ -32,4 +32,6 @@ jobs:
       languages: '["python"]'
       source: packages/python
       run_e2e: true
+      # Every gate but mutation, which is off until #272.
+      gates: '["colocated-test", "one-function-per-file", "unit-lint", "unit-coverage", "integration-lint", "packaging", "workflow-lint", "e2e-verify", "changelog"]'
 
