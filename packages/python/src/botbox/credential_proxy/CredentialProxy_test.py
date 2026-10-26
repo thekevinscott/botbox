@@ -2,36 +2,27 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
 from botbox.credential_proxy.CredentialProxy import ROTATE, CredentialProxy
 
 
-class DockerException(Exception):
-    def __init__(self, docker_command: list[str], return_code: int, stderr: str) -> None:
-        super().__init__(stderr)
-        self.docker_command = docker_command
-        self.return_code = return_code
-
-
-class Execute:
+class Exec:
     def __init__(self) -> None:
-        self.args: list[str] = []
+        self.command: tuple[str, ...] = ()
         self.stdin = b""
         self.stdin_fd = -1
-        self.code = 0
-        self.stderr = b""
+        self.raises: Exception | None = None
 
-    async def __call__(self, args: list[str], **options: Any) -> int:
-        self.args = args
+    async def __call__(self, *command: str, **options: Any) -> str:
+        self.command = command
         self.stdin_fd = options["stdin"]
         self.stdin = os.read(options["stdin"], 1 << 16)
-        os.write(options["stderr"].write, self.stderr)
-        options["stderr"].release()
-        await options["stderr"].eof
-        return self.code
+        if self.raises is not None:
+            raise self.raises
+        return ""
 
 
 @pytest.fixture(autouse=True)
@@ -39,16 +30,15 @@ def collaborators() -> Iterator[None]:
     with (
         patch(f"{__package__}.CredentialProxy.SECRET_FILE", "/secrets/s.json"),
         patch(f"{__package__}.CredentialProxy.sds_secret", lambda value: f"sds {value}".encode()),
-        patch(f"{__package__}.CredentialProxy.DockerException", DockerException),
     ):
         yield
 
 
 @pytest.fixture(autouse=True)
-def execute() -> Iterator[Execute]:
-    fake = Execute()
-    with patch(f"{__package__}.CredentialProxy.execute", fake):
-        yield fake
+def container() -> Iterator[Mock]:
+    with patch(f"{__package__}.CredentialProxy.Container", autospec=True) as m:
+        m.return_value.exec = Exec()
+        yield m
 
 
 def describe_CredentialProxy() -> None:
@@ -58,34 +48,25 @@ def describe_CredentialProxy() -> None:
         assert proxy.socket == Path("/s/c.sock")
 
     def describe_rotate() -> None:
-        async def it_renames_the_new_secret_over_the_file(execute: Execute) -> None:
+        async def it_renames_the_new_secret_over_the_file_in_its_container(
+            container: Mock,
+        ) -> None:
             await CredentialProxy("p", Path("/s")).rotate("Bearer two")
-            assert execute.args == [
-                "exec",
-                "--interactive",
-                "p",
-                "sh",
-                "-c",
-                ROTATE,
-                "sh",
-                "/secrets/s.json",
-            ]
+            container.assert_called_once_with("p")
+            execute = container.return_value.exec
+            assert execute.command == ("sh", "-c", ROTATE, "sh", "/secrets/s.json")
             assert ROTATE == 'cat >"$1.next" && mv "$1.next" "$1"'
             assert execute.stdin == b"sds Bearer two"
 
-        async def it_closes_the_pipe(execute: Execute) -> None:
+        async def it_closes_the_pipe(container: Mock) -> None:
             await CredentialProxy("p", Path("/s")).rotate("v")
             with pytest.raises(OSError):
+                os.fstat(container.return_value.exec.stdin_fd)
+
+        async def it_raises_what_docker_raised_and_closes_the_pipe(container: Mock) -> None:
+            execute = container.return_value.exec
+            execute.raises = RuntimeError("No such container: p")
+            with pytest.raises(RuntimeError, match="No such container: p"):
+                await CredentialProxy("p", Path("/s")).rotate("v")
+            with pytest.raises(OSError):
                 os.fstat(execute.stdin_fd)
-
-        async def it_raises_when_the_client_is_killed(execute: Execute) -> None:
-            execute.code = -9
-            with pytest.raises(DockerException):
-                await CredentialProxy("p", Path("/s")).rotate("v")
-
-        async def it_raises_with_what_docker_said(execute: Execute) -> None:
-            execute.code, execute.stderr = 1, b"No such container: p"
-            with pytest.raises(DockerException, match="No such container: p") as error:
-                await CredentialProxy("p", Path("/s")).rotate("v")
-            assert error.value.return_code == 1
-            assert error.value.docker_command[:3] == ["docker", "exec", "--interactive"]
