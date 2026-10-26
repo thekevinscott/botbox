@@ -1,13 +1,13 @@
 """A run as a host uid the image has no passwd entry for."""
 
 import asyncio
-import subprocess
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 from conftest import LINE
 
+from adocker import Image
 from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent
 from botbox.lockdown import RELAY, lockdown
 
@@ -69,11 +69,22 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
     async with lockdown((), scratch, token) as jail:
         flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
-        flags[flags.index("--user") + 1] = f"{FOREIGN_UID}:{FOREIGN_GID}"
-        args = ["docker", "run", "--rm", *flags, image, RELAY, "sh", "-c", script]
-        result = await asyncio.to_thread(subprocess.run, args, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    return result.stdout
+        flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
+        stdout, stderr = bytearray(), bytearray()
+        container = await Image(image).run(
+            RELAY,
+            "sh",
+            "-c",
+            script,
+            name=f"botbox-agent-{token}",
+            rm=True,
+            stdout=stdout.extend,
+            stderr=stderr.extend,
+            **flags,
+        )
+        code = await container.wait()
+    assert code == 0, stderr.decode()
+    return stdout.decode()
 
 
 @pytest.fixture(

@@ -215,10 +215,8 @@ def describe_credential_proxy() -> None:
     async def it_closes_the_stdin_pipe_when_the_container_will_not_start(
         sockets: Path, log: Path, client: Client, preloaded: Mock
     ) -> None:
-        stdins: list[int] = []
-        preloaded.side_effect = lambda _: (
-            stdins.append(os.open(os.devnull, os.O_RDONLY)) or stdins[0]
-        )
+        stdin = os.open(os.devnull, os.O_RDONLY)
+        preloaded.side_effect = lambda _: stdin
 
         async def refused(*_: str, **__: Any) -> Mock:
             raise RuntimeError("no such image")
@@ -228,4 +226,4 @@ def describe_credential_proxy() -> None:
             async with start(sockets, log):
                 pytest.fail("yielded")
         with pytest.raises(OSError):
-            os.fstat(stdins[0])
+            os.fstat(stdin)

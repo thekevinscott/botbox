@@ -130,7 +130,7 @@ def describe_Volume() -> None:
 
     def it_takes_its_options_by_keyword_only() -> None:
         with pytest.raises(TypeError):
-            Volume("v", "botbox.run=x")  # type: ignore[call-arg]
+            Volume("v", {"botbox.run": "x"})  # type: ignore[call-arg]
 
     def it_mounts_by_name_read_write_unless_told() -> None:
         volume = Volume("v", labels={"botbox.run": "x"})

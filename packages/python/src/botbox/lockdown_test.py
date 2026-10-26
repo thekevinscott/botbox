@@ -259,11 +259,12 @@ def describe_lockdown() -> None:
         ) -> None:
             async with jail(scratch):
                 pass
+            proxy: Container
             [proxy, stdin, grace] = stop.call_args.args
             assert proxy is image.container
             assert stdin is proxy.stdin
             assert grace == 10
-            assert proxy.client.done()
+            assert await proxy.wait() == 0
 
     def describe_the_volume() -> None:
         async def it_mounts_only_the_runs_volume_read_write(scratch: Path, image: Image) -> None:

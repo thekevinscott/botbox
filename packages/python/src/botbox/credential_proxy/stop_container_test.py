@@ -36,10 +36,11 @@ def describe_stop_container() -> None:
     async def it_stops_the_container_then_removes_it(
         container: Mock, client: "asyncio.Future[int]", steps: list[str]
     ) -> None:
-        container.stop.side_effect = lambda seconds: (
-            steps.append(f"stop --time {seconds}"),
-            client.set_result(137),
-        )
+        def stop(seconds: int) -> None:
+            steps.append(f"stop --time {seconds}")
+            client.set_result(137)
+
+        container.stop.side_effect = stop
         await stop_container(container)
         assert steps == ["stop --time 5", "rm"]
         assert client.result() == 137

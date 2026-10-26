@@ -1,16 +1,16 @@
-import argparse
 import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
-from typing import IO, Any
+from typing import Any
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.Botbox import Botbox
+from adocker import Container
+from botbox.Botbox import STDERR_BYTES, Botbox
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -47,12 +47,19 @@ def build_steps() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def docker_build(steps: list[str]) -> Iterator[Mock]:
-    async def build(_context: Path, *, tag: str, **_options: Any) -> None:
+def dockerfile(steps: list[str]) -> Iterator[Mock]:
+    async def build(tag: str, **_options: Any) -> None:
         steps.append(f"build {tag}")
 
-    with patch("botbox.Botbox.docker_build", autospec=True, side_effect=build) as m:
+    with patch("botbox.Botbox.Dockerfile", autospec=True) as m:
+        m.return_value.build.side_effect = build
         yield m
+
+
+@pytest.fixture
+def docker_build(dockerfile: Mock) -> Mock:
+    build: Mock = dockerfile.return_value.build
+    return build
 
 
 class CommandFailed(Exception):
@@ -302,21 +309,17 @@ def describe_build() -> None:
         build_steps.return_value = [AGENT_STEP]
         assert await Botbox(agent).build() == "an-agent:latest"
 
-    async def it_builds_each_step_with_the_docker_sdk(agent: Mock, docker_build: Mock) -> None:
+    async def it_builds_each_steps_dockerfile_in_its_context(
+        agent: Mock, dockerfile: Mock, docker_build: Mock
+    ) -> None:
         await Botbox(agent).build()
+        assert dockerfile.call_args_list == [
+            call(Path("/agents/D"), context=Path("/agents")),
+            call(Path("/consumer/D"), context=Path("/consumer")),
+        ]
         assert docker_build.call_args_list == [
-            call(
-                Path("/agents"),
-                tag="an-agent:latest",
-                file=Path("/agents/D"),
-                contexts={"botbox": "/r"},
-            ),
-            call(
-                Path("/consumer"),
-                tag="an-agent-123:latest",
-                file=Path("/consumer/D"),
-                contexts={},
-            ),
+            call("an-agent:latest", contexts={"botbox": "/r"}),
+            call("an-agent-123:latest", contexts={}),
         ]
 
     async def it_builds_each_step_in_order(agent: Mock, steps: list[str]) -> None:
@@ -412,18 +415,29 @@ def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
         yield m
 
 
-@pytest.fixture(autouse=True)
-def docker_run(steps: list[str]) -> Iterator[Mock]:
-    async def attached(
-        _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
-    ) -> int:
-        steps.append("run agent")
-        stdout.extend(b"out\xff\n")
-        stderr.extend(b"err\n")
-        return 3
+def exited(name: str, code: int) -> Container:
+    client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+    client.set_result(code)
+    return Container(name, client=client)  # type: ignore[arg-type]
 
-    with patch("botbox.Botbox.docker_run", autospec=True, side_effect=attached) as m:
+
+@pytest.fixture(autouse=True)
+def image(steps: list[str]) -> Iterator[Mock]:
+    async def attached(*_command: str, name: str, stdout: Any, stderr: Any, **_: Any) -> Container:
+        steps.append("run agent")
+        stdout(b"out\xff\n")
+        stderr(b"err\n")
+        return exited(name, 3)
+
+    with patch("botbox.Botbox.Image", autospec=True) as m:
+        m.return_value.run.side_effect = attached
         yield m
+
+
+@pytest.fixture
+def docker_run(image: Mock) -> Mock:
+    run: Mock = image.return_value.run
+    return run
 
 
 @pytest.fixture(autouse=True)
@@ -467,19 +481,10 @@ def settle(steps: list[str]) -> Iterator[Mock]:
         yield m
 
 
-RUN = argparse.ArgumentParser()
-for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user", "--log-driver"):
-    RUN.add_argument(flag)
-for flag in ("--env", "--volume", "--cap-drop", "--security-opt"):
-    RUN.add_argument(flag, action="append", default=[])
-RUN.add_argument("image")
-
-
-def agent_options(docker_run: Mock) -> dict[str, Any]:
-    """The options of the agent's `docker run`; an unexpected flag fails the parse."""
-    [args] = docker_run.call_args.args
-    image = args.index("an-agent-123:latest")
-    return {**vars(RUN.parse_args(args[: image + 1])), "command": args[image + 1 :]}
+def agent_options(docker_run: Mock, image: Mock) -> dict[str, Any]:
+    """The agent's `Image.run` options, with its image and command."""
+    [tag] = image.call_args.args
+    return {**docker_run.call_args.kwargs, "image": tag, "command": list(docker_run.call_args.args)}
 
 
 def run_steps(steps: list[str]) -> list[str]:
@@ -490,14 +495,12 @@ def run_steps(steps: list[str]) -> list[str]:
 def hang_forever(steps: list[str]) -> Any:
     """A `docker run` that prints part of its output, then never exits."""
 
-    async def hang(
-        _args: list[str], *, stdout: IO[bytes], stderr: IO[bytes], **_options: Any
-    ) -> int:
+    async def hang(*_command: str, stdout: Any, stderr: Any, **_options: Any) -> Container:
         steps.append("run agent")
-        os.write(stdout.fileno(), b"partial\n")
-        os.write(stderr.fileno(), b"err\n")
+        stdout(b"partial\n")
+        stderr(b"err\n")
         await asyncio.Event().wait()
-        return 0
+        raise AssertionError
 
     return hang
 
@@ -573,19 +576,35 @@ def describe_run() -> None:
             "warned: remove its temp home",
         ]
 
-    async def it_reads_the_exit_code_with_the_command_client_and_stderr(
-        runner: Mock, docker_run: Mock, agent_exit: Mock
+    async def it_reads_the_exit_code_with_the_container_client_and_stderr(
+        runner: Mock, agent_exit: Mock
     ) -> None:
         await Botbox(runner).run("true")
-        [args] = docker_run.call_args.args
-        agent_exit.assert_awaited_once_with(AGENT, ["docker", "run", *args], 3, "err\n")
+        [container, client, stderr] = agent_exit.call_args.args
+        assert (container.name, client, stderr) == (AGENT, 3, "err\n")
+
+    async def it_gives_only_the_tail_of_a_long_stderr(
+        runner: Mock, docker_run: Mock, agent_exit: Mock
+    ) -> None:
+        async def attached(*_command: str, name: str, stderr: Any, **_: Any) -> Container:
+            stderr(b"x" * STDERR_BYTES + b"tail")
+            return exited(name, 3)
+
+        docker_run.side_effect = attached
+        await Botbox(runner).run("true")
+        assert agent_exit.call_args.args[2] == "x" * (STDERR_BYTES - 4) + "tail"
+
+    async def it_keeps_the_streams_in_the_temp_home(runner: Mock, scratch: Path) -> None:
+        await Botbox(runner).run("true")
+        assert (scratch / "stdout.txt").read_bytes() == b"out\xff\n"
+        assert (scratch / "stderr.txt").read_bytes() == b"err\n"
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_command_through_the_relay_in_the_image(
-            runner: Mock, docker_run: Mock
+            runner: Mock, docker_run: Mock, image: Mock
         ) -> None:
             await Botbox(runner).run("claude -p hi")
-            options = agent_options(docker_run)
+            options = agent_options(docker_run, image)
             assert options["image"] == "an-agent-123:latest"
             assert options["command"] == ["/usr/local/bin/botbox-relay", "sh", "-c", "claude -p hi"]
 
@@ -593,19 +612,17 @@ def describe_run() -> None:
             runner: Mock, docker_run: Mock
         ) -> None:
             await Botbox(runner).run("true")
-            options = agent_options(docker_run)
+            options = docker_run.call_args.kwargs
             assert options["name"] == AGENT
-            assert options["label"] == f"botbox.run={TOKEN}"
+            assert options["labels"] == {"botbox.run": TOKEN}
 
-        async def it_does_not_remove_itself(runner: Mock, docker_run: Mock) -> None:
-            await Botbox(runner).run("true")
-            [args] = docker_run.call_args.args
-            assert "--rm" not in args
-
-        async def it_reads_nothing_and_keeps_its_output(runner: Mock, docker_run: Mock) -> None:
+        async def it_does_not_remove_itself_and_reads_nothing(
+            runner: Mock, docker_run: Mock
+        ) -> None:
             await Botbox(runner).run("true")
             options = docker_run.call_args.kwargs
-            assert options["stdin"] == asyncio.subprocess.DEVNULL
+            assert "rm" not in options
+            assert "stdin" not in options
             assert options["stdout"] is not options["stderr"]
 
         @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
@@ -615,38 +632,41 @@ def describe_run() -> None:
             monkeypatch.setattr(os, "getuid", lambda: uid)
             monkeypatch.setattr(os, "getgid", lambda: gid)
             await Botbox(runner).run("true")
-            assert agent_options(docker_run)["user"] == f"{uid}:{gid}"
+            assert docker_run.call_args.kwargs["user"] == f"{uid}:{gid}"
 
         async def it_joins_the_proxy_with_no_network_as_the_unprivileged_user(
             runner: Mock, docker_run: Mock
         ) -> None:
             await Botbox(runner).run("true")
-            options = agent_options(docker_run)
+            options = docker_run.call_args.kwargs
             assert options["network"] == "none"
             assert options["pid"] == f"container:{PROXY}"
             assert options["user"] == f"{os.getuid()}:{os.getgid()}"
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
             assert options["log_driver"] == "none"
-            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == {
+                "HOME": "/home/user",
+                "HTTPS_PROXY": "http://127.0.0.1:41893",
+            }
 
         async def it_mounts_the_home_the_proxy_volume_and_the_callers_mounts(
             runner: Mock, docker_run: Mock, scratch: Path
         ) -> None:
             await Botbox(runner).run("true")
-            assert agent_options(docker_run)["volume"] == [
-                f"{scratch / 'home'}:/home/user:rw",
-                "botbox-run-0123456789ab:/run/botbox:ro",
-                "/src:/home/user/src:ro",
+            assert docker_run.call_args.kwargs["mounts"] == [
+                (str(scratch / "home"), "/home/user", "rw"),
+                ("botbox-run-0123456789ab", "/run/botbox", "ro"),
+                ("/src", "/home/user/src", "ro"),
             ]
 
         async def it_works_in_the_home_by_default(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner).run("true")
-            assert agent_options(docker_run)["workdir"] == "/home/user"
+            assert docker_run.call_args.kwargs["workdir"] == "/home/user"
 
         async def it_works_in_the_workdir_it_is_given(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner).run("true", workdir=Path("/home/user/src"))
-            assert agent_options(docker_run)["workdir"] == "/home/user/src"
+            assert docker_run.call_args.kwargs["workdir"] == "/home/user/src"
 
     def describe_failure() -> None:
         async def it_lets_a_failed_docker_command_through_after_tearing_down(
@@ -691,11 +711,11 @@ def describe_run() -> None:
         ) -> None:
             started = asyncio.Event()
 
-            async def hang(*_args: object, stdout: IO[bytes], **_options: object) -> int:
-                os.write(stdout.fileno(), b"partial\n")
+            async def hang(*_args: object, stdout: Any, **_options: object) -> Container:
+                stdout(b"partial\n")
                 started.set()
                 await asyncio.Event().wait()
-                return 0
+                raise AssertionError
 
             docker_run.side_effect = hang
             task = asyncio.create_task(Botbox(runner).run("sleep 600", output=output))
@@ -704,8 +724,6 @@ def describe_run() -> None:
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert (output / "stdout.txt").read_bytes() == b"partial\n"
-            assert docker_run.call_args.kwargs["stdout"].closed
-            assert docker_run.call_args.kwargs["stderr"].closed
             assert run_steps(steps) == [
                 "start proxy",
                 f"remove {AGENT}",
@@ -721,9 +739,9 @@ def describe_run() -> None:
         async def it_raises_a_timeout_holding_only_the_exit_code_without_output(
             runner: Mock, docker_run: Mock
         ) -> None:
-            async def hang(*_args: object, **_options: object) -> int:
+            async def hang(*_args: object, **_options: object) -> Container:
                 await asyncio.Event().wait()
-                return 0
+                raise AssertionError
 
             docker_run.side_effect = hang
             with pytest.raises(Timeout) as raised:
@@ -808,8 +826,8 @@ def describe_run() -> None:
 
 @pytest.fixture
 def held(steps: list[str]) -> Mock:
-    """The live session `hold_session` yields: its CLI printed, then exits 3 once input ends."""
-    live = Mock(stdout=Mock(into=bytearray(b"out\xff\n")), stderr=bytearray(b"err\n"), result=None)
+    """The live session `hold_session` yields: its CLI exits 3 once input ends."""
+    live = Mock(result=None)
 
     def end_input() -> None:
         steps.append("end input")
@@ -822,12 +840,15 @@ def held(steps: list[str]) -> Mock:
 @pytest.fixture(autouse=True)
 def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
-    async def hold(*_args: object, **_options: object) -> AsyncIterator[Mock]:
-        held.agent = _args[0]
+    async def hold(
+        agent: Any, _image: str, _command: Any, *, scratch: Path, name: str, **_: Any
+    ) -> AsyncIterator[tuple[Mock, Container]]:
+        held.agent = agent
         held.client = asyncio.get_running_loop().create_future()
+        (scratch / "stderr.txt").write_bytes(b"err\n")
         steps.append("hold session")
         try:
-            yield held
+            yield held, Container(name, client=held.client)
         finally:
             steps.append("release session")
 
@@ -835,16 +856,10 @@ def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
         yield m
 
 
-def session_args(hold_session: Mock) -> list[str]:
-    [_agent, args] = hold_session.call_args.args
-    return list(args)
-
-
 def session_options(hold_session: Mock) -> dict[str, Any]:
-    args = session_args(hold_session)
-    assert args[0] == "--interactive"
-    image = args.index("an-agent-123:latest")
-    return {**vars(RUN.parse_args(args[1 : image + 1])), "command": args[image + 1 :]}
+    """`hold_session`'s options, with its image and command."""
+    [_agent, image, command] = hold_session.call_args.args
+    return {**hold_session.call_args.kwargs, "image": image, "command": list(command)}
 
 
 def describe_session() -> None:
@@ -939,8 +954,8 @@ def describe_session() -> None:
     ) -> None:
         async with Botbox(talker).session():
             pass
-        args = session_args(hold_session)
-        agent_exit.assert_awaited_once_with(AGENT, ["docker", "run", *args], 3, "err\n")
+        [container, client, stderr] = agent_exit.call_args.args
+        assert (container.name, client, stderr) == (AGENT, 3, "err\n")
         assert hold_session.call_args.args[0] is talker
 
     def describe_the_agent_container() -> None:
@@ -965,8 +980,8 @@ def describe_session() -> None:
                 pass
             options = session_options(hold_session)
             assert options["name"] == AGENT
-            assert options["label"] == f"botbox.run={TOKEN}"
-            assert "--rm" not in session_args(hold_session)
+            assert options["labels"] == {"botbox.run": TOKEN}
+            assert "rm" not in options
 
         @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
         async def it_runs_the_agent_as_the_host_user(
@@ -990,12 +1005,15 @@ def describe_session() -> None:
             assert options["cap_drop"] == ["ALL"]
             assert options["security_opt"] == ["no-new-privileges"]
             assert options["log_driver"] == "none"
-            assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
+            assert options["env"] == {
+                "HOME": "/home/user",
+                "HTTPS_PROXY": "http://127.0.0.1:41893",
+            }
             assert options["workdir"] == "/home/user/src"
-            assert options["volume"] == [
-                f"{scratch / 'home'}:/home/user:rw",
-                "botbox-run-0123456789ab:/run/botbox:ro",
-                "/src:/home/user/src:ro",
+            assert options["mounts"] == [
+                (str(scratch / "home"), "/home/user", "rw"),
+                ("botbox-run-0123456789ab", "/run/botbox", "ro"),
+                ("/src", "/home/user/src", "ro"),
             ]
 
     def describe_failure() -> None:
@@ -1171,10 +1189,11 @@ def describe_session() -> None:
         ) -> None:
             async with Botbox(talker).session(output=tmp_path):
                 pass
-            assert hold_session.call_args.kwargs == {"output": tmp_path}
+            options = session_options(hold_session)
+            assert (options["scratch"], options["output"]) == (scratch, tmp_path)
             lockdown.assert_called_once_with(("api.anthropic.com",), scratch, TOKEN, tmp_path)
-            volumes = session_options(hold_session)["volume"]
-            assert volumes[-1] == f"{tmp_path / 'transcripts'}:/home/user/.claude/projects:rw"
+            transcripts = (str(tmp_path / "transcripts"), "/home/user/.claude/projects", "rw")
+            assert options["mounts"][-1] == transcripts
             assert (scratch / "home" / ".claude" / "projects").is_dir()
 
         async def it_leaves_only_the_exit_code_in_the_result(
@@ -1184,7 +1203,7 @@ def describe_session() -> None:
             (tmp_path / "keep").write_text("keep")
             async with Botbox(talker).session(output=tmp_path) as live:
                 pass
-            assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
+            assert agent_exit.call_args.args[2] == "err\n"
             assert live.result is not None
             assert live.result.exit_code == 3
             assert (tmp_path / "stdout.txt").read_bytes() == b""
@@ -1208,16 +1227,7 @@ def describe_session() -> None:
 
 
 @pytest.fixture
-def file_run(docker_run: Mock, steps: list[str]) -> Mock:
-    async def attached(
-        _args: list[str], *, stdout: IO[bytes], stderr: IO[bytes], **_options: Any
-    ) -> int:
-        steps.append("run agent")
-        os.write(stdout.fileno(), b"out\xff\n")
-        os.write(stderr.fileno(), b"err\n")
-        return 3
-
-    docker_run.side_effect = attached
+def file_run(docker_run: Mock) -> Mock:
     return docker_run
 
 
@@ -1228,8 +1238,8 @@ def setup_failures(runner: Mock, docker_build: Mock, lockdown: Mock) -> dict[str
 
 def describe_run_output() -> None:
     @pytest.mark.parametrize("form", ["path", "string", "relative"])
-    async def it_passes_files_to_docker_and_leaves_the_stream_fields_empty(
-        runner: Mock, file_run: Mock, agent_exit: Mock, tmp_path: Path, form: str
+    async def it_writes_the_streams_to_the_output_and_the_temp_home(
+        runner: Mock, agent_exit: Mock, scratch: Path, tmp_path: Path, form: str
     ) -> None:
         output = tmp_path / "nested" / "output"
         destination: dict[str, str | Path] = {
@@ -1241,27 +1251,26 @@ def describe_run_output() -> None:
         assert result.exit_code == 3
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
-        assert file_run.call_args.kwargs["stdout"].closed
-        assert file_run.call_args.kwargs["stderr"].closed
-        assert agent_exit.call_args.args[3] == f"See {output / 'stderr.txt'}"
+        assert (scratch / "stdout.txt").read_bytes() == b"out\xff\n"
+        assert agent_exit.call_args.args[2] == "err\n"
 
     async def it_mounts_transcripts_over_the_sessions_dir_after_staging(
         runner: Mock, file_run: Mock, scratch: Path, output: Path
     ) -> None:
         home = scratch / "home"
 
-        async def attached(_args: list[str], **_options: Any) -> int:
+        async def attached(*_command: str, name: str, **_: Any) -> Container:
             assert (home / ".credentials").read_text() == "token"
             assert (home / ".claude" / "projects").is_dir()
-            return 0
+            return exited(name, 0)
 
         file_run.side_effect = attached
         await Botbox(runner).run("true", output=output)
-        assert agent_options(file_run)["volume"] == [
-            f"{home}:/home/user:rw",
-            "botbox-run-0123456789ab:/run/botbox:ro",
-            "/src:/home/user/src:ro",
-            f"{output / 'transcripts'}:/home/user/.claude/projects:rw",
+        assert file_run.call_args.kwargs["mounts"] == [
+            (str(home), "/home/user", "rw"),
+            ("botbox-run-0123456789ab", "/run/botbox", "ro"),
+            ("/src", "/home/user/src", "ro"),
+            (str(output / "transcripts"), "/home/user/.claude/projects", "rw"),
         ]
         files = {p.name for p in output.iterdir()}
         assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}
@@ -1328,14 +1337,12 @@ def describe_run_output() -> None:
         assert (tmp_path / "proxy.log").read_bytes() == b""
         docker_run.assert_not_called()
 
-    async def it_closes_the_files_when_docker_raises(
+    async def it_removes_the_temp_home_when_docker_raises(
         runner: Mock, file_run: Mock, tmp_path: Path, temporary_directory: Mock
     ) -> None:
         file_run.side_effect = OSError("cannot start")
         with pytest.raises(OSError, match="cannot start"):
             await Botbox(runner).run("true", output=tmp_path)
-        assert file_run.call_args.kwargs["stdout"].closed
-        assert file_run.call_args.kwargs["stderr"].closed
         temporary_directory.return_value.cleanup.assert_called_once()
 
 
