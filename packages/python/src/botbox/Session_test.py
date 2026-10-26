@@ -68,6 +68,11 @@ async def soon(live: Live, *chunks: bytes) -> None:
 
 
 def describe_Session() -> None:
+    async def it_needs_a_capture_or_a_reader() -> None:
+        client = asyncio.get_running_loop().create_future()
+        with pytest.raises(TypeError, match="stdout capture or a _readline"):
+            Session(Mock(), Mock(), None, bytearray(), client)
+
     async def it_keeps_its_agent_and_pipes(live: Live) -> None:
         session = live.session
         assert session.agent is live.agent
