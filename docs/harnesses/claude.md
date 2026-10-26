@@ -27,7 +27,7 @@ async with Botbox(agent) as box:
 
 ## Credentials
 
-By default, the run uses your Claude Code login from `~/.claude/.credentials.json`. Pass `api_key` to use an API key instead. Runs that may last longer than a login token should use `api_key` (see [Login Expiry](../explanation/#login-expiry)).
+By default, the run uses your Claude Code login from `~/.claude/.credentials.json`. The token stays on the host: the box gets a placeholder, and a credential proxy adds the real token to Claude Code's API requests. If the login has already expired, `run()` and `session()` raise `CredentialsExpired`; run `claude` on the host to renew it. Pass `api_key` to use an API key instead. Runs that may last longer than a login token, with nothing on the host renewing it, should use `api_key` (see [Login Expiry](../explanation/#login-expiry)).
 
 With `output`, `transcripts/` there is mounted over `~/.claude/projects`. The staged credentials sit outside it.
 

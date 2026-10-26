@@ -10,7 +10,7 @@ box = Botbox(ClaudeAgent(model="claude-opus-5", effort="high"))
 
 | Harness                    | Class         | Sessions | Own hosts                                       |
 | -------------------------- | ------------- | -------- | ----------------------------------------------- |
-| [Claude Code](./claude)    | `ClaudeAgent` | yes      | `api.anthropic.com`                             |
+| [Claude Code](./claude)    | `ClaudeAgent` | yes      | `api.anthropic.com` with `api_key`; none on a login |
 | [Codex](./codex)           | `CodexAgent`  | no       | `chatgpt.com`, or `api.openai.com` with `api_key` |
 | [pi](./pi)                 | `PiAgent`     | yes      | set by `provider`                               |
 
