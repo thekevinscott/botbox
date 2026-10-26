@@ -1,5 +1,6 @@
 import base64
 import io
+import os
 import tarfile
 
 import pytest
@@ -38,8 +39,14 @@ def describe_home_files() -> None:
         home.write("a", "second")
         assert entries(home.env()) == {"a": (b"second", 0o644, True)}
 
+    def it_is_the_same_for_the_same_files() -> None:
+        first, second = HomeFiles(), HomeFiles()
+        first.write("a", "content")
+        second.write("a", "content")
+        assert first.env() == second.env()
+
     def it_refuses_files_too_large_for_docker_to_pass() -> None:
         home = HomeFiles()
-        home.write("big", b"x" * 100 * 1024)
+        home.write("big", os.urandom(100 * 1024))
         with pytest.raises(ValueError, match="too large"):
             home.env()

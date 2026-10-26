@@ -14,9 +14,9 @@ fi
 if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
     echo "user:x:$(id -u):$(id -g):user:/home/user:/bin/sh" >>/etc/passwd
 fi
-# The agent's staged files, as a base64 tar. Unset so the command doesn't inherit them.
+# The agent's staged files, as a base64 tar.gz. Unset so the command doesn't inherit them.
 if [ -n "${BOTBOX_HOME_FILES:-}" ]; then
-    if ! printf '%s' "$BOTBOX_HOME_FILES" | base64 -d | tar -x -m -C "$HOME"; then
+    if ! printf '%s' "$BOTBOX_HOME_FILES" | base64 -d | tar -xz -m -C "$HOME"; then
         echo "botbox-relay: could not write the agent's files into $HOME" >&2
         exit 1
     fi

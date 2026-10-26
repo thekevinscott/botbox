@@ -1,4 +1,5 @@
 import base64
+import gzip
 import io
 import tarfile
 
@@ -18,7 +19,7 @@ class HomeFiles:
         self.files[path] = (content.encode() if isinstance(content, str) else content, mode)
 
     def env(self) -> dict[str, str]:
-        """The env var that carries the files to the relay, as a base64 tar; none without files.
+        """The env var that carries the files to the relay, as a base64 tar.gz; none without files.
 
         Raises `ValueError` if the files are too large for Docker to pass.
         """
@@ -31,7 +32,7 @@ class HomeFiles:
                 entry.size = len(content)
                 entry.mode = mode
                 archive.addfile(entry, io.BytesIO(content))
-        value = base64.b64encode(buffer.getvalue()).decode()
+        value = base64.b64encode(gzip.compress(buffer.getvalue(), mtime=0)).decode()
         if len(ENV) + 1 + len(value) >= ARG_MAX:
             raise ValueError(f"the agent's home files are too large to pass: {len(value)} bytes")
         return {ENV: value}
