@@ -76,7 +76,12 @@ def cut_when_running(relay: Relay) -> None:
 
 
 @pytest.fixture(scope="module")
-def result(box: Botbox) -> Iterator[RunResult]:
+def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("daemon")
+
+
+@pytest.fixture(scope="module")
+def result(box: Botbox, output: Path) -> Iterator[RunResult]:
     before = leftovers()
     with (
         tempfile.TemporaryDirectory(prefix="relay-") as directory,
@@ -87,7 +92,9 @@ def result(box: Botbox) -> Iterator[RunResult]:
         threading.Thread(target=cut_when_running, args=(relay,), daemon=True).start()
         try:
             with pytest.warns(RuntimeWarning, match="^botbox could not remove"):
-                result = asyncio.run(box.run("echo started; sleep 60; echo finished"))
+                result = asyncio.run(
+                    box.run("echo started; sleep 60; echo finished", output=output)
+                )
             yield result
         finally:
             relay.cut()
@@ -106,8 +113,10 @@ def describe_the_daemon_dying_mid_run() -> None:
     def it_has_no_exit_code(result: RunResult) -> None:
         assert result.exit_code == -1
 
-    def it_keeps_the_output_that_arrived(result: RunResult) -> None:
-        assert result.stdout == "started\n"
+    @pytest.mark.usefixtures("result")
+    def it_keeps_the_output_that_arrived(output: Path) -> None:
+        assert (output / "stdout.txt").read_text() == "started\n"
 
-    def it_keeps_the_proxy_log(result: RunResult) -> None:
-        assert "Starting main loop" in result.proxy
+    @pytest.mark.usefixtures("result")
+    def it_keeps_the_proxy_log(output: Path) -> None:
+        assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")
