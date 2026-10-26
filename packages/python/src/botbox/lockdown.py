@@ -6,8 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Container, Dockerfile, Volume
+from adocker import Container, Dockerfile, Mount, Volume
 from botbox.authority import authority
+from botbox.credential_proxy import CredentialProxy, Injection, credential_proxy
 from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
@@ -27,21 +28,37 @@ RELAY_DIR = Path(__file__).with_name("relay")
 RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
+CREDENTIAL_SOCKET_DIR = "/run/botbox-credentials"
 
 
 class Lockdown:
     """The proxy a locked-down container shares a PID namespace with, and the volume holding its
     socket."""
 
-    def __init__(self, proxy: Container, volume: Volume, envs: dict[str, str]) -> None:
+    def __init__(
+        self,
+        proxy: Container,
+        volume: Volume,
+        envs: dict[str, str],
+        credentials: CredentialProxy | None = None,
+        credential_mount: Mount | None = None,
+    ) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
+        self.credentials = credentials
+        self.credential_mount = credential_mount
 
 
 @asynccontextmanager
-async def lockdown(
-    allow: Iterable[str], scratch: Path, token: str, output: Path | None = None
+async def lockdown(  # noqa: PLR0913
+    allow: Iterable[str],
+    scratch: Path,
+    token: str,
+    output: Path | None = None,
+    *,
+    injection: Injection | None = None,
+    secret: str | None = None,
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -56,10 +73,11 @@ async def lockdown(
     cancels. The volume is removed after it. An owner killed outright leaves both, the sidecar
     stopped, labelled `botbox.run=<token>`.
 
-    All of the sidecar's output goes to `scratch/proxy.log`, removed with `scratch`, and to
-    `output/proxy.log` too if given, which stays. The last 64 KiB of it is the error if it
-    won't start.
+    The tinyproxy log goes to `scratch/proxy.log` and to `output/proxy.log` when given.
+    With injection, Envoy's output goes to its own `credentials.log` in `output` or `scratch`.
     """
+    if (injection is None) != (secret is None):
+        raise ValueError("injection and secret must be supplied together")
     image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
 
     name = f"botbox-proxy-{token}"
@@ -108,6 +126,22 @@ async def lockdown(
                 await wait_for_proxy(
                     cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
                 )
-                yield Lockdown(proxy, socket, envs)
+                if injection is None or secret is None:
+                    yield Lockdown(proxy, socket, envs)
+                else:
+                    sockets = scratch / "credential-sockets"
+                    sockets.mkdir(mode=0o777)
+                    sockets.chmod(0o777)
+                    credential_log = (scratch if output is None else output) / "credentials.log"
+                    async with credential_proxy(
+                        injection,
+                        secret,
+                        proxy=proxy,
+                        sockets=sockets,
+                        token=token,
+                        log=credential_log,
+                    ) as credentials:
+                        mount = Mount("bind", str(sockets), CREDENTIAL_SOCKET_DIR, True)
+                        yield Lockdown(proxy, socket, envs, credentials, mount)
             finally:
                 await settle(stop_proxy(proxy, PROXY_EXIT_SECONDS))

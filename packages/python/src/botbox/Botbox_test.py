@@ -415,7 +415,10 @@ def jail() -> Mock:
         return FakeMount("volume", "botbox-run-0123456789ab", target, read_only=read_only)
 
     return Mock(
-        proxy=proxy, volume=Mock(mount=mount), envs={"HTTPS_PROXY": "http://127.0.0.1:41893"}
+        proxy=proxy,
+        volume=Mock(mount=mount),
+        envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
+        credential_mount=None,
     )
 
 
@@ -691,6 +694,14 @@ def describe_run() -> None:
                 FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
                 FakeMount("bind", "/src", "/home/user/src", read_only=True),
             ]
+
+        async def it_mounts_the_credential_socket_when_present(
+            runner: Mock, docker_run: Mock, jail: Mock
+        ) -> None:
+            credential = FakeMount("bind", "/sockets", "/run/botbox-credentials", read_only=True)
+            jail.credential_mount = credential
+            await Botbox(runner).run("true")
+            assert credential in docker_run.call_args.kwargs["mounts"]
 
         async def it_works_in_the_home_by_default(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner).run("true")

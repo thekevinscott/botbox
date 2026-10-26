@@ -5,12 +5,19 @@ if [ "$(id -u)" = "$(awk '/^Uid:/ {print $2}' /proc/1/status)" ]; then
     echo "botbox-relay: the agent runs as the proxy's uid $(id -u); use another" >&2
     exit 125
 fi
+if [ "$(id -u)" = 101 ]; then
+    echo "botbox-relay: the agent runs as the credential proxy's uid 101; use another" >&2
+    exit 125
+fi
 # OpenShift's arbitrary-uid pattern: name a uid the image has no passwd entry for.
 if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
     echo "user:x:$(id -u):$(id -g):user:/home/user:/bin/sh" >>/etc/passwd
 fi
 # The subshell orphans socat, so the command's shell never waits on it.
 (socat TCP-LISTEN:41893,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/proxy.sock &)
+if [ -S /run/botbox-credentials/credentials.sock ]; then
+    (socat TCP-LISTEN:41894,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox-credentials/credentials.sock &)
+fi
 tries=0
 until grep -q ':A3A5 00000000:0000 0A' /proc/net/tcp; do
     tries=$((tries + 1))
@@ -20,4 +27,15 @@ until grep -q ':A3A5 00000000:0000 0A' /proc/net/tcp; do
     fi
     sleep 0.02
 done
+if [ -S /run/botbox-credentials/credentials.sock ]; then
+    tries=0
+    until grep -q ':A3A6 00000000:0000 0A' /proc/net/tcp; do
+        tries=$((tries + 1))
+        if [ "$tries" -gt 250 ]; then
+            echo "botbox-relay: nothing listening on 127.0.0.1:41894" >&2
+            exit 1
+        fi
+        sleep 0.02
+    done
+fi
 exec "$@"

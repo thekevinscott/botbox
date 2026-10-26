@@ -10,6 +10,7 @@ import pytest
 
 import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
+    CREDENTIAL_SOCKET_DIR,
     PROXY_CONF,
     PROXY_DIR,
     RELAY_DIR,
@@ -186,6 +187,49 @@ LABELS = {"botbox.run": TOKEN}
 
 
 def describe_lockdown() -> None:
+    async def it_requires_injection_and_secret_together(scratch: Path) -> None:
+        injection: Any = object()  # Passed only to the mocked sidecar.
+        with pytest.raises(ValueError, match="injection and secret"):
+            async with lockdown(ALLOW, scratch, TOKEN, injection=injection):
+                pass
+        with pytest.raises(ValueError, match="injection and secret"):
+            async with lockdown(ALLOW, scratch, TOKEN, secret="Bearer fake"):
+                pass
+
+    async def it_starts_credentials_after_tinyproxy_and_mounts_the_socket(
+        scratch: Path, steps: list[str]
+    ) -> None:
+        injection: Any = object()  # Passed only to the mocked sidecar.
+
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            steps.append("credentials up")
+            try:
+                yield Mock()
+            finally:
+                steps.append("credentials stopped")
+
+        with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
+            async with lockdown(
+                ALLOW, scratch, TOKEN, injection=injection, secret="Bearer fake"
+            ) as net:
+                steps.append("body")
+                assert net.credentials is not None
+                assert net.credential_mount is not None
+                assert net.credential_mount.source == str(scratch / "credential-sockets")
+                assert net.credential_mount.target == CREDENTIAL_SOCKET_DIR
+                assert net.credential_mount.read_only
+            start.assert_called_once_with(
+                injection,
+                "Bearer fake",
+                proxy=net.proxy,
+                sockets=scratch / "credential-sockets",
+                token=TOKEN,
+                log=scratch / "credentials.log",
+            )
+        assert steps.index("proxy up") < steps.index("credentials up") < steps.index("body")
+        assert steps.index("credentials stopped") < steps.index("proxy stopped")
+
     async def it_yields_what_a_locked_down_container_needs(scratch: Path, image: Image) -> None:
         async with jail(scratch) as net:
             assert net.proxy is image.container
