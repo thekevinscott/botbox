@@ -1,8 +1,8 @@
 import argparse
 import asyncio
 import re
-from collections.abc import AsyncIterator, Awaitable, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import Awaitable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import IO, Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -26,20 +26,6 @@ PROXY = "botbox-proxy-0123456789ab"
 @pytest.fixture
 def steps() -> list[str]:
     return []
-
-
-@pytest.fixture(autouse=True)
-def lock(steps: list[str]) -> Iterator[None]:
-    @asynccontextmanager
-    async def lock(tag: str) -> AsyncIterator[None]:
-        steps.append(f"lock {tag}")
-        try:
-            yield
-        finally:
-            steps.append(f"unlock {tag}")
-
-    with patch("botbox.lockdown.build_lock", lock):
-        yield
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +155,7 @@ def describe_lockdown() -> None:
                 "NO_PROXY": "localhost,127.0.0.1",
             }
 
-    async def it_builds_the_shipped_proxy_under_its_tags_lock_first(
+    async def it_builds_the_shipped_proxy_first(
         scratch: Path, build: AsyncMock, steps: list[str]
     ) -> None:
         async with jail(scratch):
@@ -180,12 +166,7 @@ def describe_lockdown() -> None:
             "file": context / "Dockerfile",
         }
         assert (context / "tinyproxy.conf").exists()
-        assert steps[:4] == [
-            "lock botbox-proxy:latest",
-            "build botbox-proxy:latest",
-            "unlock botbox-proxy:latest",
-            "run proxy",
-        ]
+        assert steps[:2] == ["build botbox-proxy:latest", "run proxy"]
 
     async def it_starts_nothing_when_the_build_fails(
         scratch: Path, build: AsyncMock, run: AsyncMock

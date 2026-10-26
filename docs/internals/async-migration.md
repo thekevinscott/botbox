@@ -32,7 +32,7 @@ tag = Botbox(agent, dockerfile=DOCKERFILE).build()
 tag = await Botbox(agent, dockerfile=DOCKERFILE).build()
 ```
 
-Concurrent builds of one tag still take turns, across processes, without blocking the loop.
+Concurrent builds of one tag, across processes, all succeed.
 
 ## run
 
