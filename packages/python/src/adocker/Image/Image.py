@@ -51,6 +51,10 @@ class Image:
         """Start `command` in a container `name` with an attached `docker run`, and return it
         once the client has started.
 
+        The container may not exist yet when this returns: an immediate `exec` fails with "No
+        such container", and an immediate removal does nothing. Wait for a sign the container is
+        up, such as its first output, before acting on it.
+
         `stdin` is the client's stdin, passed with `--interactive` unless DEVNULL or None.
         PIPE gives the container a `stdin` writer that only this process holds. `stdout` and
         `stderr` are sinks, handed each chunk of output as it arrives; without one, the
