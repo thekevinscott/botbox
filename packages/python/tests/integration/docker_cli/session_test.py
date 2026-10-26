@@ -27,6 +27,19 @@ def talker(box: Botbox, daemon: Daemon) -> Botbox:
     return box
 
 
+@pytest.fixture
+def output(tmp_path: Path) -> Path:
+    return tmp_path / "output"
+
+
+def stdout(output: Path) -> str:
+    return (output / "stdout.txt").read_text()
+
+
+def transcript(output: Path) -> str:
+    return (output / "transcripts" / "-work" / "abc.jsonl").read_text()
+
+
 def followers(path: Path) -> list[str]:
     """Processes still running with `path` on their command line."""
     found = []
@@ -42,8 +55,8 @@ def followers(path: Path) -> list[str]:
 
 def describe_session() -> None:
     def describe_a_turn() -> None:
-        async def it_streams_the_events_up_to_the_turns_end(talker: Botbox) -> None:
-            async with talker.session() as live:
+        async def it_streams_the_events_up_to_the_turns_end(talker: Botbox, output: Path) -> None:
+            async with talker.session(output=output) as live:
                 events = [event async for event in live.stream("hi")]
             assert events == [
                 {"type": "assistant", "said": "hi"},
@@ -51,30 +64,57 @@ def describe_session() -> None:
             ]
 
         async def it_collects_a_turn_and_keeps_the_conversation_going(
-            talker: Botbox,
+            talker: Botbox, output: Path
         ) -> None:
-            async with talker.session() as live:
+            async with talker.session(output=output) as live:
                 first = await live.message("one")
                 second = await live.message("two")
             assert [turn[-1]["result"] for turn in (first, second)] == ["ONE", "TWO"]
 
-        async def it_skips_the_rest_of_a_turn_left_early(talker: Botbox) -> None:
-            async with talker.session() as live:
+        async def it_skips_the_rest_of_a_turn_left_early(talker: Botbox, output: Path) -> None:
+            async with talker.session(output=output) as live:
                 async for _ in live.stream("one"):
                     break
                 assert (await live.message("two"))[-1] == {"type": "result", "result": "TWO"}
 
+        async def it_reads_events_past_a_large_line_that_is_not_one(
+            box: Botbox, daemon: Daemon, output: Path
+        ) -> None:
+            large = "x" * (1 << 20) + "\n"
+            daemon.agent(SESSION, mode="session", stdout=large)
+            async with box.session(output=output) as live:
+                assert (await live.message("hi"))[-1] == {"type": "result", "result": "HI"}
+            assert stdout(output).startswith(large)
+
         async def it_ends_a_turn_the_cli_cuts_short_with_what_arrived(
-            talker: Botbox,
+            talker: Botbox, output: Path
         ) -> None:
             with pytest.raises(DockerException) as raised:
-                async with talker.session() as live:
+                async with talker.session(output=output) as live:
                     events = await live.message("die")
             assert events == [{"type": "assistant", "said": "die"}]
             assert raised.value.return_code == -9
 
     def describe_the_result() -> None:
-        async def it_leaves_what_the_session_left_once_the_block_ends(
+        async def it_leaves_what_the_session_left_in_output_once_the_block_ends(
+            talker: Botbox, daemon: Daemon, output: Path
+        ) -> None:
+            daemon.set(proxy_log=REFUSAL)
+            async with talker.session(output=output) as live:
+                await live.message("hi")
+                assert live.result is None
+            assert live.result == RunResult("", "", 0, "", "botbox-claude:latest")
+            assert stdout(output) == (
+                "booting\n"
+                '{"type": "assistant", "said": "hi"}\n'
+                "not json\n"
+                '{"type": "result", "result": "HI"}\n'
+            )
+            assert (output / "stderr.txt").read_text() == ""
+            assert transcript(output) == '{"type": "user"}\n'
+            assert (output / "proxy.log").read_text() == REFUSAL
+
+        async def it_holds_what_the_session_left_in_the_result_without_output(
             talker: Botbox, daemon: Daemon
         ) -> None:
             daemon.set(proxy_log=REFUSAL)
@@ -95,20 +135,20 @@ def describe_session() -> None:
             )
 
         async def it_reads_the_exit_code_from_the_stopped_container(
-            box: Botbox, daemon: Daemon
+            box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.agent(SESSION, mode="session", exit=3)
-            async with box.session() as live:
+            async with box.session(output=output) as live:
                 pass
             assert live.result is not None
             assert live.result.exit_code == 3
 
         async def it_returns_the_result_and_warns_when_teardown_fails(
-            talker: Botbox, daemon: Daemon
+            talker: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.set(rm_fails=True)
             with pytest.warns(RuntimeWarning) as warned:
-                async with talker.session() as live:
+                async with talker.session(output=output) as live:
                     await live.message("hi")
             assert live.result is not None
             assert live.result.exit_code == 0
@@ -233,35 +273,37 @@ def describe_session() -> None:
             assert daemon.calls == []
 
         async def it_raises_when_the_container_never_ran(
-            box: Botbox, daemon: Daemon, temp: Path
+            box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent(SESSION, missing=True)
             with pytest.raises(DockerException) as raised:
-                async with box.session() as live:
+                async with box.session(output=output) as live:
                     assert await live.message("hi") == []
             assert raised.value.return_code == 125
-            assert "Unable to find image" in raised.value.stderr
+            assert raised.value.stderr == f"See {output / 'stderr.txt'}"
+            assert "Unable to find image" in (output / "stderr.txt").read_text()
             assert live.result is not None
             assert live.result.exit_code == -1
             assert daemon.containers == []
             assert homes(temp) == []
 
         async def it_tears_down_and_raises_when_the_block_fails(
-            talker: Botbox, daemon: Daemon, temp: Path
+            talker: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             with pytest.raises(ValueError, match="boom"):
-                async with talker.session() as live:
+                async with talker.session(output=output) as live:
                     await live.message("hi")
                     raise ValueError("boom")
             assert live.result is not None
             assert live.result.exit_code == -1
-            assert '"said": "hi"' in live.result.stdout
+            assert transcript(output)
+            assert '"said": "hi"' in stdout(output)
             assert daemon.containers == []
             assert homes(temp) == []
 
     def describe_cancelling() -> None:
         async def it_tears_the_session_down_when_cancelled_mid_turn(
-            talker: Botbox, daemon: Daemon, temp: Path
+            talker: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             heard: list[object] = []
             spoke = asyncio.Event()
@@ -269,7 +311,7 @@ def describe_session() -> None:
             sessions: list[Session] = []
 
             async def talk() -> None:
-                async with talker.session() as live:
+                async with talker.session(output=output) as live:
                     sessions.append(live)
                     async for event in live.stream("hang"):
                         heard.append(event)
@@ -286,20 +328,21 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert '"said": "hang"' in result.stdout
+            assert transcript(output)
+            assert '"said": "hang"' in stdout(output)
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
             assert homes(temp) == []
 
         async def it_finishes_tearing_down_through_a_second_cancel(
-            talker: Botbox, daemon: Daemon, temp: Path
+            talker: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.set(rm_seconds=0.3)
 
             sessions: list[Session] = []
 
             async def talk() -> None:
-                async with talker.session() as live:
+                async with talker.session(output=output) as live:
                     sessions.append(live)
                     await live.message("hang")
 
@@ -313,31 +356,34 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert '"said": "hang"' in result.stdout
+            assert transcript(output)
+            assert '"said": "hang"' in stdout(output)
             assert daemon.containers == []
             assert homes(temp) == []
 
         async def it_tears_the_session_down_when_a_timeout_fires(
-            talker: Botbox, daemon: Daemon, temp: Path
+            talker: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             with pytest.raises(TimeoutError):
-                async with asyncio.timeout(1), talker.session() as live:
+                async with asyncio.timeout(1), talker.session(output=output) as live:
                     await live.message("hang")
+            assert '"said": "hang"' in stdout(output)
             assert daemon.containers == []
             assert homes(temp) == []
 
         async def it_tears_down_and_raises_what_the_session_left_when_its_timeout_runs_out(
-            talker: Botbox, daemon: Daemon, temp: Path
+            talker: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             sessions: list[Session] = []
             with pytest.raises(Timeout) as raised:
-                async with Botbox(talker.agent, timeout=2).session() as live:
+                async with Botbox(talker.agent, timeout=2).session(output=output) as live:
                     sessions.append(live)
                     await live.message("hang")
             result = raised.value.result
             assert result is sessions[0].result
             assert result.exit_code == -1
-            assert '"said": "hang"' in result.stdout
+            assert transcript(output)
+            assert '"said": "hang"' in stdout(output)
             assert daemon.containers == []
             assert homes(temp) == []
 

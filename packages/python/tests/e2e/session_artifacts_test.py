@@ -1,10 +1,10 @@
-"""Retain session diagnostics through real Docker teardown, without model calls."""
+"""Keep session diagnostics in the output folder through real Docker teardown, no model calls."""
 
 import asyncio
 from pathlib import Path
 
 import pytest
-from conftest import docker_lines
+from conftest import docker_lines, transcripts
 
 from botbox import Botbox, ClaudeAgent, Session
 
@@ -31,12 +31,13 @@ def describe_session_artifacts() -> None:
     async def it_retains_artifacts_and_removes_containers(outcome: str, tmp_path: Path) -> None:
         agent = ArtifactAgent()
         box = Botbox(agent)
+        output = tmp_path / "output"
         error = ValueError("caller failed")
         live: Session | None = None
 
         async def run() -> None:
             nonlocal live
-            async with box.session(output=tmp_path) as live:
+            async with box.session(output=output) as live:
                 assert (await live.message("hi"))[-1]["result"] == "ready"
                 if outcome == "error":
                     raise error
@@ -51,9 +52,9 @@ def describe_session_artifacts() -> None:
         assert live is not None
         assert live.result is not None
         assert live.result.exit_code == (0 if outcome == "normal" else -1)
-        assert (tmp_path / "transcripts" / "turn.jsonl").read_text() == "transcript\n"
-        assert "ready" in (tmp_path / "stdout.txt").read_text()
-        assert (tmp_path / "stderr.txt").read_text() == "diagnostic\n"
+        assert transcripts(output) == {"turn.jsonl": "transcript\n"}
+        assert "ready" in (output / "stdout.txt").read_text()
+        assert (output / "stderr.txt").read_text() == "diagnostic\n"
         scratch = agent.staged_home.parent
         token = scratch.name.split("-")[1]
         assert not scratch.exists()

@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from conftest import transcripts
 from run_test import Runs
 
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
@@ -75,8 +76,8 @@ def runs(temp: Path) -> Iterator[Runs]:
 
 
 @pytest.fixture(scope="module")
-def output(harness: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp(f"session-{harness}")
+def output(tmp_path_factory: pytest.TempPathFactory, harness: str) -> Path:
+    return tmp_path_factory.mktemp(f"output-{harness}")
 
 
 @pytest.fixture(scope="module")
@@ -163,24 +164,30 @@ def describe_a_session() -> None:
         _, _, result = session
         assert result.exit_code == 0, (output / "stderr.txt").read_text()
 
-    @pytest.mark.usefixtures("session")
-    def it_writes_the_transcript_into_output(output: Path) -> None:
-        transcripts = [p for p in (output / "transcripts").rglob("*.jsonl") if p.is_file()]
-        assert transcripts
-        assert all(p.stat().st_size for p in transcripts)
+    def it_leaves_the_transcript_in_output(
+        session: tuple[Turns, list[float], RunResult],  # noqa: ARG001
+        output: Path,
+    ) -> None:
+        written = transcripts(output)
+        assert written
+        assert all(written.values())
 
-    @pytest.mark.usefixtures("session")
-    def it_reaches_for_no_refused_host(output: Path) -> None:
-        log = (output / "proxy.log").read_text()
-        assert [line for line in log.splitlines() if "Proxying refused" in line] == []
+    def it_reaches_for_no_refused_host(
+        session: tuple[Turns, list[float], RunResult],  # noqa: ARG001
+        output: Path,
+    ) -> None:
+        proxy = (output / "proxy.log").read_text()
+        refused = [line for line in proxy.splitlines() if "Proxying refused" in line]
+        assert refused == []
 
 
 def describe_cancelling_mid_turn() -> None:
-    async def it_removes_the_sessions_containers_and_home(runs: Runs) -> None:
+    async def it_removes_the_sessions_containers_and_home(runs: Runs, tmp_path: Path) -> None:
         box = Botbox(claude())
+        output = tmp_path / "output"
 
         async def talk() -> None:
-            async with box.session() as live:
+            async with box.session(output=output) as live:
                 async for _ in live.stream("Use bash to run exactly: sleep 600"):
                     pass
 
@@ -194,3 +201,4 @@ def describe_cancelling_mid_turn() -> None:
         assert time.monotonic() - started < 5
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
+        assert (output / "stdout.txt").read_text()
