@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/api_key_test.py tests/e2e/model_test.py tests/e2e/quoting_test.py",
-  "ran_at": 1793042675,
+  "ran_at": 1793042945,
   "exit_code": 0,
-  "commit": "eb3bb21e644339b6d67e15fe78b4e8b680d526c3",
+  "commit": "085bb6ca7e7053a7a07d7fb5577178f8876fb3d1",
   "branch": "cred-proxy-5"
 }
