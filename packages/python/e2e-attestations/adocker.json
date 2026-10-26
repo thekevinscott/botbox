@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py tests/e2e/run_test.py tests/e2e/session_test.py tests/e2e/sigterm_test.py tests/e2e/teardown_test.py",
-  "ran_at": 1792976102,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py tests/e2e/build_test.py tests/e2e/teardown_test.py tests/e2e/run_test.py",
+  "ran_at": 1792979408,
   "exit_code": 0,
-  "commit": "47dd3abd00c4ddd0c9e55f89dda829994e7e96d7",
+  "commit": "0a8b364722cdf222087c90a17f654c17fd4582f6",
   "branch": "adocker"
 }
