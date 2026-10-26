@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/canary_listener_test.py",
+  "ran_at": 1792986017,
+  "exit_code": 0,
+  "commit": "4bbc2b6421c5c99150b358396c5fffd5cc358e49",
+  "branch": "canary-listener"
+}

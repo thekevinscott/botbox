@@ -172,7 +172,6 @@ def describe_run() -> None:
         result = await box.run("echo out; echo err >&2; exit 5")
         assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
         assert result.image == "botbox-claude:latest"
-        assert result.transcript == {}
         assert "Starting main loop" in result.proxy
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
@@ -196,7 +195,7 @@ def describe_run() -> None:
             " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
         )
         result = await box.run(command, output=output)
-        assert (result.exit_code, result.transcript) == (0, {})
+        assert result.exit_code == 0
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
         assert [p.name for p in output.rglob("*credentials*")] == []
         assert runs.leftovers() == []

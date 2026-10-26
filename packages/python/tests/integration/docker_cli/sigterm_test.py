@@ -16,7 +16,7 @@ import asyncio, signal, sys
 from pathlib import Path
 from botbox import Botbox, ClaudeAgent
 
-home, moment = Path(sys.argv[1]), sys.argv[2]
+home, moment, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 
 async def main():
     if moment == "own_handler":
@@ -25,7 +25,7 @@ async def main():
     try:
         async with Botbox(ClaudeAgent(host_home=home)) as box:
             if moment == "session":
-                async with box.session() as live:
+                async with box.session(output=output) as live:
                     await live.message("hang")
             else:
                 await box.run("hang")
@@ -44,6 +44,7 @@ async def hold(tmp_path: Path, temp: Path, moment: str) -> asyncio.subprocess.Pr
         HOLDER,
         str(tmp_path / "claude-home"),
         moment,
+        str(tmp_path / "output"),
         env={**os.environ, "TMPDIR": str(temp)},
     )
 
@@ -75,6 +76,8 @@ def describe_sigterm() -> None:
                 await holder.wait()
         assert daemon.containers == []
         assert homes(temp) == []
+        if moment == "session":
+            assert '"said": "hang"' in (tmp_path / "output" / "stdout.txt").read_text()
 
     async def it_leaves_a_handler_the_program_set_alone(
         box: Botbox,  # noqa: ARG001

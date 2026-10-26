@@ -26,3 +26,4 @@ docs/node_modules/
 .env
 .worktrees/
 internal/
+packages/python/e2e-output/

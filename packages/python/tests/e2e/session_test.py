@@ -14,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from conftest import transcripts
 from run_test import Runs
 
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
@@ -75,13 +76,18 @@ def runs(temp: Path) -> Iterator[Runs]:
 
 
 @pytest.fixture(scope="module")
-def session(harness: str) -> tuple[Turns, list[float], RunResult]:
+def output(tmp_path_factory: pytest.TempPathFactory, harness: str) -> Path:
+    return tmp_path_factory.mktemp(f"output-{harness}")
+
+
+@pytest.fixture(scope="module")
+def session(harness: str, output: Path) -> tuple[Turns, list[float], RunResult]:
     """Three messages in one session; for the first, when each event arrived."""
     make, _, _ = HARNESSES[harness]
     box = Botbox(make())
 
     async def talk() -> tuple[Turns, list[float], RunResult]:
-        async with box.session() as live:
+        async with box.session(output=output) as live:
             arrivals, first = [], []
             async for event in live.stream(
                 "Remember the codeword heron. Use bash to run exactly:"
@@ -152,27 +158,36 @@ def describe_a_session() -> None:
         _, _, reply = HARNESSES[harness]
         assert "heron" in reply(turns[2]).lower()
 
-    def it_exits_zero_once_the_block_ends(session: tuple[Turns, list[float], RunResult]) -> None:
+    def it_exits_zero_once_the_block_ends(
+        session: tuple[Turns, list[float], RunResult], output: Path
+    ) -> None:
         _, _, result = session
-        assert result.exit_code == 0, result.stderr
+        assert result.exit_code == 0, (output / "stderr.txt").read_text()
 
-    def it_returns_the_transcript(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        assert result.transcript
-        assert all(result.transcript.values())
+    def it_leaves_the_transcript_in_output(
+        session: tuple[Turns, list[float], RunResult],  # noqa: ARG001
+        output: Path,
+    ) -> None:
+        written = transcripts(output)
+        assert written
+        assert all(written.values())
 
-    def it_reaches_for_no_refused_host(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
+    def it_reaches_for_no_refused_host(
+        session: tuple[Turns, list[float], RunResult],  # noqa: ARG001
+        output: Path,
+    ) -> None:
+        proxy = (output / "proxy.log").read_text()
+        refused = [line for line in proxy.splitlines() if "Proxying refused" in line]
         assert refused == []
 
 
 def describe_cancelling_mid_turn() -> None:
-    async def it_removes_the_sessions_containers_and_home(runs: Runs) -> None:
+    async def it_removes_the_sessions_containers_and_home(runs: Runs, tmp_path: Path) -> None:
         box = Botbox(claude())
+        output = tmp_path / "output"
 
         async def talk() -> None:
-            async with box.session() as live:
+            async with box.session(output=output) as live:
                 async for _ in live.stream("Use bash to run exactly: sleep 600"):
                     pass
 
@@ -186,3 +201,4 @@ def describe_cancelling_mid_turn() -> None:
         assert time.monotonic() - started < 5
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
+        assert (output / "stdout.txt").read_text()
