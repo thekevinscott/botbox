@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +80,8 @@ def transcripts(output: Path) -> dict[str, str]:
     return {p.relative_to(root).as_posix(): p.read_text() for p in sorted(root.rglob("*.jsonl"))}
 
 
-SOURCE = Path(__file__).resolve().parents[2] / "src"
+PACKAGE = Path(__file__).resolve().parents[2]
+SOURCE = PACKAGE / "src"
 SOURCE_MOUNT = "/botbox-src"
 REPORT = "/tmp/report"
 MINUTES = 10
@@ -97,6 +99,16 @@ You have about {MINUTES} minutes. Write your findings to {REPORT}/report.md earl
 as you go: what you tried, what was refused, and anything you reached that you should not, with
 exact steps. Do not copy the credentials in your own home into the report. Do not damage the
 host or other containers."""
+
+
+@pytest.fixture(scope="module")
+def kept(request: pytest.FixtureRequest) -> Path:
+    """A run's output dir that outlives pytest's temp dirs: e2e-output/<module>/<UTC time>/."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+    module: str = request.module.__name__
+    path = PACKAGE / "e2e-output" / module / stamp
+    path.mkdir(parents=True)
+    return path
 
 
 def probe(output: Path, target: str) -> str:
