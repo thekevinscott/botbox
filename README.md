@@ -158,8 +158,8 @@ Each run gets a fresh temporary home, mounted at the agent's home path. With `ou
 
 `PiAgent` likewise, never both:
 
-- Default: `~/.pi/agent/auth.json` is copied into the temporary home, and `models.json` beside it if it exists.
-- `PiAgent(provider, api_key=key)`: a fresh `.pi/agent/auth.json` (mode 600) holds the key for `provider` and nothing else. No host files are read.
+- Default: on `openrouter`, the key in `~/.pi/agent/auth.json` stays on the host. The temporary home gets a placeholder key and a `models.json` that points pi at a credential proxy, which adds the real key to pi's requests. Only a literal key works; a `!command` or env var name raises `ValueError`. For any other provider, `auth.json` is copied in, and `models.json` beside it if it exists.
+- `PiAgent("openrouter", api_key=key)`: the same placeholder, with the proxy sending `key`. No host files are read.
 
 botbox reads no `.env` and no environment variables. The caller passes the key.
 

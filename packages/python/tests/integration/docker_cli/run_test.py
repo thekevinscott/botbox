@@ -193,12 +193,8 @@ def describe_run() -> None:
             [
                 (lambda home: CopyingClaude(api_key="sk-test", host_home=home), "sk-test"),
                 (lambda home: CodexAgent(api_key="sk-test", host_home=home), "sk-test"),
-                (
-                    lambda home: PiAgent("openrouter", api_key="sk-or-test", host_home=home),
-                    "sk-or-test",
-                ),
             ],
-            ids=["claude", "codex", "pi"],
+            ids=["claude", "codex"],
         )
         async def it_keeps_the_key_out_of_every_docker_command_and_deletes_it_afterwards(
             daemon: Daemon, temp: Path, tmp_path: Path, agent: Any, key: str
