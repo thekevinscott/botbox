@@ -35,3 +35,13 @@ CI behavior that's more than glue lives in an **executable, tested script**, not
 **Where it goes.** Extracted logic lives in an executable, tested script — a subcommand of a small package with colocated tests (`foo.py` ↔ `foo_test.py`, the same testing-conventions standard the packages follow), invoked from the workflow as a one-line `run:`. Python is the default; the language is open, but it must be executable and testable. A check that more than one repo needs belongs upstream in the tool that owns it (testing-conventions, putitoutthere, pr-monitor), not in a per-repo package. This repo has no local gate package; the changelog check lives inline in [`changelog.yml`](../../.github/workflows/changelog.yml). Convention source: [thekevinscott/putitoutthere#452](https://github.com/thekevinscott/putitoutthere/issues/452).
 
 **Enforcement.** testing-conventions' [`workflow-lint`](https://github.com/thekevinscott/testing-conventions) check (`just gha-lint`, and [`workflow-lint.yml`](../../.github/workflows/workflow-lint.yml)) scans every workflow and composite action and fails CI on an inline block that crosses the line. It's a pragmatic scanner, not a shell parser — it keys on the unambiguous markers above and favors precision, so a borderline body may slip through. Extract those by judgment anyway; an extracted script is always testable, and the check stops complaining.
+
+## Temp files and locks
+
+- **No lock files.** No `flock`, no `.lock` files, no lock-based "is the owner alive" checks, and no sweeper built on one.
+- **Temp dirs come from `tempfile`.** Never a hand-made path such as `/tmp/<name>-<uid>/`.
+- **Run output is never deleted.** botbox writes into a dir the caller gives it and leaves it there.
+
+## Merging
+
+Agents merge only docs-only and test-only PRs, once CI is green. Anything that changes runtime behavior or public API waits for the maintainer to merge.
