@@ -5,41 +5,30 @@ from contextlib import suppress
 from typing import Any
 
 from adocker.abort_writer import abort_writer
-from adocker.Capture import Capture
 from botbox.agents.agent import SessionAgent
 from botbox.RunResult import RunResult
-from botbox.utils.CapturedLines import CapturedLines
 
 
 class Session:
     """An agent CLI held open in a locked-down container: one message in, one turn's events out.
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
-    collects them. One turn at a time. The CLI's output lands in the `stdout` capture and in
-    `stderr`, or in files with no `stdout` capture, and `client` is its attached `docker run`.
-    `result` is set once the session's block is left.
+    collects them. One turn at a time. `client` is the CLI's attached `docker run`, and
+    `readline` reads the next line it printed. `result` is set once the session's block is
+    left.
     """
 
     def __init__(
         self,
         agent: SessionAgent,
         stdin: asyncio.StreamWriter,
-        stdout: Capture | None,
-        stderr: bytearray,
         client: asyncio.Future[int],
-        *,
-        _readline: Callable[[], Awaitable[bytes]] | None = None,
+        readline: Callable[[], Awaitable[bytes]],
     ) -> None:
         self.agent = agent
         self.stdin = stdin
-        self.stdout = stdout
-        self.stderr = stderr
         self.client = client
-        if _readline is None:
-            if stdout is None:
-                raise TypeError("Session needs a stdout capture or a _readline")
-            _readline = CapturedLines(stdout, client).readline
-        self._readline = _readline
+        self._readline = readline
         self._pending: bytes | None = None
         self.turn = False
         self.result: RunResult | None = None
@@ -52,7 +41,7 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines that aren't JSON objects stay in the result's stdout but aren't events. If the
+        Lines that aren't JSON objects stay in stdout.txt but aren't events. If the
         CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
         end before the next message goes.
         """

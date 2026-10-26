@@ -105,10 +105,6 @@ elif option("--name").startswith("botbox-proxy-"):
     sys.stdout.buffer.flush()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
-    if plan.get("proxy_log_unreadable"):
-        log = Path(os.readlink("/proc/self/fd/1"))
-        log.unlink()
-        log.mkdir()
     exit_container(name)
 else:
     name = option("--name")

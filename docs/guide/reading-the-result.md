@@ -10,7 +10,7 @@ runs/first/
   transcripts/
 ```
 
-`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr` and `proxy` are empty; read the files instead.
+`run()` returns a `RunResult`, which holds only the `exit_code`. Read everything else from the files.
 
 ## Check the exit code
 
@@ -45,7 +45,7 @@ print((output / "proxy.log").read_text())
 
 ## Without `output`
 
-Omit `output` and the streams and proxy log come back on the result instead, as text in `stdout`, `stderr` and `proxy`. The transcripts are deleted with the temporary home.
+Omit `output` and nothing the run left is kept. Only the `exit_code` comes back.
 
 ## Keep what the run wrote
 
@@ -60,4 +60,4 @@ await box.run(
 )
 ```
 
-Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
+Next: the [`RunResult` page](../api/run-result), or [how a run works](../explanation/#a-run).

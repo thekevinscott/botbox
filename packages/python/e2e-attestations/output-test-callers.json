@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/network_test.py tests/e2e/run_test.py tests/e2e/sigterm_test.py tests/e2e/user_test.py",
+  "ran_at": 1792992372,
+  "exit_code": 0,
+  "commit": "8c06a7a420f0bc47f09d072e3a4631e190a276f2",
+  "branch": "output-test-callers"
+}
