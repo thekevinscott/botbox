@@ -100,9 +100,13 @@ def describe_FileLines() -> None:
         path: Path, followed: Followed, lines: FileLines
     ) -> None:
         append(path, lines, b"a\n")
-        lines.end()
+        reading = asyncio.ensure_future(lines.readline())
+        await asyncio.sleep(0.01)
         followed.queue.put_nowait(b"")
-        assert await lines.readline() == b"a\n"
+        await asyncio.sleep(0.01)
+        assert not reading.done()
+        lines.end()
+        assert await reading == b"a\n"
         assert await lines.readline() == b""
 
     async def it_loses_nothing_to_a_cancelled_read(followed: Followed, lines: FileLines) -> None:
