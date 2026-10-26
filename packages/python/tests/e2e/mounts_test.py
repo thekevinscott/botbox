@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from conftest import Probe, leftovers
+from conftest import leftovers, run_probes
 
 from botbox import Botbox
 
@@ -28,9 +28,9 @@ def host(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def report(probe: Probe, host: Path) -> dict[str, str]:
+def report(box: Botbox, host: Path, output: Path) -> dict[str, str]:
     mounts = [(host / "ro", "/ro", "ro"), (host / "rw", "/rw", "rw")]
-    return probe(PROBES, mounts=mounts, workdir="/rw")[1]
+    return run_probes(box, PROBES, output, mounts=mounts, workdir="/rw")
 
 
 def describe_a_read_only_mount() -> None:

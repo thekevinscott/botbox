@@ -8,13 +8,13 @@ import asyncio
 import os
 import subprocess
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from botbox import Botbox, ClaudeAgent, RunResult
+from botbox import Botbox, ClaudeAgent
 
 # A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
 API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -22,8 +22,6 @@ if not API_KEY:
     raise RuntimeError("ANTHROPIC_API_KEY is empty")
 
 LINE = 'printf "%s\\t" "{name}"; ({command}) 2>&1 | tr "\\n" " "; echo'
-
-Probe = Callable[..., tuple[RunResult, dict[str, str]]]
 
 
 def docker_lines(*args: str) -> list[str]:
@@ -57,17 +55,16 @@ def box() -> Botbox:
     return box
 
 
-@pytest.fixture(scope="session")
-def probe(box: Botbox) -> Probe:
-    """Run named shell probes in one container; return the result and each probe's output."""
-
-    def run(probes: Mapping[str, str], **options: Any) -> tuple[RunResult, dict[str, str]]:
-        script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-        result = asyncio.run(box.run(script, **options))
-        fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
-        return result, {name: value.strip() for name, value in fields}
-
-    return run
+def run_probes(
+    box: Botbox, probes: Mapping[str, str], output: Path, **options: Any
+) -> dict[str, str]:
+    """Run named shell probes in one container; return each probe's output from stdout.txt."""
+    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
+    result = asyncio.run(box.run(script, output=output, **options))
+    assert result.exit_code == 0, (output / "stderr.txt").read_text(errors="replace")
+    lines = (output / "stdout.txt").read_text(errors="replace").splitlines()
+    fields = (line.split("\t", 1) for line in lines if "\t" in line)
+    return {name: value.strip() for name, value in fields}
 
 
 @pytest.fixture(scope="module")

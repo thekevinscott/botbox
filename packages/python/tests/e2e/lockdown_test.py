@@ -4,9 +4,12 @@ Every probe reads what the kernel already publishes; nothing runs an exploit.
 """
 
 import os
+from pathlib import Path
 
 import pytest
-from conftest import Probe
+from conftest import run_probes
+
+from botbox import Botbox
 
 EMPTY_CAPABILITY_MASK = "0" * 16
 
@@ -31,8 +34,8 @@ PROBES = {
 
 
 @pytest.fixture(scope="module")
-def posture(probe: Probe) -> dict[str, str]:
-    return probe(PROBES)[1]
+def posture(box: Botbox, output: Path) -> dict[str, str]:
+    return run_probes(box, PROBES, output)
 
 
 def describe_the_container() -> None:
