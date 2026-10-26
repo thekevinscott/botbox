@@ -1,14 +1,24 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
-from adocker import DockerException
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
 
 SOCKET = "/run/botbox/c.sock"
+
+
+class DockerException(Exception):
+    pass
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch(f"{__package__}.wait_for_socket.DockerException", DockerException):
+        yield
 
 
 class Through:
@@ -21,7 +31,7 @@ class Through:
     async def exec(self, *command: str, **_: Any) -> None:
         self.calls.append(command)
         if not self.ready:
-            raise DockerException(["docker", "exec"], 1, "connect: No such file or directory")
+            raise DockerException("connect: No such file or directory")
 
 
 @pytest.fixture

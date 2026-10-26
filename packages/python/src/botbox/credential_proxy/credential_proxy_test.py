@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.credential_proxy.Credential import Credential
 from botbox.credential_proxy.credential_proxy import credential_proxy
 
 
@@ -22,6 +21,12 @@ class FakeMount:
 
 MODULE = f"{__package__}.credential_proxy"
 INJECTION = object()
+
+
+@dataclass(frozen=True)
+class Credential:
+    injection: object
+    secret: str
 
 
 class Container:
