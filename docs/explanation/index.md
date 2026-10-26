@@ -8,7 +8,7 @@ botbox is that container. It gives each run:
 2. **No capabilities, no privilege escalation.** See [The Container](#the-container).
 3. **Network only to an allowlist.** See [Network](#network).
 4. **Mounted directories,** read-only or read-write.
-5. **Logs.** The agent's output, transcripts and the proxy's log are written to a folder you choose. See [Home and Credentials](#home-and-credentials).
+5. **Logs.** The agent's output, transcripts and the proxy's log are written to a folder you choose. See [Output](#output).
 
 This page is what botbox does with Docker to get there. For how to call it, see [Getting Started](../getting-started).
 
@@ -25,6 +25,20 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 7. Stops and removes the proxy, and deletes the temporary directory.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. So does a container that never started: a missing image, say, raises with `return_code` 125. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
+
+## Output
+
+A run's output has two homes. The first is the run's temporary directory, the one that holds the agent's home. botbox always writes there, and removes it when the run ends. The second is `output`, a host directory you pass. It is optional, and it stays.
+
+The agent's `docker run` client and the proxy's each pipe their stdout and stderr to botbox. botbox reads each pipe in chunks of up to 64 KiB, as they arrive, and writes each chunk to a file in the temporary directory, then to the same file in `output`, flushing both. The agent's go to `stdout.txt` and `stderr.txt`. Both of the proxy's go to `proxy.log`. No stream is held in memory whole.
+
+A failed write to the temporary copy raises, and the run tears down. A failed write to `output`, a full disk say, is a `RuntimeWarning`: botbox stops writing that one file and the run carries on.
+
+botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException`, the end of `proxy.log` when the proxy won't start, and `stdout.txt` for session events. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
+
+Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into the temporary home, and they go with it.
+
+`run()` and `session()` truncate `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -49,7 +63,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client writes all of the container's output straight to a host file: `proxy.log` in `output` when one is given, or else a file in the host temporary directory, deleted with it. The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client pipes all of the container's output to botbox, which writes it to `proxy.log` (see [Output](#output)). The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
 
 ### Lifetime
 
@@ -73,7 +87,7 @@ With `output`, `output/transcripts/` is mounted over the harness's sessions dire
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` in the temporary directory, and to `output` too, and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` as in a run (see [Output](#output)), and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
 The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
