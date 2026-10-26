@@ -22,7 +22,7 @@ async with Botbox(agent) as box:
 
 By default, the run uses your Claude Code login from `~/.claude/.credentials.json`. Pass `api_key` to use an API key instead. Runs that may last longer than a login token should use `api_key` (see [Login Expiry](../explanation/#login-expiry)).
 
-With `output`, `transcripts/` there is mounted over `~/.claude/projects`. The staged credentials sit outside it.
+`transcripts/` in the run's `output` is mounted over `~/.claude/projects`. The staged credentials sit outside it.
 
 ## Sessions
 

@@ -1,6 +1,6 @@
 # Reading the result
 
-Pass `run()` an `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`.
+`run()` takes a required `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`.
 
 ```text
 runs/first/
@@ -10,7 +10,7 @@ runs/first/
   transcripts/
 ```
 
-`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr`, `transcript` and `proxy` are empty; read the files instead.
+`run()` returns a `RunResult` that holds only `exit_code`. Everything else is in the files, and botbox parses none of them.
 
 ## Check the exit code
 
@@ -43,10 +43,6 @@ for path in sorted((output / "transcripts").rglob("*.jsonl")):
 print((output / "proxy.log").read_text())
 ```
 
-## Without `output`
-
-Omit `output` and the streams, transcripts and proxy log come back on the result instead: `stdout` and `stderr` as text, `transcript` as a `dict[str, str]` of path relative to the agent's home → file contents, and `proxy` as text.
-
 ## Keep what the run wrote
 
 The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
@@ -60,4 +56,4 @@ await box.run(
 )
 ```
 
-Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
+Next: the [`RunResult` page](../api/run-result), or [how a run works](../explanation/#a-run).

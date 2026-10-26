@@ -14,11 +14,11 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `result.stdout` is whatever reached the container's stdout.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` in `output` is whatever reached the container's stdout.
 
 ### What's Left
 
-All of it. Treat events and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
+All of it. Treat events and `stdout.txt` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
 
 ### Why botbox Doesn't Close It
 
@@ -50,7 +50,7 @@ The agent, sending data out. It has nowhere to send it but the proxy.
 
 ### What botbox Does
 
-The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `proxy.log` in the run's `output`.
 
 ### What's Left
 
@@ -85,23 +85,23 @@ Writing to the mount is the feature. botbox can't tell a fix from a planted hook
 3. Bring the work back from your own repo with `git fetch /path/to/clone <branch>`. The fetch copies the clone's commits and runs nothing from its config or hooks.
 4. Review with `git log -p HEAD..FETCH_HEAD` in your repo, so your config applies, not the clone's. Read changes to build scripts, package scripts, `.gitattributes`, `.envrc` and editor config before you check the branch out or run anything from it.
 
-## Transcript reads that follow links
+## Links in the output folder
 
 ### Who Attacks
 
-The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
+The agent, through `transcripts/`. That folder in your `output` is mounted read-write over the agent's sessions directory, so the agent can leave any file there, symlinks included. A symlink can point at any host path. A tool on the host that follows it reads or writes that path as you.
 
 ### What botbox Does
 
-A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+Nothing. botbox doesn't read `transcripts/`. It writes `stdout.txt`, `stderr.txt` and `proxy.log` itself, and the agent can't reach them as files. What the agent prints still lands in `stdout.txt` and `stderr.txt`.
 
 ### What's Left
 
-One case breaks that assumption. If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+Treat everything in `output` as agent-written. When you read `transcripts/`, skip symlinks and keep only regular files (see [Reading the result](./guide/reading-the-result#read-the-transcript)).
 
 ### Why botbox Doesn't Close It
 
-It could; it isn't done yet. Opening each file without following links, and keeping only regular files, closes it.
+It could; it isn't done yet. botbox could remove links from `transcripts/` once the container exits. Until then, the reader on the host has to skip them.
 
 ## Resource exhaustion
 
@@ -111,15 +111,15 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has none: no memory, process or CPU limit. botbox holds a run's whole stdout and stderr in memory, and a session's whole output. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. The transcript is read whole into memory. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. stdout, stderr, the proxy log and transcripts go to files in `output`, with no size cap, so the agent can fill that disk. Both containers run with no Docker log, so the daemon keeps no second copy. The home lives in the host's temp directory, so the agent can fill that disk too, or memory if it's a tmpfs. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
 
 ### What's Left
 
-All of the above. Set `timeout`, and keep an eye on the host's temp directory.
+All of the above. Set `timeout`, and keep an eye on the disks holding `output` and the host's temp directory.
 
 ### Why botbox Doesn't Close It
 
-Memory, processes and CPU it could; it isn't done yet. Disk is harder. Docker can't cap a bind mount's size, and the home has to live on the host so the transcript survives a daemon that goes away. Capping it means a sized filesystem for each run. Time has an option but no default, since runs vary by orders of magnitude.
+Memory, processes and CPU it could; it isn't done yet. Disk is harder. Docker can't cap a bind mount's size, and `output` has to live on the host so it survives a daemon that goes away. Capping it means a sized filesystem for each run. Time has an option but no default, since runs vary by orders of magnitude.
 
 ## The proxy as a way out
 

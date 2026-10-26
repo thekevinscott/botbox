@@ -91,7 +91,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 await box.run(
     command: str,
     *,
-    output: str | Path | None = None,
+    output: str | Path,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
     workdir: str | Path | None = None,
 ) -> RunResult
@@ -100,21 +100,23 @@ await box.run(
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
-| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, those come back on the result. |
+| `output`         | Required. Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Created if missing. Use one per run. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
+`RunResult` holds only `exit_code`. Everything else is in `output`, written as the run goes:
 
-| Field        | What it is                                                                     |
-| ------------ | ------------------------------------------------------------------------------ |
-| `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
-| `proxy`      | `str`: the proxy log.                                                           |
-| `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+```text
+output/
+  stdout.txt
+  stderr.txt
+  proxy.log
+  transcripts/
+```
 
-The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
+The files stay after the run, whether it succeeds, fails, times out or is cancelled. Reusing a folder truncates the three files and keeps `transcripts/` and anything else in it. The container is removed once its exit code is read. Anything the command wrote outside the mounts, the agent's home and `output` goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with `exit_code` -1, and whatever reached `output` stays there. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 
@@ -141,7 +143,7 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, transcript files are read into `result.transcript` after the command exits. The temporary home is then deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. The agent's sessions directory is mounted from `output/transcripts/`, so transcripts land there directly and botbox never reads them. The temporary home is deleted after the run.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 
@@ -163,7 +165,7 @@ The container runs with `--network none`. The only way out is a unix socket to a
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `output/proxy.log`, or to `result.proxy` without `output`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
+Every connection, admitted or refused, is logged to `output/proxy.log`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 
@@ -265,6 +267,6 @@ MIT. See [LICENSE](./LICENSE).
 ## Internal - Checks
 
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
-- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
+- [x] stdout, stderr, the proxy log and transcripts are written to the caller's `output` folder during the run, so a daemon crash loses nothing already written. `RunResult` holds only the exit code.
 - [x] add test for docker daemon dying
 - [x] add test for concurrent builds of one tag

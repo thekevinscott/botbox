@@ -29,7 +29,7 @@ async with Botbox(agent) as box:
 
 By default, the run uses your pi login from `~/.pi/agent/auth.json`, and `models.json` beside it if it exists. Pass `api_key` to use a key for `provider` instead.
 
-With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The staged credentials sit outside it.
+`transcripts/` in the run's `output` is mounted over `~/.pi/agent/sessions`. The staged credentials sit outside it.
 
 ## Sessions
 

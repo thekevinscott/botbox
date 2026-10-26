@@ -22,7 +22,7 @@ async with Botbox(agent) as box:
 
 By default, the run uses your Codex login from `~/.codex/auth.json`. Pass `api_key` to use an API key instead. The choice also sets which host the proxy admits: `chatgpt.com` for a host login, `api.openai.com` with `api_key`.
 
-With `output`, `transcripts/` there is mounted over `~/.codex/sessions`. The staged credentials sit outside it.
+`transcripts/` in the run's `output` is mounted over `~/.codex/sessions`. The staged credentials sit outside it.
 
 ## Sessions
 
