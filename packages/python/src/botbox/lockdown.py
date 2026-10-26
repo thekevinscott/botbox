@@ -31,14 +31,13 @@ RELAY_PORT = 41893
 
 
 class Lockdown:
-    """The proxy a locked-down container shares a PID namespace with, the volume holding its
-    socket, and its log."""
+    """The proxy a locked-down container shares a PID namespace with, and the volume holding its
+    socket."""
 
     def __init__(self, proxy: str, volume: str, envs: dict[str, str]) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
-        self.log = ""
 
 
 @asynccontextmanager
@@ -60,7 +59,7 @@ async def lockdown(
 
     All of the sidecar's output goes straight to `output/proxy.log`, which stays after exit.
     The last 64 KiB of it is the error if it won't start. Without `output` it goes to
-    `scratch/proxy.log` instead, read into `Lockdown.log` on exit.
+    `scratch/proxy.log` instead, removed with `scratch`.
     """
     await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
@@ -133,11 +132,3 @@ async def lockdown(
         with suppress(OSError):
             stdin.close()
         os.close(read)
-        if output is None:
-            try:
-                jail.log = log.read_text(encoding="utf-8", errors="replace")
-            except OSError as error:
-                # 3: past contextlib's __aexit__, to whoever entered the block.
-                warnings.warn(
-                    f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
-                )

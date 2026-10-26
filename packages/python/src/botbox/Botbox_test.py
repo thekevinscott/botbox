@@ -402,14 +402,12 @@ def jail() -> Mock:
 @pytest.fixture(autouse=True)
 def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
-    async def lockdown(*args: object) -> AsyncIterator[Mock]:
+    async def lockdown(*_args: object) -> AsyncIterator[Mock]:
         steps.append("start proxy")
         try:
             yield jail
         finally:
             steps.append("stop proxy")
-            if len(args) < 4 or args[3] is None:
-                jail.log = "CONNECT api.anthropic.com:443\n"
 
     with patch("botbox.Botbox.lockdown", autospec=True, side_effect=lockdown) as m:
         yield m
@@ -522,7 +520,6 @@ def describe_run() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
     async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
@@ -742,7 +739,6 @@ def describe_run() -> None:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
             result = raised.value.result
             assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
-            assert result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -753,7 +749,7 @@ def describe_run() -> None:
             assert (output / "stdout.txt").read_bytes() == b"partial\n"
             assert (output / "stderr.txt").read_bytes() == b"err\n"
             assert raised.value.seconds == 0.01
-            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
 
         async def it_tears_down_without_reading_the_mounted_transcripts(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -801,7 +797,7 @@ def describe_run() -> None:
             lockdown.side_effect = stuck_lockdown
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("true", output=output)
-            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
 
         async def it_lets_another_timeout_error_through(
             runner: Mock, docker_run: Mock, output: Path
@@ -880,7 +876,6 @@ def describe_session() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
@@ -1033,7 +1028,6 @@ def describe_session() -> None:
             assert steps[-1] == "warned: remove its temp home"
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, held: Mock, steps: list[str]
@@ -1057,7 +1051,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_when_cancelled_mid_turn(
             talker: Mock, held: Mock, steps: list[str]
@@ -1090,7 +1083,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_client_that_failed_to_start(
             talker: Mock, held: Mock, steps: list[str]
@@ -1138,7 +1130,6 @@ def describe_session() -> None:
                 "out\ufffd\n",
                 "err\n",
                 -1,
-                "CONNECT api.anthropic.com:443\n",
                 "an-agent-123:latest",
             )
             assert run_steps(steps) == [
@@ -1187,7 +1178,7 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session():
                     pass
-            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
 
         async def it_lets_another_timeout_error_through(talker: Mock) -> None:
             with pytest.raises(TimeoutError, match="docker hung") as raised:
@@ -1225,7 +1216,7 @@ def describe_session() -> None:
                 pass
             assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
             assert live.result is not None
-            assert astuple(live.result) == ("", "", 3, "", "an-agent-123:latest")
+            assert astuple(live.result) == ("", "", 3, "an-agent-123:latest")
             assert (tmp_path / "stdout.txt").read_bytes() == b""
             assert (tmp_path / "keep").read_text() == "keep"
 
@@ -1243,7 +1234,7 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session(output=tmp_path):
                     await asyncio.Event().wait()
-            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
 
 
 @pytest.fixture
@@ -1278,7 +1269,6 @@ def describe_run_output() -> None:
         }
         result = await Botbox(runner).run("true", output=destination[form])
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
-        assert result.proxy == ""
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert file_run.call_args.kwargs["stdout"].closed

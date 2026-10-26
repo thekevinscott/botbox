@@ -54,7 +54,7 @@ reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests a
 [[python.exempt]]
 path = "src/botbox/lockdown.py"
 rules = ["mutation"]
-lines = ["122"]
+lines = ["121"]
 reason = "stacklevel 1 -> 0 is equivalent: warnings treats both as the warn call's own frame"
 
 [[python.exempt]]
