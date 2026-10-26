@@ -39,7 +39,7 @@ class Lockdown:
 
 @asynccontextmanager
 async def lockdown(
-    allow: Iterable[str], scratch: Path, token: str, output: Path | None = None
+    allow: Iterable[str], scratch: Path, token: str, output: Path
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -54,8 +54,7 @@ async def lockdown(
     cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`.
 
     All of the sidecar's output goes straight to `output/proxy.log`, which stays after exit.
-    The last 64 KiB of it is the error if it won't start. Without `output` it goes to
-    `scratch/proxy.log` instead, removed with `scratch`.
+    The last 64 KiB of it is the error if it won't start.
     """
     await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
@@ -82,7 +81,7 @@ async def lockdown(
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
     allowlist.chmod(0o644)
-    log = (scratch if output is None else output) / "proxy.log"
+    log = output / "proxy.log"
 
     args = [
         "--interactive",

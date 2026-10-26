@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
-from contextlib import ExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
@@ -23,7 +23,6 @@ from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import Session
-from botbox.session_result import session_result
 from botbox.Timeout import Timeout
 from botbox.warned import warned
 
@@ -119,22 +118,20 @@ class Botbox:
         self,
         command: str,
         *,
+        output: str | Path,
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
         timeout: float | None = None,
-        output: str | Path | None = None,
     ) -> RunResult:
-        """Run `command` as `sh -c` in the locked-down container and return what it left.
+        """Run `command` as `sh -c` in the locked-down container and return its result.
 
-        With `output`, stdout, stderr and the proxy's output go directly to stdout.txt,
-        stderr.txt and proxy.log there, and transcripts/ there is mounted over the agent's
-        `sessions_dir`; the stream fields are empty. The three files are
-        truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
-        can't mount it.
+        stdout, stderr and the proxy's output go directly to stdout.txt, stderr.txt and
+        proxy.log in `output`, and transcripts/ there is mounted over the agent's
+        `sessions_dir`. The three files are truncated; other files are kept. A path with `:`
+        raises `ValueError`, since Docker can't mount it.
 
         Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
-        a fresh host temp directory with the credentials staged in; without `output`, the proxy
-        logs into the same directory, and the log and any transcripts are deleted with it.
+        a fresh host temp directory with the credentials staged in, deleted after the run.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -146,8 +143,7 @@ class Botbox:
         container removal that takes longer than 30 seconds, is a warning, never the error.
 
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
-        out, the run tears down as a cancel does and raises `Timeout` with what the run left and
-        `exit_code` -1.
+        out, the run tears down as a cancel does and raises `Timeout` with `exit_code` -1.
         """
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
@@ -156,7 +152,6 @@ class Botbox:
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
-        out, err = bytearray(), bytearray()
         deadline = asyncio.timeout(limit)
         try:
             home = self._stage_home(Path(scratch.name))
@@ -165,51 +160,39 @@ class Botbox:
                 async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
-                        token, [*flags, image, RELAY, "sh", "-c", command], out, err, output
+                        token, [*flags, image, RELAY, "sh", "-c", command], output
                     )
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                result = RunResult(
-                    out.decode(errors="replace"), err.decode(errors="replace"), -1, image
-                )
-                raise Timeout(limit, result) from timed_out
+                raise Timeout(limit, RunResult("", "", -1, image)) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
-        return RunResult(
-            out.decode(errors="replace"),
-            err.decode(errors="replace"),
-            exit_code,
-            image,
-        )
+        return RunResult("", "", exit_code, image)
 
     @asynccontextmanager
     async def session(
         self,
         *,
+        output: str | Path,
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
         timeout: float | None = None,
-        output: str | Path | None = None,
     ) -> AsyncIterator[Session]:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
-        The same lockdown, home and mounts as `run()`, with the container labelled and its temp
-        home named the same way. Leaving the block ends the CLI's input, waits for it to exit,
-        removes the session's containers and temp home, and leaves the `RunResult` in the
-        session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
-        tears down the same way, through any number of further cancels. The result retains
-        available artifacts on these paths too, with exit code -1 if no exit code was read.
-        Artifact read failures warn without replacing the original error. Raises `TypeError` for
-        an agent with no session mode, and `DockerException` as `run()` does.
+        The same lockdown, home, mounts and `output` as `run()`, with the container labelled and
+        its temp home named the same way. Events are read by following stdout.txt in `output`.
+        Leaving the block ends the CLI's input, waits for it to exit, removes the session's
+        containers and temp home, and leaves the `RunResult` in the session's `result`.
+        Cancelling, or an error out of the block, kills the CLI instead and tears down the same
+        way, through any number of further cancels, with exit code -1 if no exit code was read.
+        Raises `TypeError` for an agent with no session mode, and `DockerException` as `run()`
+        does.
 
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
         raises `Timeout` with the session's `result`.
-
-        `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
-        transcripts go straight to files there, and the result holds only the exit code and
-        image. Events are read by following stdout.txt.
         """
         agent = self.agent
         if not isinstance(agent, SessionAgent):
@@ -243,33 +226,20 @@ class Botbox:
                         command,
                     ]
                     try:
-                        async with hold_session(agent, args, output=output) as live:
+                        async with hold_session(agent, args, output) as live:
                             yield live
                             live.stdin.close()
                             client = await live.client
-                        stderr = (
-                            live.stderr.decode(errors="replace")
-                            if output is None
-                            else f"See {output / 'stderr.txt'}"
-                        )
+                        stderr = f"See {output / 'stderr.txt'}"
                         exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
                     finally:
                         await settle(
                             warned(remove_within(name), f"remove its agent container {name}")
                         )
             finally:
-                try:
-                    if live is not None and output is not None:
-                        live.result = RunResult("", "", exit_code, image)
-                    elif live is not None:
-                        await settle(
-                            warned(
-                                session_result(live, image, exit_code),
-                                "read its session artifacts",
-                            )
-                        )
-                finally:
-                    await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+                if live is not None:
+                    live.result = RunResult("", "", exit_code, image)
+                await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
@@ -278,32 +248,19 @@ class Botbox:
                 result = RunResult("", "", -1, image)
             raise Timeout(limit, result) from timed_out
 
-    async def _attach(
-        self, token: str, args: list[str], out: bytearray, err: bytearray, output: Path | None
-    ) -> int:
-        """Run with file sinks or legacy buffers, then remove the agent container."""
+    async def _attach(self, token: str, args: list[str], output: Path) -> int:
+        """Run with stdout and stderr in `output`, then remove the agent container."""
         name = f"botbox-agent-{token}"
         args = ["--name", name, *args]
         try:
-            with ExitStack() as stack:
-                stdout = (
-                    out
-                    if output is None
-                    else stack.enter_context((output / "stdout.txt").open("wb"))
-                )
-                stderr = (
-                    err
-                    if output is None
-                    else stack.enter_context((output / "stderr.txt").open("wb"))
-                )
+            with (
+                (output / "stdout.txt").open("wb") as stdout,
+                (output / "stderr.txt").open("wb") as stderr,
+            ):
                 client = await docker_run(
                     args, stdin=asyncio.subprocess.DEVNULL, stdout=stdout, stderr=stderr
                 )
-                diagnostic = (
-                    err.decode(errors="replace")
-                    if output is None
-                    else f"See {output / 'stderr.txt'}"
-                )
+                diagnostic = f"See {output / 'stderr.txt'}"
                 exit_code = await agent_exit(name, ["docker", "run", *args], client, diagnostic)
         finally:
             await settle(warned(remove_within(name), f"remove its agent container {name}"))
@@ -319,12 +276,8 @@ class Botbox:
         (home / self.agent.sessions_dir).mkdir(parents=True, exist_ok=True)
         return home
 
-    def _prepare_output(
-        self, output: str | Path | None, volumes: list[tuple[str, str, str]]
-    ) -> Path | None:
+    def _prepare_output(self, output: str | Path, volumes: list[tuple[str, str, str]]) -> Path:
         """Truncate the stream files in `output` and mount its transcripts/ over `sessions_dir`."""
-        if output is None:
-            return None
         output = Path(output).resolve()
         if ":" in str(output):
             raise ValueError(f"output {output} contains ':', which Docker can't mount")

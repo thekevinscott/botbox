@@ -117,7 +117,7 @@ def scratch(tmp_path: Path) -> Path:
 
 
 def jail(scratch: Path, allow: tuple[str, ...] = ALLOW, output: Path | None = None) -> Any:
-    return lockdown(allow, scratch, TOKEN, output)
+    return lockdown(allow, scratch, TOKEN, scratch if output is None else output)
 
 
 RUN = argparse.ArgumentParser()
@@ -181,8 +181,8 @@ def describe_lockdown() -> None:
         (tmp_path / "a").mkdir()
         (tmp_path / "b").mkdir()
         async with (
-            lockdown(ALLOW, tmp_path / "a", "aaaaaaaaaaaa") as first,
-            lockdown(ALLOW, tmp_path / "b", "bbbbbbbbbbbb") as second,
+            lockdown(ALLOW, tmp_path / "a", "aaaaaaaaaaaa", tmp_path / "a") as first,
+            lockdown(ALLOW, tmp_path / "b", "bbbbbbbbbbbb", tmp_path / "b") as second,
         ):
             assert first.proxy != second.proxy
             assert first.sockets != second.sockets
@@ -369,7 +369,7 @@ def describe_lockdown() -> None:
             os.close.assert_called_once_with(3)
 
     def describe_with_output() -> None:
-        async def it_writes_the_log_into_output_and_reads_nothing_back(
+        async def it_writes_the_log_into_output(
             scratch: Path, tmp_path: Path, run: AsyncMock
         ) -> None:
             output = tmp_path / "output"
