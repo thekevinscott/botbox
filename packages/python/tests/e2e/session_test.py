@@ -127,6 +127,15 @@ def describe_a_session() -> None:
         turns, _, _ = session
         assert [turn[-1]["is_error"] for turn in turns] == [False] * 3
 
+    def it_drops_pis_streaming_updates(
+        harness: str, session: tuple[Turns, list[float], RunResult]
+    ) -> None:
+        if harness == "claude":
+            pytest.skip("only pi streams update events")
+        turns, _, _ = session
+        updates = {"message_update", "tool_execution_update"}
+        assert [e for turn in turns for e in turn if e.get("type") in updates] == []
+
     def it_streams_events_before_the_turn_ends(
         session: tuple[Turns, list[float], RunResult],
     ) -> None:
