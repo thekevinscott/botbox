@@ -16,7 +16,6 @@ from botbox.lockdown import (
     RELAY_PORT,
     lockdown,
 )
-from botbox.wait_for_proxy import READY
 
 ALLOW = ("api.anthropic.com",)
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
@@ -75,7 +74,10 @@ def docker_volume(steps: list[str], volume_fails: dict[str, BaseException]) -> I
             steps.append(f"remove {args[-1]}")
         return ""
 
-    with patch("adocker.volume.run_docker", side_effect=docker):
+    with (
+        patch("adocker.volume.run_docker", side_effect=docker),
+        patch("adocker.remove_volume.run_docker", side_effect=docker),
+    ):
         yield
 
 
@@ -527,7 +529,7 @@ def describe_the_shipped_proxy() -> None:
     def it_says_it_is_listening_once_its_socket_exists() -> None:
         script = (PROXY_DIR / "botbox-proxy").read_text()
         assert "until [ -S /run/botbox/proxy.sock ]" in script
-        assert f'echo "{READY.decode().strip()}"' in script
+        assert 'echo "botbox-proxy: listening"' in script
 
     def it_writes_its_filter_from_the_environment() -> None:
         script = (PROXY_DIR / "botbox-proxy").read_text()

@@ -151,7 +151,7 @@ def describe_session() -> None:
             assert '{"type": "result", "result": "TWO"}\n' in stdout
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
-            assert (output / "proxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
             assert followers(output / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []

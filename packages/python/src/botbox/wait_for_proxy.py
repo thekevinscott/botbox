@@ -13,7 +13,10 @@ async def wait_for_proxy(client: asyncio.Future[int], output: Path, timeout: flo
     """Return once the proxy says in `output` that it is listening. Raise with the end of
     `output` if `client` exits or `timeout` passes."""
     deadline = time.monotonic() + timeout
-    while not ready(output):
+    while True:
+        with suppress(OSError):
+            if READY in output.read_bytes():
+                return
         if client.done() or time.monotonic() > deadline:
             cause = client.exception() if client.done() else None
             text = ""
@@ -22,10 +25,3 @@ async def wait_for_proxy(client: asyncio.Future[int], output: Path, timeout: flo
                 text = log.read().decode(errors="replace")
             raise RuntimeError(f"botbox proxy did not start:\n{text}") from cause
         await asyncio.sleep(POLL)
-
-
-def ready(output: Path) -> bool:
-    try:
-        return READY in output.read_bytes()
-    except OSError:
-        return False
