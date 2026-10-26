@@ -46,11 +46,12 @@ def client_ending_on(stdin: Mock) -> asyncio.Task[int]:
     return asyncio.ensure_future(attached())
 
 
-def proxy(client: "asyncio.Future[int]") -> Mock:
+def proxy(client: "asyncio.Future[int] | None", stdin: Mock | None) -> Mock:
     async def wait() -> int:
+        assert client is not None
         return await client
 
-    container = Mock(wait=wait)
+    container = Mock(wait=wait, client=client, stdin=stdin)
     container.name = "botbox-proxy-1"
     return container
 
@@ -60,19 +61,26 @@ def describe_stop_proxy() -> None:
         stdin: Mock, steps: list[str], remove: Mock
     ) -> None:
         client = client_ending_on(stdin)
-        await stop_proxy(proxy(client), stdin, 10)
+        container = proxy(client, stdin)
+        await stop_proxy(container, 10)
         assert client.result() == 0
-        remove.assert_called_once_with("botbox-proxy-1")
+        remove.assert_called_once_with(container)
+        assert steps == ["removal: remove its proxy botbox-proxy-1"]
+
+    async def it_only_removes_a_proxy_that_never_started(steps: list[str], remove: Mock) -> None:
+        container = proxy(None, None)
+        await stop_proxy(container, 10)
+        remove.assert_called_once_with(container)
         assert steps == ["removal: remove its proxy botbox-proxy-1"]
 
     async def it_cancels_a_client_that_outlives_the_grace(stdin: Mock) -> None:
         client = asyncio.ensure_future(asyncio.Event().wait())
-        await stop_proxy(proxy(client), stdin, 0.01)  # type: ignore[arg-type]
+        await stop_proxy(proxy(client, stdin), 0.01)  # type: ignore[arg-type]
         assert client.cancelled()
 
     async def it_waits_the_grace_before_cancelling(stdin: Mock) -> None:
         client = asyncio.ensure_future(asyncio.sleep(0.05, result=0))
-        await stop_proxy(proxy(client), stdin, 1)
+        await stop_proxy(proxy(client, stdin), 1)
         assert client.result() == 0
 
     async def it_takes_a_client_that_failed_without_raising(stdin: Mock, steps: list[str]) -> None:
@@ -80,5 +88,5 @@ def describe_stop_proxy() -> None:
             raise FileNotFoundError("docker")
 
         client = asyncio.ensure_future(failed())
-        await stop_proxy(proxy(client), stdin, 10)
+        await stop_proxy(proxy(client, stdin), 10)
         assert steps == ["close stdin", "removal: remove its proxy botbox-proxy-1"]

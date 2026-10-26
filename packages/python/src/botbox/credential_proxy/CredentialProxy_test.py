@@ -34,39 +34,36 @@ def collaborators() -> Iterator[None]:
         yield
 
 
-@pytest.fixture(autouse=True)
-def container() -> Iterator[Mock]:
-    with patch(f"{__package__}.CredentialProxy.Container", autospec=True) as m:
-        m.return_value.exec = Exec()
-        yield m
+@pytest.fixture
+def container() -> Mock:
+    return Mock(exec=Exec())
 
 
 def describe_CredentialProxy() -> None:
-    def it_holds_its_name_and_socket() -> None:
-        proxy = CredentialProxy("botbox-credentials-1", Path("/s/c.sock"))
-        assert proxy.name == "botbox-credentials-1"
+    def it_holds_its_container_and_socket(container: Mock) -> None:
+        proxy = CredentialProxy(container, Path("/s/c.sock"))
+        assert proxy.container is container
         assert proxy.socket == Path("/s/c.sock")
 
     def describe_rotate() -> None:
         async def it_renames_the_new_secret_over_the_file_in_its_container(
             container: Mock,
         ) -> None:
-            await CredentialProxy("p", Path("/s")).rotate("Bearer two")
-            container.assert_called_once_with("p")
-            execute = container.return_value.exec
+            await CredentialProxy(container, Path("/s")).rotate("Bearer two")
+            execute = container.exec
             assert execute.command == ("sh", "-c", ROTATE, "sh", "/secrets/s.json")
             assert ROTATE == 'cat >"$1.next" && mv "$1.next" "$1"'
             assert execute.stdin == b"sds Bearer two"
 
         async def it_closes_the_pipe(container: Mock) -> None:
-            await CredentialProxy("p", Path("/s")).rotate("v")
+            await CredentialProxy(container, Path("/s")).rotate("v")
             with pytest.raises(OSError):
-                os.fstat(container.return_value.exec.stdin_fd)
+                os.fstat(container.exec.stdin_fd)
 
         async def it_raises_what_docker_raised_and_closes_the_pipe(container: Mock) -> None:
-            execute = container.return_value.exec
+            execute = container.exec
             execute.raises = RuntimeError("No such container: p")
             with pytest.raises(RuntimeError, match="No such container: p"):
-                await CredentialProxy("p", Path("/s")).rotate("v")
+                await CredentialProxy(container, Path("/s")).rotate("v")
             with pytest.raises(OSError):
                 os.fstat(execute.stdin_fd)

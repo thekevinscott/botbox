@@ -44,10 +44,16 @@ class Image:
         self.command: tuple[str, ...] | None = None
         self.options: dict[str, Any] = {}
         self.container: Mock | None = None
+        self.hangs = False
+        self.refuses: BaseException | None = None
 
     async def run(self, *command: str, **options: Any) -> Mock:
         self.command, self.options = command, options
         self.steps.append("run proxy")
+        if self.hangs:
+            await asyncio.Event().wait()
+        if self.refuses is not None:
+            raise self.refuses
 
         async def attached() -> int:
             await self.served.wait()
@@ -59,7 +65,23 @@ class Image:
             return await client
 
         self.container = Mock(client=client, stdin=Mock(), wait=wait)
+        self.container.name = options["name"]
         return self.container
+
+
+class Container:
+    """A container wrapped by name, before its client starts."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.client = None
+        self.stdin = None
+
+
+@pytest.fixture(autouse=True)
+def container() -> Iterator[None]:
+    with patch("botbox.lockdown.Container", Container):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -100,7 +122,9 @@ def docker_volume(steps: list[str], volume_fails: dict[str, Exception]) -> Itera
         if "create" in volume_fails:
             raise volume_fails["create"]
         try:
-            yield Mock(mount=lambda target: (name, target, "rw"))
+            socket = Mock(mount=lambda target: (name, target, "rw"))
+            socket.name = name
+            yield socket
         finally:
             if "rm" in volume_fails:
                 on_error(volume_fails["rm"])
@@ -125,7 +149,8 @@ def wait(steps: list[str]) -> Iterator[AsyncMock]:
 def stop(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
     async def stopped(proxy: Mock, *_args: object) -> None:
         served.set()
-        await proxy.wait()
+        if proxy.client is not None:
+            await proxy.wait()
         steps.append("proxy stopped")
 
     with patch("botbox.lockdown.stop_proxy", autospec=True, side_effect=stopped) as m:
@@ -161,10 +186,12 @@ LABELS = {"botbox.run": TOKEN}
 
 
 def describe_lockdown() -> None:
-    async def it_yields_what_a_locked_down_container_needs(scratch: Path) -> None:
+    async def it_yields_what_a_locked_down_container_needs(scratch: Path, image: Image) -> None:
         async with jail(scratch) as net:
-            assert net.proxy == PROXY
-            assert net.volume == VOLUME
+            assert net.proxy is image.container
+            assert image.container is not None
+            assert image.container.name == PROXY
+            assert net.volume.name == VOLUME
             url = "http://127.0.0.1:41893"
             assert net.envs == {
                 "HTTP_PROXY": url,
@@ -202,8 +229,8 @@ def describe_lockdown() -> None:
             lockdown(ALLOW, tmp_path / "a", "aaaaaaaaaaaa") as first,
             lockdown(ALLOW, tmp_path / "b", "bbbbbbbbbbbb") as second,
         ):
-            assert first.proxy != second.proxy
-            assert first.volume != second.volume
+            assert first.proxy.name != second.proxy.name
+            assert first.volume.name != second.volume.name
 
     def describe_the_proxy_container() -> None:
         async def it_runs_attached_on_the_default_bridge_as_its_pinned_user(
@@ -256,17 +283,45 @@ def describe_lockdown() -> None:
                     pass
             assert image.command is None
 
-        async def it_stops_the_proxy_with_its_stdin_and_grace(
+        async def it_stops_the_proxy_with_its_grace(
             scratch: Path, image: Image, stop: AsyncMock
         ) -> None:
             async with jail(scratch):
                 pass
             proxy: Mock
-            [proxy, stdin, grace] = stop.call_args.args
+            [proxy, grace] = stop.call_args.args
             assert proxy is image.container
-            assert stdin is proxy.stdin
             assert grace == 10
             assert await proxy.wait() == 0
+
+        async def it_removes_a_proxy_whose_start_was_cancelled(
+            scratch: Path, image: Image, stop: AsyncMock, steps: list[str]
+        ) -> None:
+            image.hangs = True
+
+            async def held() -> None:
+                async with jail(scratch):
+                    pass
+
+            task = asyncio.create_task(held())
+            while "run proxy" not in steps:
+                await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            [proxy, _] = stop.call_args.args
+            assert (proxy.name, proxy.client) == (PROXY, None)
+            assert steps[-2:] == ["proxy stopped", f"remove {VOLUME}"]
+
+        async def it_removes_a_proxy_that_would_not_start(
+            scratch: Path, image: Image, stop: AsyncMock
+        ) -> None:
+            image.refuses = RuntimeError("name in use")
+            with pytest.raises(RuntimeError, match="name in use"):
+                async with jail(scratch):
+                    pass
+            [proxy, _] = stop.call_args.args
+            assert proxy.name == PROXY
 
     def describe_the_volume() -> None:
         async def it_mounts_only_the_runs_volume_read_write(scratch: Path, image: Image) -> None:

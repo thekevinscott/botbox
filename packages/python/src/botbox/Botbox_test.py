@@ -408,11 +408,28 @@ def bind_mounts() -> Iterator[Mock]:
 
 @pytest.fixture
 def jail() -> Mock:
+    proxy = Mock()
+    proxy.name = PROXY
+
+    def mount(target: str, *, read_only: bool) -> FakeMount:
+        return FakeMount("volume", "botbox-run-0123456789ab", target, read_only=read_only)
+
     return Mock(
-        proxy=PROXY,
-        volume="botbox-run-0123456789ab",
-        envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
+        proxy=proxy, volume=Mock(mount=mount), envs={"HTTPS_PROXY": "http://127.0.0.1:41893"}
     )
+
+
+class Container:
+    """A container wrapped by name."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+@pytest.fixture(autouse=True)
+def container() -> Iterator[None]:
+    with patch("botbox.Botbox.Container", Container):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -467,9 +484,9 @@ def agent_exit(steps: list[str]) -> Iterator[Mock]:
 
 @pytest.fixture(autouse=True)
 def remove(steps: list[str]) -> Iterator[Mock]:
-    def removal(name: str) -> str:
-        steps.append(f"remove {name}")
-        return f"removal of {name}"
+    def removal(container: Container) -> str:
+        steps.append(f"remove {container.name}")
+        return f"removal of {container.name}"
 
     with patch("botbox.Botbox.remove_within", Mock(side_effect=removal)) as m:
         yield m

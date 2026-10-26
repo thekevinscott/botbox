@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Image, Mount
+from adocker import Container, Image, Mount
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,
@@ -37,7 +37,7 @@ READY_SECONDS = 30
 
 @asynccontextmanager
 async def credential_proxy(  # noqa: PLR0913
-    injection: Injection, secret: str, *, proxy: str, sockets: Path, token: str, log: Path
+    injection: Injection, secret: str, *, proxy: Container, sockets: Path, token: str, log: Path
 ) -> AsyncIterator[CredentialProxy]:
     """Start an Envoy container that adds `secret` to requests for `injection`'s upstream.
 
@@ -52,32 +52,33 @@ async def credential_proxy(  # noqa: PLR0913
     stdin = preloaded(sds_secret(secret))
     try:
         with write(log) as sink:
-            container = await Image(IMAGE).run(
-                "-c",
-                START,
-                "sh",
-                SECRET_FILE,
-                config,
-                name=name,
-                stdin=stdin,
-                stdout=sink,
-                stderr=sink,
-                labels={"botbox.run": token},
-                user=USER,
-                pid=f"container:{proxy}",
-                network="bridge",
-                pids_limit=PIDS,
-                log_driver="none",
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges"],
-                tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
-                mounts=[Mount("bind", str(sockets), SOCKET_DIR)],
-                entrypoint="sh",
-            )
+            container = Container(name)
             try:
+                container = await Image(IMAGE).run(
+                    "-c",
+                    START,
+                    "sh",
+                    SECRET_FILE,
+                    config,
+                    name=name,
+                    stdin=stdin,
+                    stdout=sink,
+                    stderr=sink,
+                    labels={"botbox.run": token},
+                    user=USER,
+                    pid=f"container:{proxy.name}",
+                    network="bridge",
+                    pids_limit=PIDS,
+                    log_driver="none",
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"],
+                    tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
+                    mounts=[Mount("bind", str(sockets), SOCKET_DIR)],
+                    entrypoint="sh",
+                )
                 client = cast("asyncio.Task[int]", container.client)
                 await wait_for_socket(socket, client, log, READY_SECONDS)
-                yield CredentialProxy(name, socket)
+                yield CredentialProxy(container, socket)
             finally:
                 await settle(stop_container(container))
     finally:

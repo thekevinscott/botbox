@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Dockerfile, Volume
+from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
 from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
@@ -33,7 +33,7 @@ class Lockdown:
     """The proxy a locked-down container shares a PID namespace with, and the volume holding its
     socket."""
 
-    def __init__(self, proxy: str, volume: str, envs: dict[str, str]) -> None:
+    def __init__(self, proxy: Container, volume: Volume, envs: dict[str, str]) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
@@ -65,17 +65,13 @@ async def lockdown(
     name = f"botbox-proxy-{token}"
     volume = f"botbox-run-{token}"
     url = f"http://127.0.0.1:{RELAY_PORT}"
-    jail = Lockdown(
-        proxy=name,
-        volume=volume,
-        envs={
-            "HTTP_PROXY": url,
-            "HTTPS_PROXY": url,
-            "http_proxy": url,
-            "https_proxy": url,
-            "NO_PROXY": "localhost,127.0.0.1",
-        },
-    )
+    envs = {
+        "HTTP_PROXY": url,
+        "HTTPS_PROXY": url,
+        "http_proxy": url,
+        "https_proxy": url,
+        "NO_PROXY": "localhost,127.0.0.1",
+    }
 
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
@@ -91,27 +87,27 @@ async def lockdown(
     labels = {"botbox.run": token}
     with write(log, *also) as sink:
         async with Volume(volume, labels=labels, on_error=unremoved) as socket:
-            proxy = await image.run(
-                name=name,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=sink,
-                stderr=sink,
-                init=True,
-                labels=labels,
-                user=PROXY_USER,
-                network="bridge",
-                pids_limit=PROXY_PIDS,
-                log_driver="none",
-                cap_drop=["ALL"],
-                security_opt=["no-new-privileges"],
-                env={"BOTBOX_FILTER": allowlist},
-                mounts=[socket.mount(SOCKET_DIR)],
-            )
-            stdin = cast("asyncio.StreamWriter", proxy.stdin)
+            proxy = Container(name)
             try:
+                proxy = await image.run(
+                    name=name,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=sink,
+                    stderr=sink,
+                    init=True,
+                    labels=labels,
+                    user=PROXY_USER,
+                    network="bridge",
+                    pids_limit=PROXY_PIDS,
+                    log_driver="none",
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"],
+                    env={"BOTBOX_FILTER": allowlist},
+                    mounts=[socket.mount(SOCKET_DIR)],
+                )
                 await wait_for_proxy(
                     cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
                 )
-                yield jail
+                yield Lockdown(proxy, socket, envs)
             finally:
-                await settle(stop_proxy(proxy, stdin, PROXY_EXIT_SECONDS))
+                await settle(stop_proxy(proxy, PROXY_EXIT_SECONDS))

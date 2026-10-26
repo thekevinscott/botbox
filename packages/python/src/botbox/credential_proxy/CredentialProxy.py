@@ -13,14 +13,14 @@ ROTATE = 'cat >"$1.next" && mv "$1.next" "$1"'
 class CredentialProxy:
     """A running credential proxy: its container and the socket it serves."""
 
-    def __init__(self, name: str, socket: Path) -> None:
-        self.name = name
+    def __init__(self, container: Container, socket: Path) -> None:
+        self.container = container
         self.socket = socket
 
     async def rotate(self, value: str) -> None:
         """Have the proxy send `value` from its next request on. Raises DockerException."""
         stdin = preloaded(sds_secret(value))
         try:
-            await Container(self.name).exec("sh", "-c", ROTATE, "sh", SECRET_FILE, stdin=stdin)
+            await self.container.exec("sh", "-c", ROTATE, "sh", SECRET_FILE, stdin=stdin)
         finally:
             os.close(stdin)

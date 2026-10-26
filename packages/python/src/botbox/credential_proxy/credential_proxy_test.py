@@ -29,6 +29,23 @@ MODULE = f"{__package__}.credential_proxy"
 INJECTION = object()
 
 
+class Container:
+    """A container wrapped by name, before its client starts."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.client = None
+
+
+@pytest.fixture(autouse=True)
+def container() -> Iterator[None]:
+    with patch(f"{MODULE}.Container", Container):
+        yield
+
+
+PROXY = Container("botbox-proxy-t")
+
+
 class Client:
     """Image.run: the attached `docker run`, running until cancelled."""
 
@@ -104,7 +121,8 @@ def wait_for_socket(steps: list[str]) -> Iterator[AsyncMock]:
 @pytest.fixture(autouse=True)
 def stop_container(steps: list[str]) -> Iterator[AsyncMock]:
     async def stop(container: Mock) -> None:
-        container.client.cancel()
+        if container.client is not None:
+            container.client.cancel()
         steps.append(f"stop {container.name}")
 
     with patch(f"{MODULE}.stop_container", side_effect=stop) as m:
@@ -125,7 +143,7 @@ def start(sockets: Path, log: Path) -> Any:
     return credential_proxy(
         INJECTION,  # type: ignore[arg-type]
         "Bearer one",
-        proxy="botbox-proxy-t",
+        proxy=PROXY,  # type: ignore[arg-type]
         sockets=sockets,
         token="t",
         log=log,
@@ -133,9 +151,12 @@ def start(sockets: Path, log: Path) -> Any:
 
 
 def describe_credential_proxy() -> None:
-    async def it_yields_the_container_and_its_socket(sockets: Path, log: Path) -> None:
+    async def it_yields_the_container_and_its_socket(
+        sockets: Path, log: Path, client: Client
+    ) -> None:
         async with start(sockets, log) as proxy:
-            assert proxy.name == "botbox-credentials-t"
+            assert proxy.container is client.container
+            assert proxy.container.name == "botbox-credentials-t"
             assert proxy.socket == sockets / "credentials.sock"
 
     async def it_feeds_the_first_secret_on_stdin(
@@ -243,3 +264,38 @@ def describe_credential_proxy() -> None:
                 pytest.fail("yielded")
         with pytest.raises(OSError):
             os.fstat(stdin)
+
+    async def it_removes_a_container_that_would_not_start(
+        sockets: Path, log: Path, client: Client, steps: list[str]
+    ) -> None:
+        async def refused(*_: str, **__: Any) -> Mock:
+            raise RuntimeError("name in use")
+
+        client.run = refused  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError, match="name in use"):
+            async with start(sockets, log):
+                pytest.fail("yielded")
+        assert steps == ["stop botbox-credentials-t"]
+
+    async def it_removes_a_container_whose_start_was_cancelled(
+        sockets: Path, log: Path, client: Client, steps: list[str]
+    ) -> None:
+        running = asyncio.Event()
+
+        async def hung(*_: str, **__: Any) -> Mock:
+            running.set()
+            await asyncio.Event().wait()
+            raise AssertionError
+
+        client.run = hung  # type: ignore[method-assign]
+
+        async def held() -> None:
+            async with start(sockets, log):
+                pytest.fail("yielded")
+
+        task = asyncio.create_task(held())
+        await running.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert steps == ["stop botbox-credentials-t"]

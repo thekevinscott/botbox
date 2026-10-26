@@ -1,21 +1,19 @@
 import asyncio
-from collections.abc import Iterator
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from botbox.remove_within import REMOVE_SECONDS, remove_within
 
 
-@pytest.fixture(autouse=True)
-def container() -> Iterator[Mock]:
-    with patch("botbox.remove_within.Container", autospec=True) as container:
-        yield container
+@pytest.fixture
+def container() -> Mock:
+    return Mock(remove=AsyncMock())
 
 
 @pytest.fixture
 def remove(container: Mock) -> AsyncMock:
-    remove: AsyncMock = container.return_value.remove
+    remove: AsyncMock = container.remove
     return remove
 
 
@@ -24,11 +22,12 @@ def describe_remove_within() -> None:
         assert REMOVE_SECONDS == 30
 
     async def it_removes_the_container(container: Mock, remove: AsyncMock) -> None:
-        await remove_within("botbox-agent-1")
-        container.assert_called_once_with("botbox-agent-1")
+        await remove_within(container)
         remove.assert_awaited_once_with()
 
-    async def it_waits_for_a_removal_inside_its_deadline(remove: AsyncMock) -> None:
+    async def it_waits_for_a_removal_inside_its_deadline(
+        container: Mock, remove: AsyncMock
+    ) -> None:
         done = asyncio.Event()
 
         async def slow() -> None:
@@ -36,10 +35,12 @@ def describe_remove_within() -> None:
             done.set()
 
         remove.side_effect = slow
-        await remove_within("botbox-agent-1", 1)
+        await remove_within(container, 1)
         assert done.is_set()
 
-    async def it_cancels_a_removal_that_outlives_its_deadline(remove: AsyncMock) -> None:
+    async def it_cancels_a_removal_that_outlives_its_deadline(
+        container: Mock, remove: AsyncMock
+    ) -> None:
         cancelled = asyncio.Event()
 
         async def hung() -> None:
@@ -51,10 +52,10 @@ def describe_remove_within() -> None:
 
         remove.side_effect = hung
         with pytest.raises(TimeoutError, match=r"^the daemon did not remove it within 0\.01s$"):
-            await remove_within("botbox-agent-1", 0.01)
+            await remove_within(container, 0.01)
         assert cancelled.is_set()
 
-    async def it_raises_a_removal_that_fails(remove: AsyncMock) -> None:
+    async def it_raises_a_removal_that_fails(container: Mock, remove: AsyncMock) -> None:
         remove.side_effect = OSError("daemon gone")
         with pytest.raises(OSError, match="daemon gone"):
-            await remove_within("botbox-agent-1")
+            await remove_within(container)

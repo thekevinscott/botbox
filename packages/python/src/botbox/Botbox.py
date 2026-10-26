@@ -10,7 +10,7 @@ from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
 
-from adocker import Dockerfile, Image
+from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent, SessionAgent
@@ -229,6 +229,7 @@ class Botbox:
                 allow = (*agent.allow, *self.allow)
                 async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
                     name = f"botbox-agent-{token}"
+                    started = Container(name)
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     try:
                         async with hold_session(
@@ -247,7 +248,7 @@ class Botbox:
                         exit_code = await agent_exit(container, client, stderr)
                     finally:
                         await settle(
-                            warned(remove_within(name), f"remove its agent container {name}")
+                            warned(remove_within(started), f"remove its agent container {name}")
                         )
             finally:
                 try:
@@ -275,6 +276,7 @@ class Botbox:
     ) -> int:
         """Run attached, writing to `scratch` and `output`, then remove the agent container."""
         name = f"botbox-agent-{token}"
+        container = Container(name)
         also = [] if output is None else [output]
         try:
             with (
@@ -287,7 +289,7 @@ class Botbox:
                 client = await container.wait()
             exit_code = await agent_exit(container, client, last_stderr(scratch))
         finally:
-            await settle(warned(remove_within(name), f"remove its agent container {name}"))
+            await settle(warned(remove_within(container), f"remove its agent container {name}"))
         return exit_code
 
     def _stage_home(self, scratch: Path) -> Path:
@@ -337,7 +339,7 @@ class Botbox:
             "env": {"HOME": agent.home, **jail.envs},
             "mounts": [
                 DockerMount("bind", str(home), agent.home),
-                DockerMount("volume", jail.volume, SOCKET_DIR, read_only=True),
+                jail.volume.mount(SOCKET_DIR, read_only=True),
                 *(
                     DockerMount("bind", source, target, mode == "ro")
                     for source, target, mode in volumes
@@ -345,7 +347,7 @@ class Botbox:
             ],
             "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
             "network": "none",
-            "pid": f"container:{jail.proxy}",
+            "pid": f"container:{jail.proxy.name}",
             "user": f"{os.getuid()}:{os.getgid()}",
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges"],

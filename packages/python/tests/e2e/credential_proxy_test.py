@@ -103,7 +103,7 @@ async def through_proxy[T](
                 injection, secret, proxy=jail.proxy, sockets=sockets, token=token, log=log
             ) as proxy:
                 result = await steps(proxy)
-            assert not docker_lines("ps", "-a", "--filter", f"name={proxy.name}", "-q")
+            assert not docker_lines("ps", "-a", "--filter", f"name={proxy.container.name}", "-q")
             return result
 
 
