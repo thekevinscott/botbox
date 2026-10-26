@@ -84,3 +84,9 @@ path = "src/botbox/write.py"
 rules = ["mutation"]
 lines = ["30", "43"]
 reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"
+
+[[python.exempt]]
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["325"]
+reason = "or -> and is equivalent: credential is None exactly when source is None"

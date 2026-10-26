@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from botbox.credential_proxy.CredentialProxy import ROTATE, CredentialProxy
+from botbox.credential_proxy.CredentialProxy import FOLLOW_SECONDS, ROTATE, CredentialProxy
 
 
 class Exec:
@@ -123,6 +123,9 @@ def describe_CredentialProxy() -> None:
         async def it_sends_nothing_while_the_secret_is_the_one_sent() -> None:
             assert await follow(Source("Bearer one", "Bearer one")) == []
 
+        async def it_compares_secrets_by_value() -> None:
+            assert await follow(Source("".join(["Bearer ", "one"])), "Bearer one") == []
+
         async def it_rotates_to_a_changed_secret_once() -> None:
             secrets = await follow(Source("Bearer one", "Bearer two", "Bearer two"))
             assert secrets == [b"sds Bearer two"]
@@ -152,6 +155,9 @@ def describe_CredentialProxy() -> None:
             proxy = CredentialProxy(Mock(exec=exec_), "/s")
             with pytest.raises(KeyError):
                 await proxy.follow(Source(KeyError("claudeAiOauth")), "Bearer one")
+
+        def it_checks_the_host_every_two_seconds() -> None:
+            assert FOLLOW_SECONDS == 2.0
 
         async def it_waits_between_checks() -> None:
             started = asyncio.get_running_loop().time()
@@ -187,10 +193,13 @@ def describe_CredentialProxy() -> None:
             proxy = CredentialProxy(Mock(), "/s")
             with (
                 patch.object(proxy, "follow", follow),
-                pytest.warns(RuntimeWarning, match=r"new credentials: KeyError\('claudeAiOauth'\)"),
+                pytest.warns(
+                    RuntimeWarning, match=r"new credentials: KeyError\('claudeAiOauth'\)"
+                ) as warned,
             ):
                 async with proxy.following(Source(), "Bearer one"):
                     await asyncio.sleep(0)
+            assert warned[0].filename.endswith("CredentialProxy.py")
 
         async def it_stops_a_follow_that_never_started() -> None:
             proxy = CredentialProxy(Mock(), "/s")
