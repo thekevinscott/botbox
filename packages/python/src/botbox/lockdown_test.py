@@ -1,15 +1,15 @@
-import argparse
 import asyncio
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import IO, Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 import botbox.lockdown as lockdown_module
+from adocker import Container
 from botbox.lockdown import (
     PROXY_CONF,
     PROXY_DIR,
@@ -30,30 +30,56 @@ def steps() -> list[str]:
     return []
 
 
-@pytest.fixture(autouse=True)
-def build(steps: list[str]) -> Iterator[AsyncMock]:
-    async def built(_context: Path, *, tag: str, **_options: Any) -> None:
-        steps.append(f"build {tag}")
-
-    with patch("botbox.lockdown.build", autospec=True, side_effect=built) as m:
-        yield m
-
-
 @pytest.fixture
 def served() -> asyncio.Event:
     """Set to let the proxy's attached client exit."""
     return asyncio.Event()
 
 
-@pytest.fixture(autouse=True)
-def run(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
-    async def attached(_args: list[str], **_options: Any) -> int:
-        steps.append("run proxy")
-        await served.wait()
-        return 0
+class Image:
+    """The built proxy image: `run` starts an attached client that serves until `served`."""
 
-    with patch("botbox.lockdown.run", autospec=True, side_effect=attached) as m:
+    def __init__(self, served: asyncio.Event, steps: list[str]) -> None:
+        self.served = served
+        self.steps = steps
+        self.command: tuple[str, ...] | None = None
+        self.options: dict[str, Any] = {}
+        self.container: Container | None = None
+
+    async def run(self, *command: str, **options: Any) -> Container:
+        self.command, self.options = command, options
+        self.steps.append("run proxy")
+
+        async def attached() -> int:
+            await self.served.wait()
+            return 0
+
+        self.container = Container(
+            options["name"], client=asyncio.ensure_future(attached()), stdin=Mock()
+        )
+        return self.container
+
+
+@pytest.fixture(autouse=True)
+def image(served: asyncio.Event, steps: list[str]) -> Image:
+    return Image(served, steps)
+
+
+@pytest.fixture(autouse=True)
+def dockerfile(steps: list[str], image: Image) -> Iterator[Mock]:
+    async def built(tag: str) -> Image:
+        steps.append(f"build {tag}")
+        return image
+
+    with patch("botbox.lockdown.Dockerfile", autospec=True) as m:
+        m.return_value.build.side_effect = built
         yield m
+
+
+@pytest.fixture
+def build(dockerfile: Mock) -> AsyncMock:
+    build: AsyncMock = dockerfile.return_value.build
+    return build
 
 
 @pytest.fixture
@@ -66,20 +92,20 @@ def volume_fails() -> dict[str, Exception]:
 def docker_volume(steps: list[str], volume_fails: dict[str, Exception]) -> Iterator[None]:
     @asynccontextmanager
     async def volume(
-        name: str, *, label: str, on_error: Callable[[Exception], None]
-    ) -> AsyncIterator[str]:
-        steps.append(f"create {name} {label}")
+        name: str, *, labels: dict[str, str], on_error: Callable[[Exception], None]
+    ) -> AsyncIterator[Any]:
+        steps.append(f"create {name} {labels}")
         if "create" in volume_fails:
             raise volume_fails["create"]
         try:
-            yield name
+            yield Mock(mount=lambda target: (name, target, "rw"))
         finally:
             if "rm" in volume_fails:
                 on_error(volume_fails["rm"])
             else:
                 steps.append(f"remove {name}")
 
-    with patch("botbox.lockdown.run_volume", volume):
+    with patch("botbox.lockdown.Volume", volume):
         yield
 
 
@@ -95,10 +121,9 @@ def wait(steps: list[str]) -> Iterator[AsyncMock]:
 
 @pytest.fixture(autouse=True)
 def stop(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
-    async def stopped(client: asyncio.Future[int], stdin: IO[bytes], *_args: object) -> None:
-        stdin.close()
+    async def stopped(proxy: Container, *_args: object) -> None:
         served.set()
-        await client
+        await proxy.wait()
         steps.append("proxy stopped")
 
     with patch("botbox.lockdown.stop_proxy", autospec=True, side_effect=stopped) as m:
@@ -115,64 +140,22 @@ def settle(steps: list[str]) -> Iterator[AsyncMock]:
         yield m
 
 
-@pytest.fixture(autouse=True)
-def owned() -> Iterator[set[IO[bytes]]]:
-    """Stands in for owner_only: the pipes it holds, while it holds them."""
-    pipes: set[IO[bytes]] = set()
-
-    @contextmanager
-    def owner_only(pipe: IO[bytes]) -> Iterator[None]:
-        pipes.add(pipe)
-        try:
-            yield
-        finally:
-            pipes.discard(pipe)
-
-    with patch("botbox.lockdown.owner_only", owner_only):
-        yield pipes
-
-
-@pytest.fixture(autouse=True)
-def os() -> Iterator[MagicMock]:
-    with patch("botbox.lockdown.os", autospec=True) as m:
-        m.pipe.return_value = (3, 4)
-        m.fdopen.side_effect = lambda _fd, _mode: Mock()
-        yield m
-
-
 @pytest.fixture
 def scratch(tmp_path: Path) -> Path:
-    return tmp_path
+    path = tmp_path / "scratch"
+    path.mkdir()
+    return path
 
 
 def jail(scratch: Path, allow: tuple[str, ...] = ALLOW, output: Path | None = None) -> Any:
     return lockdown(allow, scratch, TOKEN, output)
 
 
-RUN = argparse.ArgumentParser()
-for flag in ("--interactive", "--init"):
-    RUN.add_argument(flag, action="store_true")
-for flag in ("--name", "--user", "--pids-limit", "--label", "--log-driver"):
-    RUN.add_argument(flag)
-for flag in ("--network", "--cap-drop", "--security-opt", "--volume", "--env"):
-    RUN.add_argument(flag, action="append", default=[])
-RUN.add_argument("image")
+def allowlist(image: Image) -> str:
+    return str(image.options["env"]["BOTBOX_FILTER"])
 
 
-def started(run: AsyncMock) -> dict[str, Any]:
-    """The options of the proxy's `docker run`; an unexpected flag fails the parse."""
-    [args] = run.call_args.args
-    return vars(RUN.parse_args(args))
-
-
-def volumes(run: AsyncMock) -> dict[str, tuple[str, str]]:
-    mounts = (volume.split(":") for volume in started(run)["volume"])
-    return {target: (source, mode) for source, target, mode in mounts}
-
-
-def allowlist(run: AsyncMock) -> str:
-    [env] = started(run)["env"]
-    return str(env).removeprefix("BOTBOX_FILTER=")
+LABELS = {"botbox.run": TOKEN}
 
 
 def describe_lockdown() -> None:
@@ -190,27 +173,25 @@ def describe_lockdown() -> None:
             }
 
     async def it_builds_the_shipped_proxy_first(
-        scratch: Path, build: AsyncMock, steps: list[str]
+        scratch: Path, dockerfile: Mock, build: AsyncMock, steps: list[str]
     ) -> None:
         async with jail(scratch):
             pass
-        [context] = build.call_args.args
-        assert build.call_args.kwargs == {
-            "tag": "botbox-proxy:latest",
-            "file": context / "Dockerfile",
-        }
-        assert (context / "tinyproxy.conf").exists()
+        [file] = dockerfile.call_args.args
+        assert file == PROXY_DIR / "Dockerfile"
+        build.assert_awaited_once_with("botbox-proxy:latest")
+        assert (file.parent / "tinyproxy.conf").exists()
         assert steps[0] == "build botbox-proxy:latest"
         assert "run proxy" in steps
 
     async def it_starts_nothing_when_the_build_fails(
-        scratch: Path, build: AsyncMock, run: AsyncMock
+        scratch: Path, build: AsyncMock, image: Image
     ) -> None:
         build.side_effect = RuntimeError("failed to solve")
         with pytest.raises(RuntimeError, match="failed to solve"):
             async with jail(scratch):
                 pass
-        run.assert_not_called()
+        assert image.command is None
 
     async def it_names_resources_per_run(tmp_path: Path) -> None:
         (tmp_path / "a").mkdir()
@@ -224,66 +205,78 @@ def describe_lockdown() -> None:
 
     def describe_the_proxy_container() -> None:
         async def it_runs_attached_on_the_default_bridge_as_its_pinned_user(
-            scratch: Path, run: AsyncMock
+            scratch: Path, image: Image
         ) -> None:
             async with jail(scratch):
-                options = started(run)
-            assert options["interactive"]
-            assert options["init"]
-            assert options["image"] == "botbox-proxy:latest"
-            assert options["network"] == ["bridge"]
-            assert options["user"] == "100:101"
-            assert options["pids_limit"] == "256"
-            assert options["log_driver"] == "none"
-            assert options["cap_drop"] == ["ALL"]
-            assert options["security_opt"] == ["no-new-privileges"]
+                pass
+            options = dict(image.options)
+            assert image.command == ()
+            assert options.pop("stdin") == asyncio.subprocess.PIPE
+            assert options.pop("stdout") is options.pop("stderr")
+            options.pop("env")
+            options.pop("mounts")
+            assert options == {
+                "name": PROXY,
+                "labels": LABELS,
+                "init": True,
+                "user": "100:101",
+                "network": "bridge",
+                "pids_limit": 256,
+                "log_driver": "none",
+                "cap_drop": ["ALL"],
+                "security_opt": ["no-new-privileges"],
+            }
 
-        async def it_is_named_and_labelled_with_the_run_token(
-            scratch: Path, run: AsyncMock
+        async def it_sends_all_its_output_to_the_log_in_scratch(
+            scratch: Path, image: Image
         ) -> None:
             async with jail(scratch):
-                options = started(run)
-            assert options["name"] == PROXY
-            assert options["label"] == f"botbox.run={TOKEN}"
-
-        async def it_does_not_remove_itself(scratch: Path, run: AsyncMock) -> None:
-            async with jail(scratch):
-                [args] = run.call_args.args
-            assert "--rm" not in args
-
-        async def it_sends_all_its_output_to_one_log_file_it_closes(
-            scratch: Path, run: AsyncMock
-        ) -> None:
-            async with jail(scratch):
-                options = run.call_args.kwargs
-                assert options["stdout"] is options["stderr"]
-                assert options["stdout"].name == str(scratch / "proxy.log")
-                assert "limit" not in options
-            assert options["stdout"].closed
+                image.options["stdout"](REFUSAL.encode())
+                assert (scratch / "proxy.log").read_text() == REFUSAL
 
         async def it_waits_for_the_proxy_with_the_client_and_its_output(
-            scratch: Path, wait: AsyncMock, steps: list[str]
+            scratch: Path, wait: AsyncMock, image: Image, steps: list[str]
         ) -> None:
             async with jail(scratch):
                 steps.append("body")
             [client, output, timeout] = wait.call_args.args
-            assert isinstance(client, asyncio.Future)
+            assert image.container is not None
+            assert client is image.container.client
             assert output == scratch / "proxy.log"
             assert timeout == 30
             assert steps.index("proxy up") < steps.index("body")
 
-    def describe_the_volume() -> None:
-        async def it_mounts_only_the_runs_volume_read_write(scratch: Path, run: AsyncMock) -> None:
+        async def it_starts_nothing_when_the_log_will_not_open(
+            tmp_path: Path, image: Image
+        ) -> None:
+            with pytest.raises(FileNotFoundError):
+                async with jail(tmp_path / "missing"):
+                    pass
+            assert image.command is None
+
+        async def it_stops_the_proxy_with_its_stdin_and_grace(
+            scratch: Path, image: Image, stop: AsyncMock
+        ) -> None:
             async with jail(scratch):
-                mounts = volumes(run)
-            assert mounts == {"/run/botbox": (VOLUME, "rw")}
+                pass
+            [proxy, stdin, grace] = stop.call_args.args
+            assert proxy is image.container
+            assert stdin is proxy.stdin
+            assert grace == 10
+            assert proxy.client.done()
+
+    def describe_the_volume() -> None:
+        async def it_mounts_only_the_runs_volume_read_write(scratch: Path, image: Image) -> None:
+            async with jail(scratch):
+                pass
+            assert image.options["mounts"] == [(VOLUME, "/run/botbox", "rw")]
 
         async def it_creates_it_labelled_before_the_proxy_starts(
             scratch: Path, steps: list[str]
         ) -> None:
             async with jail(scratch):
                 pass
-            assert steps.index(f"create {VOLUME} botbox.run={TOKEN}") < steps.index("run proxy")
+            assert steps.index(f"create {VOLUME} {LABELS}") < steps.index("run proxy")
 
         async def it_removes_it_once_the_proxy_is_stopped(scratch: Path, steps: list[str]) -> None:
             async with jail(scratch):
@@ -300,13 +293,13 @@ def describe_lockdown() -> None:
             assert steps[-1] == f"remove {VOLUME}"
 
         async def it_starts_nothing_when_it_cannot_be_created(
-            scratch: Path, run: AsyncMock, volume_fails: dict[str, Exception]
+            scratch: Path, image: Image, volume_fails: dict[str, Exception]
         ) -> None:
             volume_fails["create"] = RuntimeError("no space")
             with pytest.raises(RuntimeError, match="no space"):
                 async with jail(scratch):
                     pass
-            run.assert_not_called()
+            assert image.command is None
 
         async def it_warns_when_it_cannot_be_removed(
             scratch: Path, volume_fails: dict[str, Exception]
@@ -320,11 +313,11 @@ def describe_lockdown() -> None:
 
     def describe_the_allowlist() -> None:
         async def it_admits_each_host_by_connect_on_443_and_plain_http_on_80(
-            scratch: Path, run: AsyncMock
+            scratch: Path, image: Image
         ) -> None:
             async with jail(scratch, ("api.anthropic.com", "[::1]:8443")):
                 pass
-            assert allowlist(run) == (
+            assert allowlist(image) == (
                 "^api\\.anthropic\\.com(:443)?$\n"
                 "^http://api\\.anthropic\\.com(:80)?(/|$)\n"
                 "^\\[::1\\]:8443(:443)?$\n"
@@ -340,12 +333,12 @@ def describe_lockdown() -> None:
             ],
         )
         async def it_matches_the_urls_tinyproxy_filters_only_on_443_and_80(
-            scratch: Path, run: AsyncMock, host: str, authority: str
+            scratch: Path, image: Image, host: str, authority: str
         ) -> None:
             """tinyproxy reads each line as a case-insensitive ERE; they read the same in `re`."""
             async with jail(scratch, (host,)):
                 pass
-            patterns = allowlist(run).splitlines()
+            patterns = allowlist(image).splitlines()
 
             def admitted(url: str) -> bool:
                 return any(re.search(p, url, re.IGNORECASE) for p in patterns)
@@ -355,45 +348,6 @@ def describe_lockdown() -> None:
             assert admitted(f"http://{authority}:80/")
             assert not admitted(f"{authority}:8022")
             assert not admitted(f"http://{authority}:8022/")
-
-    def describe_the_lifetime_pipe() -> None:
-        async def it_gives_the_proxy_the_read_end_and_holds_the_write_end_owner_only(
-            scratch: Path, run: AsyncMock, os: MagicMock, owned: set[IO[bytes]]
-        ) -> None:
-            async with jail(scratch):
-                assert len(owned) == 1
-                assert run.call_args.kwargs["stdin"] == 3
-                os.fdopen.assert_called_once_with(4, "wb")
-                os.close.assert_not_called()
-            assert not owned
-
-        async def it_stops_the_proxy_with_its_client_stdin_name_and_grace(
-            scratch: Path, stop: AsyncMock, owned: set[IO[bytes]]
-        ) -> None:
-            held: list[IO[bytes]] = []
-            async with jail(scratch):
-                held.extend(owned)
-            [client, stdin, name, grace] = stop.call_args.args
-            assert client.done()
-            assert stdin is held[0]
-            assert (name, grace) == (PROXY, 10)
-
-        async def it_closes_the_read_end_on_the_way_out(scratch: Path, os: MagicMock) -> None:
-            async with jail(scratch):
-                pass
-            os.close.assert_called_once_with(3)
-
-        async def it_closes_both_ends_when_the_log_will_not_open(
-            tmp_path: Path, scratch: Path, run: AsyncMock, os: MagicMock
-        ) -> None:
-            os.fdopen.side_effect = None
-            os.fdopen.return_value.close.side_effect = OSError("flush failed")
-            with pytest.raises(FileNotFoundError):
-                async with jail(scratch, output=tmp_path / "missing"):
-                    pass
-            run.assert_not_called()
-            os.fdopen.return_value.close.assert_called_once_with()
-            os.close.assert_called_once_with(3)
 
     def describe_teardown() -> None:
         async def it_stops_the_proxy_under_settle_once_the_body_is_done(
@@ -418,25 +372,25 @@ def describe_lockdown() -> None:
                     pass
             stop.assert_awaited_once()
 
-        async def it_still_closes_the_read_end_when_the_stop_raises(
-            scratch: Path, stop: AsyncMock, os: MagicMock
+        async def it_still_removes_the_volume_when_the_stop_raises(
+            scratch: Path, stop: AsyncMock, steps: list[str]
         ) -> None:
             stop.side_effect = asyncio.CancelledError
             with pytest.raises(asyncio.CancelledError):
                 async with jail(scratch):
                     pass
-            os.close.assert_called_once_with(3)
+            assert steps[-1] == f"remove {VOLUME}"
 
     def describe_with_output() -> None:
-        async def it_writes_the_log_into_output_and_reads_nothing_back(
-            scratch: Path, tmp_path: Path, run: AsyncMock
+        async def it_writes_the_log_into_output_too(
+            scratch: Path, tmp_path: Path, image: Image
         ) -> None:
             output = tmp_path / "output"
             output.mkdir()
             async with jail(scratch, output=output):
-                run.call_args.kwargs["stdout"].write(REFUSAL.encode())
+                image.options["stdout"](REFUSAL.encode())
             assert (output / "proxy.log").read_text() == REFUSAL
-            assert not (scratch / "proxy.log").exists()
+            assert (scratch / "proxy.log").read_text() == REFUSAL
 
         async def it_truncates_a_previous_log(scratch: Path, tmp_path: Path) -> None:
             output = tmp_path / "output"
@@ -444,6 +398,14 @@ def describe_lockdown() -> None:
             (output / "proxy.log").write_text(REFUSAL)
             async with jail(scratch, output=output):
                 assert (output / "proxy.log").read_bytes() == b""
+
+        async def it_warns_and_carries_on_without_an_output_it_cannot_open(
+            scratch: Path, tmp_path: Path, steps: list[str]
+        ) -> None:
+            with pytest.warns(RuntimeWarning, match="stopped writing to"):
+                async with jail(scratch, output=tmp_path / "missing"):
+                    steps.append("body")
+            assert "body" in steps
 
 
 def describe_the_shipped_proxy() -> None:
