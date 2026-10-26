@@ -10,7 +10,7 @@ runs/first/
   transcripts/
 ```
 
-`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr` and `proxy` are empty; read the files instead.
+`run()` returns a `RunResult`, which holds only the `exit_code`. Read everything else from the files.
 
 ## Check the exit code
 
@@ -43,10 +43,6 @@ for path in sorted((output / "transcripts").rglob("*.jsonl")):
 print((output / "proxy.log").read_text())
 ```
 
-## Without `output`
-
-Omit `output` and the streams and proxy log come back on the result instead, as text in `stdout`, `stderr` and `proxy`. The transcripts are deleted with the temporary home.
-
 ## Keep what the run wrote
 
 The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
@@ -60,4 +56,4 @@ await box.run(
 )
 ```
 
-Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
+Next: the [`RunResult` page](../api/run-result), or [how a run works](../explanation/#a-run).

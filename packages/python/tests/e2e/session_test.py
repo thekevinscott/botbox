@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 import pytest
 from conftest import transcripts
-from run_test import Runs
+from run_test import Marking, Runs
 
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
 
@@ -183,7 +183,7 @@ def describe_a_session() -> None:
 
 def describe_cancelling_mid_turn() -> None:
     async def it_removes_the_sessions_containers_and_home(runs: Runs, tmp_path: Path) -> None:
-        box = Botbox(claude())
+        box = Botbox(Marking(model="claude-opus-5", effort="low"))
         output = tmp_path / "output"
 
         async def talk() -> None:

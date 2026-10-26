@@ -148,17 +148,17 @@ def describe_allow() -> None:
 
 
 class TokenAgent(ClaudeAgent):
-    """Records its run's token: the temp home's parent, botbox-<token>-*, names it."""
+    """Records its run's token, which names the dir its credentials are staged in."""
 
     token: str
 
     def stage_auth(self, home: Path) -> None:
         super().stage_auth(home)
-        self.token = home.parent.name.split("-")[1]
+        self.token = home.name.split("-")[1]
 
 
 @pytest.fixture(scope="module")
-def other_run() -> Iterator[str]:
+def other_run(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Another run's proxy, live, admitting example.com: its address on the default bridge.
 
     The session is held open on a thread of its own, with its own event loop, for the module.
@@ -167,7 +167,8 @@ def other_run() -> Iterator[str]:
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(agent, allow=["example.com"]).session():
+        output = tmp_path_factory.mktemp("other-run")
+        async with Botbox(agent, allow=["example.com"]).session(output=output):
             up.set()
             await asyncio.to_thread(done.wait)
 

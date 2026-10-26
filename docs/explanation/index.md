@@ -18,15 +18,15 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 
 1. Checks the mounts and `workdir`. A `workdir` outside every mount raises here, before anything is built. Then a missing host path is created as a dir owned by you. Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
-3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
+3. Makes a Docker volume for the agent's home and stages the harness's credentials into it (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host: into `stdout.txt` and `stderr.txt` in `output` when one is given, or else into memory.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host, into `stdout.txt` and `stderr.txt` in `output`.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Stops and removes the proxy, and deletes the temporary directory.
+7. Stops and removes the proxy, then removes both volumes.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and so are the transcripts and proxy log. That's why they live on the host and not in the container.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -51,7 +51,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client writes all of the container's output straight to a host file: `proxy.log` in `output` when one is given, or else a file in the host temporary directory that becomes `result.proxy`. The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client writes all of the container's output straight to `proxy.log` in `output`. The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
 
 ### Lifetime
 
@@ -59,23 +59,23 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-A normal end or a cancel removes both containers and the volume. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
+A normal end or a cancel removes both containers and both volumes. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The home volume holds the staged credentials.
 
-botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volume with `docker volume rm botbox-run-<token>`.
+botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volumes with `docker volume rm botbox-run-<token> botbox-home-<token>`.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
+Each run's home is a fresh Docker volume, `botbox-home-<token>`, labelled `botbox.run=<token>` and mounted at the harness's home (`/home/user`). botbox stages the login in a host directory from `tempfile` and deletes it before the agent starts. A container, `botbox-stage-<token>`, unpacks it into the volume and gives the home to the host uid, mode 0700. That container runs as root with no network and only the capabilities to unpack and chown. The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
-With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
+`output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them.
 
 ## Sessions
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. With `output`, they go to `stdout.txt` and `stderr.txt` instead, and a `tail -F` follower of `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. The client writes the CLI's stdout and stderr straight to `stdout.txt` and `stderr.txt` in `output`, and a `tail -F` follower of `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read the followed lines one by one, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
 The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 

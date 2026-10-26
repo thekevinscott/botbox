@@ -144,8 +144,8 @@ def scratch(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def jail(scratch: Path, allow: tuple[str, ...] = ALLOW, output: Path | None = None) -> Any:
-    return lockdown(allow, scratch, TOKEN, output)
+def jail(output: Path, allow: tuple[str, ...] = ALLOW) -> Any:
+    return lockdown(allow, TOKEN, output)
 
 
 RUN = argparse.ArgumentParser()
@@ -215,8 +215,8 @@ def describe_lockdown() -> None:
         (tmp_path / "a").mkdir()
         (tmp_path / "b").mkdir()
         async with (
-            lockdown(ALLOW, tmp_path / "a", "aaaaaaaaaaaa") as first,
-            lockdown(ALLOW, tmp_path / "b", "bbbbbbbbbbbb") as second,
+            lockdown(ALLOW, "aaaaaaaaaaaa", tmp_path / "a") as first,
+            lockdown(ALLOW, "bbbbbbbbbbbb", tmp_path / "b") as second,
         ):
             assert first.proxy != second.proxy
             assert first.volume != second.volume
@@ -383,12 +383,12 @@ def describe_lockdown() -> None:
             os.close.assert_called_once_with(3)
 
         async def it_closes_both_ends_when_the_log_will_not_open(
-            tmp_path: Path, scratch: Path, run: AsyncMock, os: MagicMock
+            tmp_path: Path, run: AsyncMock, os: MagicMock
         ) -> None:
             os.fdopen.side_effect = None
             os.fdopen.return_value.close.side_effect = OSError("flush failed")
             with pytest.raises(FileNotFoundError):
-                async with jail(scratch, output=tmp_path / "missing"):
+                async with jail(tmp_path / "missing"):
                     pass
             run.assert_not_called()
             os.fdopen.return_value.close.assert_called_once_with()
@@ -426,67 +426,16 @@ def describe_lockdown() -> None:
                     pass
             os.close.assert_called_once_with(3)
 
-    def describe_the_log() -> None:
-        async def it_starts_empty(scratch: Path) -> None:
-            async with jail(scratch) as net:
-                assert net.log == ""
-
-        async def it_reads_the_log_on_the_way_out(scratch: Path) -> None:
-            async with jail(scratch) as net:
-                (scratch / "proxy.log").write_text(REFUSAL)
-            assert net.log == REFUSAL
-
-        async def it_reads_the_log_when_the_body_raises(scratch: Path) -> None:
-            with pytest.raises(KeyError):
-                async with jail(scratch) as net:
-                    (scratch / "proxy.log").write_text(REFUSAL)
-                    raise KeyError
-            assert net.log == REFUSAL
-
-        async def it_reads_the_log_as_utf8_replacing_what_is_not(scratch: Path) -> None:
-            async with jail(scratch) as net:
-                (scratch / "proxy.log").write_bytes("GET /café ".encode() + b"\xff\n")
-            assert net.log == "GET /café \ufffd\n"
-
-        async def it_warns_and_keeps_an_empty_log_when_it_cannot_read_it(scratch: Path) -> None:
-            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: ") as w:
-                async with jail(scratch) as net:
-                    unreadable(scratch / "proxy.log")
-            assert net.log == ""
-            assert w[0].filename == __file__
-
-        async def it_keeps_the_bodys_error_when_it_cannot_read_the_log(scratch: Path) -> None:
-            with (
-                pytest.warns(RuntimeWarning, match="could not read its proxy log"),
-                pytest.raises(KeyError),
-            ):
-                async with jail(scratch):
-                    unreadable(scratch / "proxy.log")
-                    raise KeyError
-
-    def describe_with_output() -> None:
-        async def it_writes_the_log_into_output_and_reads_nothing_back(
-            scratch: Path, tmp_path: Path, run: AsyncMock
-        ) -> None:
-            output = tmp_path / "output"
-            output.mkdir()
-            async with jail(scratch, output=output) as net:
+    def describe_its_log() -> None:
+        async def it_writes_the_log_into_output(scratch: Path, run: AsyncMock) -> None:
+            async with jail(scratch):
                 run.call_args.kwargs["stdout"].write(REFUSAL.encode())
-            assert net.log == ""
-            assert (output / "proxy.log").read_text() == REFUSAL
-            assert not (scratch / "proxy.log").exists()
+            assert (scratch / "proxy.log").read_text() == REFUSAL
 
-        async def it_truncates_a_previous_log(scratch: Path, tmp_path: Path) -> None:
-            output = tmp_path / "output"
-            output.mkdir()
-            (output / "proxy.log").write_text(REFUSAL)
-            async with jail(scratch, output=output):
-                assert (output / "proxy.log").read_bytes() == b""
-
-
-def unreadable(log: Path) -> None:
-    log.unlink()
-    log.mkdir()
+        async def it_truncates_a_previous_log(scratch: Path) -> None:
+            (scratch / "proxy.log").write_text(REFUSAL)
+            async with jail(scratch):
+                assert (scratch / "proxy.log").read_bytes() == b""
 
 
 def describe_the_shipped_proxy() -> None:

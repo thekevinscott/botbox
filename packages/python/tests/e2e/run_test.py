@@ -1,7 +1,8 @@
 """`Botbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
 
-Every run labels its containers and volume `botbox.run=<token>` and names its temp home
-after the token.
+Every run labels its containers and volumes `botbox.run=<token>`. Each run in a test, here
+or in an owner it spawns, uses a `Marking` agent, which leaves a `run-<token>` marker in
+the test's own temp dir.
 A test sees only the tokens that appeared while it ran, and cleans up only those.
 """
 
@@ -12,7 +13,6 @@ import signal
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from collections.abc import Iterator
 from contextlib import suppress
@@ -22,7 +22,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException, Timeout
+from botbox import Botbox, ClaudeAgent, DockerException, RunResult, Timeout
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -30,40 +30,51 @@ HOSTILE = (
 )
 
 PRINT = "echo partial; echo err >&2; "
+TRANSCRIPT = "echo '{}' > ~/.claude/projects/t.jsonl; "
 
-OWNER = f"""
-import asyncio, sys
-from botbox import Botbox, ClaudeAgent
+# A `Marking`, for the owners this test spawns with TMPDIR set to its temp dir.
+MARK = """
+from botbox import ClaudeAgent
 
-asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=sys.argv[2]))
+class Marking(ClaudeAgent):
+    def stage_auth(self, home):
+        super().stage_auth(home)
+        (home.parent / f"run-{home.name.split('-')[1]}").touch()
 """
 
-SESSION_OWNER = f"""
-import asyncio
-from botbox import Botbox, ClaudeAgent
+OWNER = f"""{MARK}
+import asyncio, sys
+from botbox import Botbox
 
-class Hostile(ClaudeAgent):
+asyncio.run(Botbox(Marking()).run({(PRINT + TRANSCRIPT + HOSTILE)!r}, output=sys.argv[2]))
+"""
+
+SESSION_OWNER = f"""{MARK}
+import asyncio, sys
+from botbox import Botbox
+
+class Hostile(Marking):
     def session_command(self):
-        return {HOSTILE!r}
+        return {("echo err >&2; " + TRANSCRIPT + HOSTILE)!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=sys.argv[2]) as live:
         await live.message("never answered")
 
 asyncio.run(main())
 """
 
 # A worker forked by the owner outlives it and inherits its descriptors.
-FORKING_OWNER = f"""
+FORKING_OWNER = f"""{MARK}
 import asyncio, os, sys, time
-from botbox import Botbox, ClaudeAgent
+from botbox import Botbox
 
-class Hostile(ClaudeAgent):
+class Hostile(Marking):
     def session_command(self):
-        return {HOSTILE!r}
+        return {("echo err >&2; " + TRANSCRIPT + HOSTILE)!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session(output=sys.argv[2]) as live:
         child = os.fork()
         if child == 0:
             time.sleep(600)
@@ -91,22 +102,26 @@ def volumes(token: str) -> list[str]:
     )
 
 
-class Runs:
-    """The runs this test started, known by the temp homes they make in its own temp dir.
+class Marking(ClaudeAgent):
+    """A Claude agent that leaves a `run-<token>` marker beside each home it stages.
 
-    A thread watches the dir, so a run's token is seen even if it is gone by the next look.
+    The home is staged in the temp dir, named `botbox-<token>-*`.
     """
+
+    def stage_auth(self, home: Path) -> None:
+        super().stage_auth(home)
+        (home.parent / f"run-{home.name.split('-')[1]}").touch()
+
+
+class Runs:
+    """The runs this test started with a `Marking` agent, known by their markers in its temp dir."""
 
     def __init__(self, temp: Path) -> None:
         self.temp = temp
-        self.tokens: set[str] = set()
-        self.done = threading.Event()
-        self.watcher = threading.Thread(target=self.watch)
-        self.watcher.start()
 
-    def watch(self) -> None:
-        while not self.done.wait(0.02):
-            self.tokens |= {p.name.split("-")[1] for p in self.homes()}
+    @property
+    def tokens(self) -> set[str]:
+        return {p.name.removeprefix("run-") for p in self.temp.glob("run-*")}
 
     def homes(self) -> list[Path]:
         return [p for p in self.temp.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
@@ -133,8 +148,6 @@ class Runs:
                 await asyncio.sleep(0.1)
 
     def clean(self) -> None:
-        self.done.set()
-        self.watcher.join()
         for token in self.tokens:
             for name in containers(token):
                 subprocess.run(["docker", "rm", "-f", name], check=False, capture_output=True)
@@ -146,7 +159,7 @@ class Runs:
 
 @pytest.fixture(scope="module")
 def box() -> Botbox:
-    box = Botbox(ClaudeAgent())
+    box = Botbox(Marking())
     asyncio.run(box.build())
     return box
 
@@ -180,22 +193,13 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
-    async def it_returns_what_the_command_left(box: Botbox, runs: Runs) -> None:
-        result = await box.run("echo out; echo err >&2; exit 5")
-        assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
-        assert result.image == "botbox-claude:latest"
-        assert "Starting main loop" in result.proxy
-        assert len(runs.tokens) == 1
-        assert runs.leftovers() == []
-
     async def it_persists_streams_when_output_is_supplied(
         box: Botbox, runs: Runs, tmp_path: Path
     ) -> None:
         result = await box.run("echo out; echo err >&2; exit 5", output=tmp_path / "output")
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
+        assert result == RunResult(5)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
-        assert result.proxy == ""
         assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
         assert runs.leftovers() == []
 
@@ -207,7 +211,7 @@ def describe_run() -> None:
             " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
         )
         result = await box.run(command, output=output)
-        assert result.exit_code == 0
+        assert result == RunResult(0)
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
         assert [p.name for p in output.rglob("*credentials*")] == []
         assert runs.leftovers() == []
@@ -262,11 +266,9 @@ def describe_run() -> None:
             with pytest.raises(Timeout) as raised:
                 await box.run("echo partial; echo err >&2; sleep 600", output=output, timeout=8)
             assert time.monotonic() - started < 8 + GRACE
-            result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+            assert raised.value.result == RunResult(-1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
-            assert result.proxy == ""
             assert "Starting main loop" in (output / "proxy.log").read_text()
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []
@@ -277,7 +279,7 @@ def describe_run() -> None:
         ) -> None:
             layer = tmp_path / "Dockerfile"
             layer.write_text("FROM botbox-claude:latest\nRUN exit 3\n")
-            broken = Botbox(ClaudeAgent(), dockerfile=layer)
+            broken = Botbox(Marking(), dockerfile=layer)
 
             async def fail_once_up() -> None:
                 await runs.started(2)
@@ -319,8 +321,8 @@ def describe_run() -> None:
             )
             try:
                 await runs.started()
-                if holder == OWNER:
-                    await printed(tmp_path / "output")
+                stdout = "partial\n" if holder == OWNER else ""
+                await wrote(tmp_path / "output", stdout)
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
                 owner.send_signal(signal.SIGKILL)
                 owner.wait()
@@ -330,12 +332,14 @@ def describe_run() -> None:
                     assert time.monotonic() - started < GRACE, containers(token, "status=running")
                     await asyncio.sleep(0.1)
                 assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
-                assert volumes(token) == [f"botbox-run-{token}"]
+                assert sorted(volumes(token)) == [f"botbox-home-{token}", f"botbox-run-{token}"]
                 listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
                 assert docker_lines(*listing, "ls", "-A", "/v") == []
-                if holder == OWNER:
-                    assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
-                    assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
+                output = tmp_path / "output"
+                assert (output / "stdout.txt").read_text() == stdout
+                assert (output / "stderr.txt").read_text() == "err\n"
+                assert (output / "transcripts" / "t.jsonl").read_text() == "{}\n"
+                assert "Starting main loop" in (output / "proxy.log").read_text()
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
@@ -356,4 +360,16 @@ async def printed(output: Path) -> None:
             "partial\n",
             "err\n",
         ):
+            await asyncio.sleep(0.05)
+
+
+async def wrote(output: Path, stdout: str) -> None:
+    """Wait for both streams and the transcript before killing the owner."""
+    transcript = output / "transcripts" / "t.jsonl"
+    async with asyncio.timeout(30):
+        while (
+            (output / "stdout.txt").read_text(),
+            (output / "stderr.txt").read_text(),
+            transcript.exists() and transcript.read_text(),
+        ) != (stdout, "err\n", "{}\n"):
             await asyncio.sleep(0.05)

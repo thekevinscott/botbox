@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/run_test.py",
+  "ran_at": 1792994222,
+  "exit_code": 0,
+  "commit": "b5122ecb11021f0fcaee1bfa3ca4f61b08709438",
+  "branch": "no-scratch-dir"
+}

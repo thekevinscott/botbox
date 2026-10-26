@@ -5,11 +5,9 @@ box started, then either goes on (mid-run) or waits forever with the proxy up an
 not yet started (mid-setup), so the signal lands at a known point instead of a race.
 """
 
-import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -30,8 +28,8 @@ docker_run = module.docker_run
 
 async def wrapped(args, **streams):
     proxy = args[args.index("--pid") + 1].removeprefix("container:")
-    scratch = Path(args[args.index("--volume") + 1].split(":")[0]).parent
-    print(args[args.index("--name") + 1], proxy, scratch.name, flush=True)
+    home = args[args.index("--volume") + 1].split(":")[0]
+    print(args[args.index("--name") + 1], proxy, home, flush=True)
     if sys.argv[1] == "mid_setup":
         await asyncio.Event().wait()
     return await docker_run(args, **streams)
@@ -40,7 +38,7 @@ module.docker_run = wrapped
 
 async def main():
     async with Botbox(ClaudeAgent()) as box:
-        await box.run("sleep 600")
+        await box.run("sleep 600", output=sys.argv[2])
 
 asyncio.run(main())
 """
@@ -63,8 +61,8 @@ def started() -> Iterator[set[str]]:
         kind, _, rest = name.partition(" ")
         if kind == "container":
             subprocess.run(["docker", "rm", "-f", rest], check=False, capture_output=True)
-        elif kind == "temp":
-            shutil.rmtree(Path(tempfile.gettempdir()) / rest, ignore_errors=True)
+        elif kind == "volume":
+            subprocess.run(["docker", "volume", "rm", "-f", rest], check=False, capture_output=True)
 
 
 def describe_sigterm() -> None:
@@ -73,16 +71,17 @@ def describe_sigterm() -> None:
         box: Botbox,  # noqa: ARG001
         moment: str,
         started: set[str],
+        tmp_path: Path,
     ) -> None:
         holder = subprocess.Popen(
-            [sys.executable, "-c", HOLDER, moment],
+            [sys.executable, "-c", HOLDER, moment, str(tmp_path / "output")],
             stdout=subprocess.PIPE,
             text=True,
         )
         assert holder.stdout is not None
         try:
-            agent, proxy, scratch = holder.stdout.readline().split()
-            started |= {f"container {agent}", f"container {proxy}", f"temp {scratch}"}
+            agent, proxy, home = holder.stdout.readline().split()
+            started |= {f"container {agent}", f"container {proxy}", f"volume {home}"}
             if moment == "mid_run":
                 wait_for(lambda: f"container {agent}" in leftovers())
             else:

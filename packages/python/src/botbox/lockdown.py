@@ -31,20 +31,17 @@ RELAY_PORT = 41893
 
 
 class Lockdown:
-    """The proxy a locked-down container shares a PID namespace with, the volume holding its
-    socket, and its log."""
+    """The proxy a locked-down container shares a PID namespace with, and the volume holding
+    its socket."""
 
     def __init__(self, proxy: str, volume: str, envs: dict[str, str]) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
-        self.log = ""
 
 
 @asynccontextmanager
-async def lockdown(
-    allow: Iterable[str], scratch: Path, token: str, output: Path | None = None
-) -> AsyncIterator[Lockdown]:
+async def lockdown(allow: Iterable[str], token: str, output: Path) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
     The container gets no network. Its only way out is a unix socket in the run's volume, served
@@ -59,8 +56,7 @@ async def lockdown(
     stopped, labelled `botbox.run=<token>`.
 
     All of the sidecar's output goes straight to `output/proxy.log`, which stays after exit.
-    The last 64 KiB of it is the error if it won't start. Without `output` it goes to
-    `scratch/proxy.log` instead, read into `Lockdown.log` on exit.
+    The last 64 KiB of it is the error if it won't start.
     """
     await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
@@ -82,7 +78,7 @@ async def lockdown(
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist = "".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities)
-    log = (scratch if output is None else output) / "proxy.log"
+    log = output / "proxy.log"
 
     args = [
         "--interactive",
@@ -133,11 +129,3 @@ async def lockdown(
         with suppress(OSError):
             stdin.close()
         os.close(read)
-        if output is None:
-            try:
-                jail.log = log.read_text(encoding="utf-8", errors="replace")
-            except OSError as error:
-                # 3: past contextlib's __aexit__, to whoever entered the block.
-                warnings.warn(
-                    f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
-                )

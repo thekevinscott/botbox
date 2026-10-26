@@ -16,7 +16,7 @@ LISTENING = "botbox-proxy: listening\n"
 # serves until its stdin closes; each agent does what the plan says for its command. A session
 # answers each message on its stdin with an event, a line that isn't JSON, and a result.
 FAKE_DOCKER = """
-import json, os, signal, sys, time
+import json, os, shutil, signal, sys, tarfile, time
 from pathlib import Path
 
 READY = b"botbox-proxy: listening\\n"
@@ -76,10 +76,7 @@ elif command == "volume":
         (state / "volumes" / argv[-1]).mkdir(parents=True)
     else:
         for name in argv[3:]:
-            path = state / "volumes" / name
-            for child in path.glob("*"):
-                child.unlink()
-            path.rmdir()
+            shutil.rmtree(state / "volumes" / name)
 elif command == "container":
     name = argv[-1]
     path = state / f"{name}.json"
@@ -96,6 +93,10 @@ elif command == "rm":
         fail("Error response from daemon: removal of container is already in progress\\n")
     for name in argv[2:]:
         (state / f"{name}.json").unlink(missing_ok=True)
+elif option("--name").startswith("botbox-stage-"):
+    settle(option("--name"), "exited")
+    with tarfile.open(fileobj=sys.stdin.buffer, mode="r|") as tar:
+        tar.extractall(volume("/botbox-home"), filter="data")
 elif option("--name").startswith("botbox-proxy-"):
     name = option("--name")
     if plan.get("proxy_fails"):
@@ -105,10 +106,6 @@ elif option("--name").startswith("botbox-proxy-"):
     sys.stdout.buffer.flush()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
-    if plan.get("proxy_log_unreadable"):
-        log = Path(os.readlink("/proc/self/fd/1"))
-        log.unlink()
-        log.mkdir()
     exit_container(name)
 else:
     name = option("--name")
@@ -116,6 +113,9 @@ else:
     if agent.get("missing"):
         fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
+    home = volume("/home/user")
+    staged = [str(path.relative_to(home)) for path in home.rglob("*")]
+    (state / "home.json").write_text(json.dumps(staged))
     try:
         session = volume("/home/user/.claude/projects") / "-work"
     except StopIteration:
@@ -194,6 +194,11 @@ class Daemon:
     def containers(self) -> list[str]:
         """The containers the daemon still holds."""
         return sorted(p.stem for p in self.state.glob("botbox-*.json"))
+
+    @property
+    def home(self) -> list[str]:
+        """The paths in the last agent's home as it started."""
+        return list(json.loads((self.state / "home.json").read_text()))
 
     @property
     def volumes(self) -> list[str]:

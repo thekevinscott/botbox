@@ -1,14 +1,22 @@
 """What a real run leaves behind on the host: only its output, pass or fail, with nothing lost."""
 
+import asyncio
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from run_test import Runs
+from run_test import Marking, Runs
 
 from botbox import Botbox
+
+
+@pytest.fixture(scope="module")
+def box() -> Botbox:
+    box = Botbox(Marking())
+    asyncio.run(box.build())
+    return box
 
 
 @pytest.fixture

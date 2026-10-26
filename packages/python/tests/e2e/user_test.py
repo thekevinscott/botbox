@@ -67,8 +67,8 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
     image = await box.build()
     token = uuid4().hex[:12]
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
-    async with lockdown((), scratch, token) as jail:
-        flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
+    async with lockdown((), token, scratch) as jail:
+        flags = box._lockdown_flags(token, str(home), jail, [], None)  # noqa: SLF001
         flags[flags.index("--user") + 1] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         args = ["docker", "run", "--rm", *flags, image, RELAY, "sh", "-c", script]
         result = await asyncio.to_thread(subprocess.run, args, capture_output=True, text=True)
