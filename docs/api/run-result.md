@@ -1,17 +1,11 @@
 # `RunResult`
 
-Nothing parsed.
+How a run or session ended.
 
-When [`run(output=...)`](./run) or [`session(output=...)`](./session) is used, `stdout` and
-`stderr` are empty strings; read `stdout.txt` and `stderr.txt` in that directory instead.
-`exit_code` and `image` are unchanged. The proxy log and transcripts are only kept in
-`output`; without it they are deleted with the temporary home.
+| Field       | What it is                                                                 |
+| ----------- | -------------------------------------------------------------------------- |
+| `exit_code` | The command's exit code, or -1 when none came back. |
 
-| Field       | What it is                                                           |
-| ----------- | -------------------------------------------------------------------- |
-| `stdout`    | The command's standard output.                                       |
-| `stderr`    | The command's standard error.                                        |
-| `exit_code` | The command's exit code.                                             |
-| `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+The streams, proxy log and transcripts are files in the run's [`output`](./run) directory. Without `output`, they are deleted after the run.
 
-The container is removed once its exit code is read; what it wrote outside the mounts and the agent's home goes with it. If the Docker daemon goes away mid-run, [`run()`](./run) returns what arrived, with `exit_code` -1. A [`Timeout`](./botbox#timeout) holds what arrived the same way.
+The container is removed once its exit code is read; what it wrote outside the mounts and the agent's home goes with it. If the Docker daemon goes away mid-run, [`run()`](./run) returns with `exit_code` -1. A [`Timeout`](./botbox#timeout) holds a `RunResult` with `exit_code` -1.

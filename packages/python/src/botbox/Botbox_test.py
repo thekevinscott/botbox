@@ -3,7 +3,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from dataclasses import astuple
+from dataclasses import asdict
 from pathlib import Path
 from typing import IO, Any
 from unittest.mock import MagicMock, Mock, call, patch
@@ -395,7 +395,6 @@ def jail() -> Mock:
         proxy=PROXY,
         volume="botbox-run-0123456789ab",
         envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
-        log="",
     )
 
 
@@ -515,12 +514,8 @@ def stuck_lockdown(*_args: object) -> Any:
 
 
 def describe_run() -> None:
-    async def it_returns_what_the_run_left(runner: Mock) -> None:
-        result = await Botbox(runner).run("claude -p hi")
-        assert result.stdout == "out�\n"
-        assert result.stderr == "err\n"
-        assert result.exit_code == 3
-        assert result.image == "an-agent-123:latest"
+    async def it_returns_only_the_exit_code(runner: Mock) -> None:
+        assert asdict(await Botbox(runner).run("claude -p hi")) == {"exit_code": 3}
 
     async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
         with pytest.raises(TypeError):
@@ -723,22 +718,17 @@ def describe_run() -> None:
             ]
 
     def describe_timeout() -> None:
-        async def it_keeps_partial_streams_in_a_legacy_timeout_result(
+        async def it_raises_a_timeout_holding_only_the_exit_code_without_output(
             runner: Mock, docker_run: Mock
         ) -> None:
-            async def hang(
-                _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
-            ) -> int:
-                stdout.extend(b"partial\n")
-                stderr.extend(b"err\n")
+            async def hang(*_args: object, **_options: object) -> int:
                 await asyncio.Event().wait()
                 return 0
 
             docker_run.side_effect = hang
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
-            result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
+            assert raised.value.result.exit_code == -1
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -749,9 +739,9 @@ def describe_run() -> None:
             assert (output / "stdout.txt").read_bytes() == b"partial\n"
             assert (output / "stderr.txt").read_bytes() == b"err\n"
             assert raised.value.seconds == 0.01
-            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
+            assert raised.value.result.exit_code == -1
 
-        async def it_tears_down_without_reading_the_mounted_transcripts(
+        async def it_tears_down_in_order(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
         ) -> None:
             docker_run.side_effect = hang_forever(steps)
@@ -791,13 +781,13 @@ def describe_run() -> None:
             result = await Botbox(runner, timeout=0.02).run("true", output=output)
             assert result.exit_code == 3
 
-        async def it_holds_an_empty_result_when_the_agent_never_started(
+        async def it_holds_no_exit_code_when_the_agent_never_started(
             runner: Mock, lockdown: Mock, output: Path
         ) -> None:
             lockdown.side_effect = stuck_lockdown
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("true", output=output)
-            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
+            assert raised.value.result.exit_code == -1
 
         async def it_lets_another_timeout_error_through(
             runner: Mock, docker_run: Mock, output: Path
@@ -871,12 +861,8 @@ def describe_session() -> None:
         async with Botbox(talker).session() as live:
             assert live is held
             assert live.result is None
-        result = live.result
-        assert result is not None
-        assert result.stdout == "out�\n"
-        assert result.stderr == "err\n"
-        assert result.exit_code == 3
-        assert result.image == "an-agent-123:latest"
+        assert live.result is not None
+        assert live.result.exit_code == 3
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
         with pytest.raises(TypeError, match=r"^Mock has no session mode$"):
@@ -943,8 +929,6 @@ def describe_session() -> None:
             "settle",
             f"warned: remove its agent container {AGENT}",
             "stop proxy",
-            "settle",
-            "warned: read its session artifacts",
             "settle",
             "remove temp home",
             "warned: remove its temp home",
@@ -1026,7 +1010,6 @@ def describe_session() -> None:
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp home"
-            assert held.result is not None
             assert held.result.exit_code == -1
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
@@ -1044,12 +1027,9 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "warned: read its session artifacts",
-                "settle",
                 "remove temp home",
                 "warned: remove its temp home",
             ]
-            assert held.result is not None
             assert held.result.exit_code == -1
 
         async def it_tears_down_when_cancelled_mid_turn(
@@ -1076,12 +1056,9 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "warned: read its session artifacts",
-                "settle",
                 "remove temp home",
                 "warned: remove its temp home",
             ]
-            assert held.result is not None
             assert held.result.exit_code == -1
 
         async def it_raises_a_client_that_failed_to_start(
@@ -1125,13 +1102,8 @@ def describe_session() -> None:
                 async with Botbox(talker, timeout=0.01).session():
                     await asyncio.Event().wait()
             assert raised.value.seconds == 0.01
-            assert raised.value.result is held.result
-            assert astuple(raised.value.result) == (
-                "out\ufffd\n",
-                "err\n",
-                -1,
-                "an-agent-123:latest",
-            )
+            assert raised.value.result == held.result
+            assert held.result.exit_code == -1
             assert run_steps(steps) == [
                 "start proxy",
                 "hold session",
@@ -1140,8 +1112,6 @@ def describe_session() -> None:
                 "settle",
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
-                "settle",
-                "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
                 "warned: remove its temp home",
@@ -1171,14 +1141,14 @@ def describe_session() -> None:
             assert held.result is not None
             assert held.result.exit_code == 3
 
-        async def it_holds_an_empty_result_when_the_session_never_started(
+        async def it_holds_no_exit_code_when_the_session_never_started(
             talker: Mock, lockdown: Mock
         ) -> None:
             lockdown.side_effect = stuck_lockdown
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session():
                     pass
-            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
+            assert raised.value.result.exit_code == -1
 
         async def it_lets_another_timeout_error_through(talker: Mock) -> None:
             with pytest.raises(TimeoutError, match="docker hung") as raised:
@@ -1207,7 +1177,7 @@ def describe_session() -> None:
             assert volumes[-1] == f"{tmp_path / 'transcripts'}:/home/user/.claude/projects:rw"
             assert (scratch / "home" / ".claude" / "projects").is_dir()
 
-        async def it_leaves_only_the_exit_code_and_image_in_the_result(
+        async def it_leaves_only_the_exit_code_in_the_result(
             talker: Mock, agent_exit: Mock, tmp_path: Path
         ) -> None:
             (tmp_path / "stdout.txt").write_text("old")
@@ -1216,7 +1186,7 @@ def describe_session() -> None:
                 pass
             assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
             assert live.result is not None
-            assert astuple(live.result) == ("", "", 3, "an-agent-123:latest")
+            assert live.result.exit_code == 3
             assert (tmp_path / "stdout.txt").read_bytes() == b""
             assert (tmp_path / "keep").read_text() == "keep"
 
@@ -1228,13 +1198,13 @@ def describe_session() -> None:
                     pass
             docker_build.assert_not_called()
 
-        async def it_holds_an_empty_result_when_the_session_times_out(
+        async def it_holds_no_exit_code_when_the_session_times_out(
             talker: Mock, tmp_path: Path
         ) -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session(output=tmp_path):
                     await asyncio.Event().wait()
-            assert astuple(raised.value.result) == ("", "", -1, "an-agent-123:latest")
+            assert raised.value.result.exit_code == -1
 
 
 @pytest.fixture
@@ -1268,7 +1238,7 @@ def describe_run_output() -> None:
             "relative": os.path.relpath(output),
         }
         result = await Botbox(runner).run("true", output=destination[form])
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
+        assert result.exit_code == 3
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert file_run.call_args.kwargs["stdout"].closed

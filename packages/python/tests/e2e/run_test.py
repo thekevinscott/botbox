@@ -22,7 +22,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException, Timeout
+from botbox import Botbox, ClaudeAgent, DockerException, RunResult, Timeout
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -180,10 +180,8 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
-    async def it_returns_what_the_command_left(box: Botbox, runs: Runs) -> None:
-        result = await box.run("echo out; echo err >&2; exit 5")
-        assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
-        assert result.image == "botbox-claude:latest"
+    async def it_returns_only_the_exit_code_without_output(box: Botbox, runs: Runs) -> None:
+        assert await box.run("echo out; echo err >&2; exit 5") == RunResult(5)
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
@@ -191,7 +189,7 @@ def describe_run() -> None:
         box: Botbox, runs: Runs, tmp_path: Path
     ) -> None:
         result = await box.run("echo out; echo err >&2; exit 5", output=tmp_path / "output")
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
+        assert result == RunResult(5)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
         assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
@@ -205,7 +203,7 @@ def describe_run() -> None:
             " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
         )
         result = await box.run(command, output=output)
-        assert result.exit_code == 0
+        assert result == RunResult(0)
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
         assert [p.name for p in output.rglob("*credentials*")] == []
         assert runs.leftovers() == []
@@ -260,8 +258,7 @@ def describe_run() -> None:
             with pytest.raises(Timeout) as raised:
                 await box.run("echo partial; echo err >&2; sleep 600", output=output, timeout=8)
             assert time.monotonic() - started < 8 + GRACE
-            result = raised.value.result
-            assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+            assert raised.value.result == RunResult(-1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
             assert "Starting main loop" in (output / "proxy.log").read_text()

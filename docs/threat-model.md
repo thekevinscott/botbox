@@ -14,7 +14,7 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt`, or `result.stdout` without `output`, is whatever reached the container's stdout.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` is whatever reached the container's stdout.
 
 ### What's Left
 
