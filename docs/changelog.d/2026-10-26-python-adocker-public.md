@@ -1,0 +1,1 @@
+**Added**: `adocker`, the async Docker client botbox runs on, is public. It ships in the botbox wheel and exports `build`, `run`, `inspect_container`, `inspect_image` and `DockerException`. `inspect_image` is new: it returns an image's `docker image inspect` record, `Id` included. `adocker.DockerException` is `botbox.DockerException`.
