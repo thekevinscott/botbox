@@ -16,29 +16,18 @@ def lines(*events: Any) -> bytes:
 class Live:
     """A session over fake pipes: `print` is the CLI writing, `exit` its client exiting."""
 
-    def __init__(self, reader: bool) -> None:
+    def __init__(self) -> None:
         self.agent = Mock(
             encode=lambda message: f"<{message}>",
             turn_ended=lambda event: event.get("type") == "end",
         )
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
-        self.stdout = Mock(into=bytearray(), grew=asyncio.Event())
-        self.stderr = bytearray()
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         self.reader = asyncio.StreamReader(limit=1_000_000)
-        self.session = Session(
-            self.agent,
-            self.stdin,
-            self.stdout,
-            self.stderr,
-            self.client,
-            _readline=self.reader.readline if reader else None,
-        )
+        self.session = Session(self.agent, self.stdin, self.client, self.reader.readline)
 
     def print(self, data: bytes) -> None:
         self.reader.feed_data(data)
-        self.stdout.into.extend(data)
-        self.stdout.grew.set()
 
     def exit(self, code: int = 0) -> None:
         self.reader.feed_eof()
@@ -55,9 +44,9 @@ def abort_writer() -> Iterator[Mock]:
         yield m
 
 
-@pytest.fixture(params=[False, True], ids=["legacy", "reader"])
-async def live(request: pytest.FixtureRequest) -> Live:
-    return Live(request.param)
+@pytest.fixture
+async def live() -> Live:
+    return Live()
 
 
 async def soon(live: Live, *chunks: bytes) -> None:
@@ -68,26 +57,15 @@ async def soon(live: Live, *chunks: bytes) -> None:
 
 
 def describe_Session() -> None:
-    async def it_needs_a_capture_or_a_reader() -> None:
-        client = asyncio.get_running_loop().create_future()
-        with pytest.raises(TypeError, match="stdout capture or a _readline"):
-            Session(Mock(), Mock(), None, bytearray(), client)
-
     async def it_keeps_its_agent_and_pipes(live: Live) -> None:
         session = live.session
         assert session.agent is live.agent
         assert session.stdin is live.stdin
-        assert session.stdout is live.stdout
-        assert session.stderr is live.stderr
         assert session.client is live.client
 
-    async def it_accepts_the_existing_constructor_arguments_by_keyword(live: Live) -> None:
+    async def it_takes_its_arguments_by_keyword(live: Live) -> None:
         session = Session(
-            agent=live.agent,
-            stdin=live.stdin,
-            stdout=live.stdout,
-            stderr=live.stderr,
-            client=live.client,
+            agent=live.agent, stdin=live.stdin, client=live.client, readline=live.reader.readline
         )
         live.print(lines({"type": "end"}))
         assert await session.message("hi") == [{"type": "end"}]
@@ -263,25 +241,13 @@ def describe_Session() -> None:
         assert await live.session.event() == {"n": 1}
 
     async def it_ends_at_reader_eof_even_while_the_client_is_running(live: Live) -> None:
-        session = Session(
-            live.agent,
-            live.stdin,
-            live.stdout,
-            live.stderr,
-            live.client,
-            _readline=AsyncMock(return_value=b""),
-        )
+        session = Session(live.agent, live.stdin, live.client, AsyncMock(return_value=b""))
         assert await session.message("hi") == []
         assert not live.client.done()
 
     async def it_propagates_a_reader_failure_without_cancelling_the_client(live: Live) -> None:
         session = Session(
-            live.agent,
-            live.stdin,
-            live.stdout,
-            live.stderr,
-            live.client,
-            _readline=AsyncMock(side_effect=OSError("reader failed")),
+            live.agent, live.stdin, live.client, AsyncMock(side_effect=OSError("reader failed"))
         )
         with pytest.raises(OSError, match="reader failed"):
             await session.message("hi")
@@ -296,9 +262,7 @@ def describe_Session() -> None:
             return b'{"type": "end"}\n'
 
         reader = AsyncMock(side_effect=deliver)
-        session = Session(
-            live.agent, live.stdin, live.stdout, live.stderr, live.client, _readline=reader
-        )
+        session = Session(live.agent, live.stdin, live.client, reader)
         with pytest.raises(asyncio.CancelledError):
             await session.event()
         reader.side_effect = None
@@ -308,12 +272,7 @@ def describe_Session() -> None:
 
     async def it_propagates_a_cancelled_reader(live: Live) -> None:
         session = Session(
-            live.agent,
-            live.stdin,
-            live.stdout,
-            live.stderr,
-            live.client,
-            _readline=AsyncMock(side_effect=asyncio.CancelledError),
+            live.agent, live.stdin, live.client, AsyncMock(side_effect=asyncio.CancelledError)
         )
         with pytest.raises(asyncio.CancelledError):
             await session.event()

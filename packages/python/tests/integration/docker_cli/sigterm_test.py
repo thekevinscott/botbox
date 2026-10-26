@@ -28,7 +28,7 @@ async def main():
                 async with box.session(output=output) as live:
                     await live.message("hang")
             else:
-                await box.run("hang")
+                await box.run("hang", output=output)
     except asyncio.CancelledError:
         sys.exit(7)
 

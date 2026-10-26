@@ -1,7 +1,6 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, Mock, patch
@@ -16,13 +15,17 @@ def open_fds() -> set[str]:
 
 
 class Client:
-    """The attached `docker run`: what it was given, and a CLI that echoes each line it reads."""
+    """The attached `docker run`: what it was given, and a CLI that echoes each line it reads.
+
+    Each line it prints also goes to `printed`, which the fake `tail` follows.
+    """
 
     def __init__(self) -> None:
         self.args: list[str] = []
         self.options: dict[str, Any] = {}
         self.cancelled = False
         self.fails: BaseException | None = None
+        self.printed: asyncio.Queue[bytes] = asyncio.Queue()
 
     async def __call__(self, args: list[str], **options: Any) -> int:
         self.args, self.options = args, options
@@ -36,18 +39,14 @@ class Client:
             if self.fails is not None:
                 raise self.fails
             while line := await reader.readline():
-                os.write(out.write, line)
-            os.write(err.write, b"bye\n")
-            out.release()
-            err.release()
-            await asyncio.gather(out.eof, err.eof)
+                os.write(out.fileno(), line)
+                self.printed.put_nowait(line)
+            os.write(err.fileno(), b"bye\n")
             return 7
         except asyncio.CancelledError:
             self.cancelled = True
             raise
         finally:
-            out.release()
-            err.release()
             transport.close()
 
 
@@ -56,6 +55,44 @@ def client() -> Iterator[Client]:
     client = Client()
     with patch("botbox.hold_session.execute", client):
         yield client
+
+
+class Follower:
+    """The fake `tail`: how it was called, and how many times a follower was exited.
+
+    A class, not a generator, so only an exit counts and not garbage collection.
+    """
+
+    def __init__(self, client: Client) -> None:
+        self.client = client
+        self.calls: list[tuple[Path, int | None, bool]] = []
+        self.closed = 0
+
+    def __call__(self, path: Path, *, n: int | None, follow: bool) -> "Follower":
+        self.calls.append((path, n, follow))
+        return self
+
+    async def __aenter__(self) -> AsyncIterator[bytes]:
+        return self.lines()
+
+    async def __aexit__(self, *_: object) -> None:
+        self.closed += 1
+
+    async def lines(self) -> AsyncIterator[bytes]:
+        while True:
+            yield await self.client.printed.get()
+
+
+@pytest.fixture(autouse=True)
+def followed(client: Client) -> Iterator[Follower]:
+    follower = Follower(client)
+    with patch("botbox.hold_session.tail", follower):
+        yield follower
+
+
+@pytest.fixture
+def output(tmp_path: Path) -> Path:
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -80,68 +117,79 @@ def agent() -> Mock:
 
 
 def describe_hold_session() -> None:
-    async def it_starts_the_attached_run_with_its_args(client: Client, agent: Mock) -> None:
-        async with hold_session(agent, ["--interactive", "img"]) as live:
+    async def it_starts_the_attached_run_with_its_args(
+        client: Client, agent: Mock, output: Path
+    ) -> None:
+        async with hold_session(agent, ["--interactive", "img"], output) as live:
             await asyncio.sleep(0.01)
             assert client.args == ["run", "--interactive", "img"]
             assert live.agent is agent
-            assert client.options["stdout"] is live.stdout
-            assert client.options["stderr"].into is live.stderr
             live.stdin.close()
             await live.client
 
-    async def it_yields_a_session_on_the_agent(agent: Mock) -> None:
+    async def it_yields_a_session_on_the_agent(agent: Mock, output: Path) -> None:
         with patch("botbox.hold_session.Session") as session:
-            async with hold_session(agent, []) as live:
+            async with hold_session(agent, [], output) as live:
                 assert live is session.return_value
         assert session.call_args.args[0] is agent
 
-    async def it_streams_the_clis_output_back_to_the_session(agent: Mock) -> None:
-        async with hold_session(agent, []) as live:
+    async def it_streams_the_clis_output_back_to_the_session(agent: Mock, output: Path) -> None:
+        async with hold_session(agent, [], output) as live:
             assert await live.message('{"type": "end"}') == [{"type": "end"}]
             live.stdin.close()
             assert await live.client == 7
-        assert live.stdout is not None
-        assert live.stdout.into == b'{"type": "end"}\n'
-        assert live.stderr == b"bye\n"
+        assert (output / "stdout.txt").read_bytes() == b'{"type": "end"}\n'
+        assert (output / "stderr.txt").read_bytes() == b"bye\n"
 
-    async def it_reads_a_final_unterminated_event_after_the_client_exits(agent: Mock) -> None:
-        async with hold_session(agent, []) as live:
-            live.stdin.write(b'{"type":"end"}')
-            live.stdin.close()
-            assert await live.client == 7
-            assert await live.event() == {"type": "end"}
-            assert await live.event() is None
-        assert live.stdout is not None
-        assert live.stdout.into == b'{"type":"end"}'
-
-    async def it_holds_the_input_for_this_process_alone(agent: Mock, owner_only: MagicMock) -> None:
-        async with hold_session(agent, []) as live:
+    async def it_holds_the_input_for_this_process_alone(
+        agent: Mock, owner_only: MagicMock, output: Path
+    ) -> None:
+        async with hold_session(agent, [], output) as live:
             owner_only.assert_called_once_with(live.stdin.transport.get_extra_info("pipe"))
             owner_only.return_value.__exit__.assert_not_called()
         owner_only.return_value.__exit__.assert_called_once()
 
     async def it_kills_the_client_if_it_is_still_running_on_leaving(
-        client: Client, agent: Mock
+        client: Client, agent: Mock, output: Path
     ) -> None:
-        async with hold_session(agent, []) as live:
+        async with hold_session(agent, [], output) as live:
             await asyncio.sleep(0.01)
         assert client.cancelled
         assert live.client.cancelled()
 
-    async def it_kills_the_client_when_the_block_fails(client: Client, agent: Mock) -> None:
+    async def it_closes_the_follower_on_leaving(
+        followed: Follower, agent: Mock, output: Path
+    ) -> None:
+        async with hold_session(agent, [], output):
+            await asyncio.sleep(0.01)
+            assert followed.closed == 0
+        assert followed.closed == 1
+
+    async def it_closes_the_follower_when_the_block_fails(
+        followed: Follower, agent: Mock, output: Path
+    ) -> None:
         with pytest.raises(ValueError, match="boom"):
-            async with hold_session(agent, []) as live:
+            async with hold_session(agent, [], output):
+                raise ValueError("boom")
+        assert followed.closed == 1
+
+    async def it_kills_the_client_when_the_block_fails(
+        client: Client, agent: Mock, output: Path
+    ) -> None:
+        with pytest.raises(ValueError, match="boom"):
+            async with hold_session(agent, [], output) as live:
                 await asyncio.sleep(0.01)
                 raise ValueError("boom")
         assert client.cancelled
         assert live.client.cancelled()
 
-    async def it_finishes_killing_the_client_through_a_cancel(client: Client, agent: Mock) -> None:
+    async def it_finishes_killing_the_client_and_the_follower_through_a_cancel(
+        client: Client, followed: Follower, agent: Mock, output: Path
+    ) -> None:
         stopping = asyncio.Event()
 
         async def hold() -> None:
-            async with hold_session(agent, []):
+            async with hold_session(agent, [], output):
                 await asyncio.sleep(0.01)
                 stopping.set()
 
@@ -151,72 +199,53 @@ def describe_hold_session() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert client.cancelled
+        assert followed.closed == 1
 
     async def it_swallows_a_client_that_failed_once_the_block_failed(
-        client: Client, agent: Mock
+        client: Client, agent: Mock, output: Path
     ) -> None:
         client.fails = OSError("no docker")
         with pytest.raises(ValueError, match="boom"):
-            async with hold_session(agent, []) as live:
+            async with hold_session(agent, [], output) as live:
                 await asyncio.sleep(0.01)
                 raise ValueError("boom")
         assert isinstance(live.client.exception(), OSError)
 
-    async def it_aborts_the_input_once_left(agent: Mock, abort_writer: Mock) -> None:
-        async with hold_session(agent, []) as live:
+    async def it_aborts_the_input_once_left(agent: Mock, abort_writer: Mock, output: Path) -> None:
+        async with hold_session(agent, [], output) as live:
             abort_writer.assert_not_called()
         abort_writer.assert_called_once_with(live.stdin)
 
-    async def it_aborts_the_input_when_its_output_cannot_be_captured(
-        agent: Mock, abort_writer: Mock
+    async def it_aborts_the_input_when_its_output_cannot_be_opened(
+        agent: Mock, abort_writer: Mock, tmp_path: Path
     ) -> None:
-        with (
-            patch("botbox.hold_session.Capture", side_effect=OSError("no fds")),
-            pytest.raises(OSError, match="no fds"),
-        ):
-            async with hold_session(agent, []):
+        with pytest.raises(FileNotFoundError):
+            async with hold_session(agent, [], tmp_path / "missing"):
                 pass
         [(writer,)] = [c.args for c in abort_writer.call_args_list]
         assert writer.transport.is_closing()
 
-    async def it_closes_both_ends_of_the_input(agent: Mock) -> None:
+    async def it_closes_both_ends_of_the_input(agent: Mock, output: Path) -> None:
         before = open_fds()
-        async with hold_session(agent, []) as live:
+        async with hold_session(agent, [], output) as live:
             live.stdin.close()
             await live.client
         await asyncio.sleep(0.01)
         assert open_fds() <= before
 
-    async def it_closes_both_ends_when_it_cannot_watch_the_input(agent: Mock) -> None:
+    async def it_closes_both_ends_when_it_cannot_watch_the_input(agent: Mock, output: Path) -> None:
         before = open_fds()
         loop = asyncio.get_running_loop()
         with (
             patch.object(loop, "connect_write_pipe", side_effect=OSError("no watch")),
             pytest.raises(OSError, match="no watch"),
         ):
-            async with hold_session(agent, []):
+            async with hold_session(agent, [], output):
                 pass
         assert open_fds() <= before
 
 
-def describe_with_output() -> None:
-    @pytest.fixture
-    def followed() -> Iterator[list[tuple[Path, int | None, bool]]]:
-        calls: list[tuple[Path, int | None, bool]] = []
-
-        @asynccontextmanager
-        async def tail(path: Path, *, n: int | None, follow: bool) -> AsyncIterator[Any]:
-            calls.append((path, n, follow))
-
-            async def lines() -> AsyncIterator[bytes]:
-                yield b"not json\n"
-                yield b'{"type": "end"}\n'
-
-            yield lines()
-
-        with patch("botbox.hold_session.tail", tail):
-            yield calls
-
+def describe_its_output() -> None:
     @pytest.fixture
     def files_client() -> Iterator[Mock]:
         async def attached(_args: list[str], **options: Any) -> int:
@@ -231,22 +260,19 @@ def describe_with_output() -> None:
     async def it_hands_the_client_files_and_follows_stdout(
         agent: Mock,
         files_client: Mock,
-        followed: list[tuple[Path, int | None, bool]],
-        tmp_path: Path,
+        followed: Follower,
+        output: Path,
     ) -> None:
-        (tmp_path / "stdout.txt").write_text("old")
-        async with hold_session(agent, ["img"], output=tmp_path) as live:
-            assert await live.event() == {"type": "end"}
-            assert await live.event() is None
-            assert live.stdout is None
-            assert live.stderr == b""
+        (output / "stdout.txt").write_text("old")
+        async with hold_session(agent, ["img"], output) as live:
+            await asyncio.sleep(0.01)
         options = files_client.call_args.kwargs
         assert files_client.call_args.args == (["run", "img"],)
-        assert options["stdout"].name == str(tmp_path / "stdout.txt")
-        assert options["stderr"].name == str(tmp_path / "stderr.txt")
+        assert options["stdout"].name == str(output / "stdout.txt")
+        assert options["stderr"].name == str(output / "stderr.txt")
         assert options["stdout"].closed
         assert options["stderr"].closed
-        assert followed == [(tmp_path / "stdout.txt", None, True)]
-        assert (tmp_path / "stdout.txt").read_bytes() == b"out\n"
-        assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
+        assert followed.calls == [(output / "stdout.txt", None, True)]
+        assert (output / "stdout.txt").read_bytes() == b"out\n"
+        assert (output / "stderr.txt").read_bytes() == b"err\n"
         assert live.client.cancelled()

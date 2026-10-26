@@ -10,6 +10,6 @@ For `PiAgent`, the `provider` argument selects the agent's own hosts.
 
 An allowed host is reachable over HTTPS on port 443 and plain HTTP on port 80. Other ports are refused.
 
-Every connection, admitted or refused, is logged to `proxy.log` in the run's `output`, or to `result.proxy` without `output`.
+Every connection, admitted or refused, is logged to `proxy.log` in the run's `output`. Without `output`, the log is deleted after the run.
 
 Next: [Reading the result](./reading-the-result). Background: [Network](../explanation/#network).
