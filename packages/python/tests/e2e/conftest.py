@@ -9,10 +9,10 @@ import contextlib
 import os
 import subprocess
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -111,7 +111,9 @@ def kept(request: pytest.FixtureRequest) -> Path:
     return path
 
 
-def probe(output: Path, target: str) -> str:
+def probe(
+    output: Path, target: str, mounts: Sequence[tuple[Path, str, Literal["ro", "rw"]]] = ()
+) -> str:
     """Ask a real agent to probe the box for `target`; return its report.
 
     The run's files and the report, in report/, all stay in `output`. Running out of time is
@@ -124,7 +126,7 @@ def probe(output: Path, target: str) -> str:
         asyncio.run(
             Botbox(agent, timeout=(MINUTES + 2) * 60).run(
                 agent.command(PROBE.format(target=target)),
-                mounts=[(SOURCE, SOURCE_MOUNT, "ro"), (report, REPORT, "rw")],
+                mounts=[(SOURCE, SOURCE_MOUNT, "ro"), (report, REPORT, "rw"), *mounts],
                 output=output,
             )
         )
