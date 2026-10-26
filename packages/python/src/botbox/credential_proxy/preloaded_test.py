@@ -19,6 +19,13 @@ def describe_preloaded() -> None:
         finally:
             os.close(read)
 
+    def it_takes_data_past_the_small_int_cache() -> None:
+        read = preloaded(b"x" * 1000)
+        try:
+            assert os.read(read, 2000) == b"x" * 1000
+        finally:
+            os.close(read)
+
     def it_refuses_data_bigger_than_the_pipe_and_closes_both_ends() -> None:
         before = open_fds()
         with pytest.raises(BlockingIOError):

@@ -11,7 +11,6 @@ from botbox.docker.execute import execute
 
 # Envoy only notices a file renamed over the secret.
 ROTATE = 'cat >"$1.next" && mv "$1.next" "$1"'
-STDERR_LIMIT = 64 * 1024
 
 
 class CredentialProxy:
@@ -27,7 +26,7 @@ class CredentialProxy:
         stdin = preloaded(sds_secret(value))
         err = bytearray()
         try:
-            async with Capture(err, STDERR_LIMIT) as stderr:
+            async with Capture(err) as stderr:
                 code = await execute(
                     args, stdin=stdin, stdout=asyncio.subprocess.DEVNULL, stderr=stderr
                 )

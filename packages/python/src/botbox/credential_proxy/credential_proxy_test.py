@@ -203,6 +203,10 @@ def describe_credential_proxy() -> None:
                 pytest.fail("yielded")
         assert steps == ["stop botbox-credentials-t"]
 
+    def it_takes_the_containers_by_keyword_only(sockets: Path, log: Path) -> None:
+        with pytest.raises(TypeError):
+            credential_proxy(INJECTION, "s", "botbox-proxy-t", sockets, "t", log)  # type: ignore[arg-type, call-arg]
+
     async def it_closes_the_stdin_pipe(sockets: Path, log: Path, client: Client) -> None:
         async with start(sockets, log):
             os.fstat(client.stdin)

@@ -1,10 +1,11 @@
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
-from botbox.credential_proxy.wait_for_socket import ERROR_BYTES, wait_for_socket
+from botbox.credential_proxy.wait_for_socket import wait_for_socket
 
 
 @pytest.fixture
@@ -43,9 +44,22 @@ def describe_wait_for_socket() -> None:
     async def it_waits_for_a_socket_that_comes_later(
         socket: Path, log: Path, running: asyncio.Future[int]
     ) -> None:
-        later = asyncio.get_running_loop().call_later(0.1, asyncio.ensure_future, serve(socket))
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        later = loop.call_later(0.1, asyncio.ensure_future, serve(socket))
         await wait_for_socket(socket, running, log, 5)
         later.cancel()
+        assert loop.time() - start < 0.5
+
+    async def it_polls_every_50ms(socket: Path, log: Path, running: asyncio.Future[int]) -> None:
+        with (
+            patch.object(
+                asyncio, "open_unix_connection", wraps=asyncio.open_unix_connection
+            ) as attempts,
+            pytest.raises(RuntimeError),
+        ):
+            await wait_for_socket(socket, running, log, 0.5)
+        assert 5 <= attempts.call_count <= 15
 
     async def it_does_not_take_a_file_that_refuses_connections(
         socket: Path, log: Path, running: asyncio.Future[int]
@@ -78,9 +92,9 @@ def describe_wait_for_socket() -> None:
         assert error.value.__cause__ is None
 
     async def it_keeps_only_the_end_of_a_long_log(socket: Path, log: Path) -> None:
-        log.write_bytes(b"a" * 10 + b"b" * ERROR_BYTES)
+        log.write_bytes(b"a" * 10 + b"b" * 65536)
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         client.set_result(1)
         with pytest.raises(RuntimeError) as error:
             await wait_for_socket(socket, client, log, 5)
-        assert str(error.value).endswith(":\n" + "b" * ERROR_BYTES)
+        assert str(error.value).endswith(":\n" + "b" * 65536)

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.credential_proxy.stop_container import stop_container
+from botbox.credential_proxy.stop_container import REMOVE_SECONDS, stop_container
 
 
 @pytest.fixture
@@ -41,6 +41,9 @@ def exiting_on_stop(run_docker: AsyncMock, steps: list[str]) -> asyncio.Future[i
 
 
 def describe_stop_container() -> None:
+    def it_gives_the_daemon_30s() -> None:
+        assert REMOVE_SECONDS == 30
+
     async def it_stops_the_container_then_removes_it(
         run_docker: AsyncMock, steps: list[str]
     ) -> None:
@@ -60,8 +63,9 @@ def describe_stop_container() -> None:
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         client.set_result(0)
         remove.side_effect = RuntimeError("daemon gone")
-        with pytest.warns(RuntimeWarning, match="remove its credential proxy p: daemon gone"):
+        with pytest.warns(RuntimeWarning, match="remove its credential proxy p: daemon gone") as w:
             await stop_container(client, "p")
+        assert w[0].filename == __file__
 
     async def it_gives_up_on_a_daemon_that_hangs(remove: AsyncMock) -> None:
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()

@@ -78,6 +78,11 @@ def describe_CredentialProxy() -> None:
             with pytest.raises(OSError):
                 os.fstat(execute.stdin_fd)
 
+        async def it_raises_when_the_client_is_killed(execute: Execute) -> None:
+            execute.code = -9
+            with pytest.raises(DockerException):
+                await CredentialProxy("p", Path("/s")).rotate("v")
+
         async def it_raises_with_what_docker_said(execute: Execute) -> None:
             execute.code, execute.stderr = 1, b"No such container: p"
             with pytest.raises(DockerException, match="No such container: p") as error:
