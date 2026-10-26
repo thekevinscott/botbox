@@ -8,7 +8,7 @@ import pytest
 from conftest import LINE
 
 from adocker import Image
-from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent
+from botbox import Agent, Botbox, ClaudeAgent, CodexAgent, HomeFiles, PiAgent
 from botbox.lockdown import RELAY, lockdown
 
 UNNAMED = """FROM botbox-claude:latest
@@ -58,17 +58,35 @@ FOREIGN_PROBES = {
 }
 
 
-async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
+def foreign_probes(agent: Agent) -> dict[str, str]:
+    """`FOREIGN_PROBES`, plus the owner of a staged file and writes beside and into the
+    transcripts mount."""
+    files = HomeFiles()
+    agent.stage_auth(files)
+    staged = next(iter(files.files))
+    sessions = f"$HOME/{agent.sessions_dir}"
+    return {
+        **FOREIGN_PROBES,
+        "staged": f'stat -c %u "$HOME/{staged}"',
+        "beside": f'touch "$(dirname "{sessions}")/probe" && echo written || echo refused',
+        "transcripts": f'touch "{sessions}/probe" && echo written || echo refused',
+    }
+
+
+async def run_as_foreign_uid(box: Botbox, scratch: Path, transcripts: Path) -> str:
     """The agent container's own flags and relay, under a uid and gid the host has no entry for.
 
-    Below `run()`: the host can't chown a home to another uid, so the home is world-writable
-    instead.
+    Below `run()`, which always runs as the host's uid. The host can't chown the transcripts
+    dir to another uid, so it is world-writable instead.
     """
     image = await box.build()
     token = uuid4().hex[:12]
-    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
+    probes = foreign_probes(box.agent)
+    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
+    target = f"{box.agent.home}/{box.agent.sessions_dir}"
+    volumes = [(str(transcripts), target, "rw")]
     async with lockdown((), scratch, token) as jail:
-        flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
+        flags = box._lockdown_flags(token, box._home_files(), jail, volumes, None)  # noqa: SLF001
         flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         stdout, stderr = bytearray(), bytearray()
         container = await Image(image).run(
@@ -99,10 +117,10 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
 def foreign(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> dict[str, str]:
-    home = tmp_path_factory.mktemp("home")
-    home.chmod(0o777)
+    transcripts = tmp_path_factory.mktemp("transcripts")
+    transcripts.chmod(0o777)
     scratch = tmp_path_factory.mktemp("scratch")
-    stdout = asyncio.run(run_as_foreign_uid(Botbox(request.param), scratch, home))
+    stdout = asyncio.run(run_as_foreign_uid(Botbox(request.param), scratch, transcripts))
     fields = (line.split("\t", 1) for line in stdout.splitlines() if "\t" in line)
     return {name: value.strip() for name, value in fields}
 
@@ -122,3 +140,12 @@ def describe_a_host_uid_and_gid_with_no_entries() -> None:
 
     def it_writes_under_home(foreign: dict[str, str]) -> None:
         assert foreign["write"] == "written"
+
+    def it_gets_the_staged_files(foreign: dict[str, str]) -> None:
+        assert foreign["staged"] == str(FOREIGN_UID)
+
+    def it_writes_beside_its_transcripts(foreign: dict[str, str]) -> None:
+        assert foreign["beside"] == "written"
+
+    def it_writes_its_transcripts(foreign: dict[str, str]) -> None:
+        assert foreign["transcripts"] == "written"

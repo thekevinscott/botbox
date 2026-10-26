@@ -1,7 +1,7 @@
 """`Botbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
 
-Every run labels its containers and volume `botbox.run=<token>` and names its temp home
-after the token.
+Every run labels its containers and volume `botbox.run=<token>` and names its temp
+directory after the token.
 A test sees only the tokens that appeared while it ran, and cleans up only those.
 """
 
@@ -95,9 +95,10 @@ def volumes(token: str) -> list[str]:
 
 
 class Runs:
-    """The runs this test started, known by the temp homes they make in its own temp dir.
+    """The runs this test started, known by the temp directories they make in its own
+    temp dir.
 
-    A thread watches the dir, so a run's token is seen even if it is gone by the next look.
+        A thread watches the dir, so a run's token is seen even if it is gone by the next look.
     """
 
     def __init__(self, temp: Path) -> None:
@@ -109,16 +110,16 @@ class Runs:
 
     def watch(self) -> None:
         while not self.done.wait(0.02):
-            self.tokens |= {p.name.split("-")[1] for p in self.homes()}
+            self.tokens |= {p.name.split("-")[1] for p in self.scratches()}
 
-    def homes(self) -> list[Path]:
+    def scratches(self) -> list[Path]:
         return [p for p in self.temp.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
 
     def leftovers(self) -> list[str]:
         return [
             *(f"container {c}" for t in self.tokens for c in containers(t)),
             *(f"volume {v}" for t in self.tokens for v in volumes(t)),
-            *(f"temp {h.name}" for h in self.homes()),
+            *(f"temp {h.name}" for h in self.scratches()),
         ]
 
     def running_agents(self) -> list[str]:
@@ -156,7 +157,7 @@ def box() -> Botbox:
 
 @pytest.fixture
 def temp(tmp_path: Path) -> Iterator[Path]:
-    """This test's own temp dir, so its runs' homes are told apart from anyone else's."""
+    """This test's own temp dir, so its runs' temp directories are told apart from anyone else's."""
     directory = tmp_path / "tmp"
     directory.mkdir()
     with patch.object(tempfile, "tempdir", str(directory)):
@@ -219,7 +220,7 @@ def describe_run() -> None:
 
     def describe_cancelling() -> None:
         @pytest.mark.parametrize("command", ["sleep 600", HOSTILE], ids=["plain", "hostile"])
-        async def it_removes_the_runs_containers_and_home(
+        async def it_removes_the_runs_containers_and_temp_directory(
             box: Botbox, runs: Runs, command: str, output: Path
         ) -> None:
             task = asyncio.ensure_future(box.run(PRINT + command, output=output))
