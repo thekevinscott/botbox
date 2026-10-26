@@ -15,12 +15,14 @@ CodexAgent(model: str | None = None, effort: str | None = None, *, api_key: str 
 ```python
 agent = CodexAgent("gpt-5.5", "low")
 async with Botbox(agent) as box:
-    result = await box.run(agent.command("Fix the tests"))
+    result = await box.run(agent.command("Fix the tests"), output="runs/fix")
 ```
 
 ## Credentials
 
 By default, the run uses your Codex login from `~/.codex/auth.json`. Pass `api_key` to use an API key instead. The choice also sets which host the proxy admits: `chatgpt.com` for a host login, `api.openai.com` with `api_key`.
+
+With `output`, `transcripts/` there is mounted over `~/.codex/sessions`. The staged credentials sit outside it.
 
 ## Sessions
 

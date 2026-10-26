@@ -22,9 +22,6 @@ def describe_botbox() -> None:
         assert inspect.isasyncgenfunction(inspect.unwrap(botbox.Botbox.session))
         assert inspect.iscoroutinefunction(botbox.Session.message)
 
-    def it_reaps_dead_runs_as_a_coroutine() -> None:
-        assert inspect.iscoroutinefunction(botbox.reap)
-
     def it_raises_its_own_docker_exception() -> None:
         assert botbox.DockerException is DockerException
 

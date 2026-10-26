@@ -22,7 +22,6 @@ from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.read_transcript import read_transcript
-from botbox.reap import reap
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.Session import Session
@@ -148,10 +147,9 @@ class Botbox:
         Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
         temp home before the cancel propagates, through any number of further cancels. Both
         containers are labelled `botbox.run=<token>`, and the temp home is `<token>` in a
-        per-user dir under the system temp dir. A run first sweeps up after runs whose owner
-        died (see `reap()`). Raises `DockerException` if setup fails or the container never ran
-        to its exit while the daemon was up. A teardown step that fails, or a container removal
-        that takes longer than 30 seconds, is a warning, never the error.
+        per-user dir under the system temp dir. Raises `DockerException` if setup fails or the
+        container never ran to its exit while the daemon was up. A teardown step that fails, or a
+        container removal that takes longer than 30 seconds, is a warning, never the error.
 
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
         out, the run tears down as a cancel does, reads the transcript unless `output` holds it,
@@ -171,7 +169,6 @@ class Botbox:
             (output / "transcripts").mkdir(exist_ok=True)
             sessions = f"{agent.home}/{agent.sessions_dir}"
             volumes.append((str(output / "transcripts"), sessions, "rw"))
-        await reap()
         image = await self.build()
         token = uuid4().hex[:12]
         claim = Claim(token)
@@ -257,7 +254,6 @@ class Botbox:
         limit = self.timeout if timeout is None else check_timeout(timeout)
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
-        await reap()
         image = await self.build()
         token = uuid4().hex[:12]
         claim = Claim(token)

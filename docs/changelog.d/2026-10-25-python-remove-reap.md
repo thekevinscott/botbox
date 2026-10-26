@@ -1,0 +1,1 @@
+**Removed** **BREAKING**: `botbox.reap()` is gone, and `run()` and `session()` no longer sweep up after runs whose owner died before they start. A run killed outright (SIGKILL, OOM) leaves its containers, labelled `botbox.run=<token>`, and its temp home for the caller to remove. See [the migration](../migrations.d/2026-10-25-python-remove-reap.md).

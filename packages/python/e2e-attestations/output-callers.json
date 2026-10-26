@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/mounts_test.py tests/e2e/quoting_test.py tests/e2e/layer_test.py tests/e2e/consumer_test.py tests/e2e/user_test.py",
+  "ran_at": 1792978031,
+  "exit_code": 0,
+  "commit": "35eff3aae67f95e2c180f3a6ed94633bd0b5fe33",
+  "branch": "output-callers"
+}

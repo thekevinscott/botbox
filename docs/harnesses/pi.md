@@ -17,7 +17,7 @@ PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
 ```python
 agent = PiAgent("openrouter", "qwen/qwen3-coder")
 async with Botbox(agent) as box:
-    result = await box.run(agent.command("Fix the tests"))
+    result = await box.run(agent.command("Fix the tests"), output="runs/fix")
 ```
 
 ## Providers
@@ -28,6 +28,8 @@ async with Botbox(agent) as box:
 ## Credentials
 
 By default, the run uses your pi login from `~/.pi/agent/auth.json`, and `models.json` beside it if it exists. Pass `api_key` to use a key for `provider` instead.
+
+With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The staged credentials sit outside it.
 
 ## Sessions
 

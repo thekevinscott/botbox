@@ -15,9 +15,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import LINE, Probe, docker_lines
+from conftest import LINE, docker_lines
 
-from botbox import Botbox, ClaudeAgent, RunResult
+from botbox import Botbox, ClaudeAgent
 
 FETCH = (
     "node -e 'fetch(process.argv[1]).then("
@@ -76,19 +76,29 @@ PROBES = {
 }
 
 
-@pytest.fixture(scope="module")
-def session(probe: Probe) -> tuple[RunResult, dict[str, str]]:
-    return probe(PROBES)
+def run_probes(box: Botbox, probes: dict[str, str], output: Path) -> dict[str, str]:
+    """Run named shell probes in one container; return each probe's output from stdout.txt."""
+    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
+    result = asyncio.run(box.run(script, output=output))
+    assert result.exit_code == 0, (output / "stderr.txt").read_text(errors="replace")
+    lines = (output / "stdout.txt").read_text(errors="replace").splitlines()
+    fields = (line.split("\t", 1) for line in lines if "\t" in line)
+    return {name: value.strip() for name, value in fields}
 
 
 @pytest.fixture(scope="module")
-def report(session: tuple[RunResult, dict[str, str]]) -> dict[str, str]:
-    return session[1]
+def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("probes")
 
 
 @pytest.fixture(scope="module")
-def proxy(session: tuple[RunResult, dict[str, str]]) -> str:
-    return session[0].proxy
+def report(box: Botbox, output: Path) -> dict[str, str]:
+    return run_probes(box, PROBES, output)
+
+
+@pytest.fixture(scope="module")
+def proxy(report: dict[str, str], output: Path) -> str:  # noqa: ARG001
+    return (output / "proxy.log").read_text(errors="replace")
 
 
 def describe_a_request_through_the_proxy() -> None:
@@ -144,11 +154,12 @@ def describe_the_proxy_log() -> None:
 
 
 def describe_allow() -> None:
-    def it_admits_an_extra_host() -> None:
+    def it_admits_an_extra_host(tmp_path: Path) -> None:
         box = Botbox(ClaudeAgent(), allow=["example.com"])
-        result = asyncio.run(box.run(f"{CONNECT} example.com {PROXY}"))
-        assert result.stdout.strip() == "200"
-        assert 'Established connection to host "example.com"' in result.proxy
+        asyncio.run(box.run(f"{CONNECT} example.com {PROXY}", output=tmp_path))
+        assert (tmp_path / "stdout.txt").read_text().strip() == "200"
+        proxy = (tmp_path / "proxy.log").read_text(errors="replace")
+        assert 'Established connection to host "example.com"' in proxy
 
 
 class TokenAgent(ClaudeAgent):
@@ -192,9 +203,10 @@ def other_run() -> Iterator[str]:
 
 
 def describe_another_runs_proxy() -> None:
-    def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str) -> None:
-        result = asyncio.run(box.run(f"{CONNECT} example.com {other_run}:8888"))
-        assert result.stdout.strip() == "error ENETUNREACH", result.stdout
+    def it_is_out_of_reach_of_this_run(box: Botbox, other_run: str, tmp_path: Path) -> None:
+        asyncio.run(box.run(f"{CONNECT} example.com {other_run}:8888", output=tmp_path))
+        stdout = (tmp_path / "stdout.txt").read_text()
+        assert stdout.strip() == "error ENETUNREACH", stdout
 
 
 def describe_a_container_outside_the_run() -> None:
@@ -244,7 +256,9 @@ def upstream_log(name: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
+def plain_http(
+    upstream: tuple[str, str], tmp_path_factory: pytest.TempPathFactory
+) -> tuple[dict[str, str], str]:
     """Plain-HTTP requests to an allowed host, and what that host saw."""
     name, ip = upstream
     probes = {
@@ -252,10 +266,9 @@ def plain_http(upstream: tuple[str, str]) -> tuple[dict[str, str], str]:
         "other port": f'{REQUEST} {PROXY} "GET http://{ip}:8022/ HTTP/1.0||"',
         "other port by host": f'{REQUEST} {PROXY} "GET / HTTP/1.0|Host: {ip}:8022||"',
     }
-    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-    result = asyncio.run(Botbox(ClaudeAgent(), allow=[ip]).run(script))
-    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
-    return {n: v.strip() for n, v in fields}, upstream_log(name)
+    output = tmp_path_factory.mktemp("plain-http")
+    report = run_probes(Botbox(ClaudeAgent(), allow=[ip]), probes, output)
+    return report, upstream_log(name)
 
 
 def describe_plain_http_to_an_allowed_host() -> None:
