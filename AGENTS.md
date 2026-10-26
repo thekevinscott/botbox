@@ -27,6 +27,9 @@ Conventions, supervision rules, and per-language style live under
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
 - `just test-e2e` reads `.env` from the checkout root. In a worktree under
   `.worktrees/<name>/`, symlink it first: `ln -s ../../.env .env`.
+- **CI stays red until a PR that changes code or tests has a fresh e2e
+  receipt.** The agent that writes the change runs e2e before pushing. Don't
+  open or hand off a PR without one, and don't brief a worker to skip it.
 - Run only the e2e files your change touches, and attest that subset (from
   `packages/python`): `testing-conventions e2e attest 'uv run --env-file
   ../../.env pytest tests/e2e/run_test.py'`. Commit the receipt with the code
