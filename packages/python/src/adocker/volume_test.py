@@ -123,3 +123,7 @@ def describe_volume() -> None:
             async with volume("v", label="botbox.run=x", on_error=on_error):
                 raise KeyError
         on_error.assert_called_once_with(error)
+
+    def it_takes_its_options_by_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            volume("v", "botbox.run=x")  # type: ignore[call-arg]
