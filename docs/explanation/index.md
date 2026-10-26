@@ -20,13 +20,13 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host: into `stdout.txt` and `stderr.txt` in `output` when one is given, or else into memory.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Reads the transcript and the proxy log out of the temporary directory, stops and removes the proxy, and deletes the directory.
+7. Without `output`, reads the transcript and the proxy log out of the temporary directory. Stops and removes the proxy, and deletes the directory.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept. The transcript and proxy log are on the host, in `output` or in the temporary directory, so they survive too. That's why both live on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -69,7 +69,9 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
-After the container exits, every file matching the harness's transcript pattern becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
+With `output`, `output/transcripts/` is mounted over the harness's sessions directory, and botbox reads nothing back. The agent writes that folder directly, links included, so treat it as untrusted.
+
+Without `output`, after the container exits, every `.jsonl` file under the harness's sessions directory becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
 
 - A match that resolves outside the home is a link to a host file, and is skipped. The container has exited by then, so no link can change after the check.
 - Bytes that aren't UTF-8 are replaced, and a file that won't open is skipped. The agent can't break the run's result.
@@ -121,6 +123,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
 - **Command:** `pi -p <prompt> --mode json --provider <provider>`, plus `--model` when set.
 - **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
+- **Update events:** both commands pipe pi's output through `sed` in the container to drop `message_update` and `tool_execution_update`. Each one resends the whole partial message or tool output so far, so a long turn's output would grow with its square. `message_end` and `tool_execution_end` carry the final versions.
 - **Credentials:** `auth.json`, and `models.json` if present, are copied into `.pi/agent/`. With `api_key`, a fresh `.pi/agent/auth.json` holds the key for `provider` and nothing else.
 - **Hosts:** `openrouter.ai` for `openrouter`. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.

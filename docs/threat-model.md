@@ -14,7 +14,7 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `result.stdout` is whatever reached the container's stdout.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt`, or `result.stdout` without `output`, is whatever reached the container's stdout.
 
 ### What's Left
 
@@ -50,7 +50,7 @@ The agent, sending data out. It has nowhere to send it but the proxy.
 
 ### What botbox Does
 
-The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `proxy.log` in `output`, or in `result.proxy` without `output`.
 
 ### What's Left
 
@@ -89,15 +89,17 @@ Writing to the mount is the feature. botbox can't tell a fix from a planted hook
 
 ### Who Attacks
 
-The agent, through its home. botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result.
+The agent, through its home. Without `output`, botbox reads the transcript out of the home after the run, so the agent can plant a link there to a host file and have botbox read it into the result. With `output`, the agent writes `output/transcripts/` directly, and a link it plants there points at a host file for whoever reads the folder.
 
 ### What botbox Does
 
-A transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)).
+Without `output`, a transcript match that resolves outside the home is skipped. The container has exited by then, so no link can change after the check (see [Home and Credentials](./explanation/#home-and-credentials)). With `output`, botbox reads nothing back, so it has nothing to check.
 
 ### What's Left
 
-One case breaks that assumption. If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
+With `output`, the reader's code is the defense: skip links under `output/` (see [Reading the result](./guide/reading-the-result#read-the-transcript)).
+
+Without `output`, one case breaks the no-link-changes assumption. If the daemon goes away mid-run with `live-restore` on, the agent keeps running while botbox reads. It can swap a checked file for a link to a host file between the check and the read.
 
 ### Why botbox Doesn't Close It
 
@@ -111,7 +113,7 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has none: no memory, process or CPU limit. Without `output`, botbox holds a run's whole stdout and stderr in memory, and a session's whole output, and reads the transcript whole into memory. With `output`, they go to files in that directory instead, so the agent can fill that disk; a session holds only the stdout line it is reading. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
+The proxy has a process cap. The agent container has none: no memory, process or CPU limit. Without `output`, botbox holds a run's whole stdout and stderr in memory, and a session's whole output, and reads the transcript whole into memory. With `output`, they go to files in that directory instead, so the agent can fill that disk; a session holds only the stdout line it is reading, and `output/transcripts/` is a writable mount of the host disk. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
 
 ### What's Left
 
