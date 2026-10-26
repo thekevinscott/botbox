@@ -35,3 +35,15 @@ reason = "#175 import-only relocation; review requested removing location-pinnin
 path = "src/botbox/lockdown.py"
 rules = ["co-change"]
 reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/preloaded.py"
+rules = ["mutation"]
+lines = ["12"]
+reason = "!= -> < is equivalent: os.write never returns more than it was given"
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/wait_for_socket.py"
+rules = ["mutation"]
+lines = ["27"]
+reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
