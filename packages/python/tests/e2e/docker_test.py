@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Container, DockerException, Dockerfile, Image
+from adocker import Container, DockerException, Dockerfile, Image, Volume
 
 
 def processes(needle: str) -> list[list[str]]:
@@ -83,6 +83,36 @@ def describe_docker() -> None:
 
     async def it_removes_a_container_that_does_not_exist(name: str) -> None:
         await Container(name).remove()
+
+    async def it_copies_into_a_volume_through_an_unstarted_container_as_its_user(
+        name: str, tmp_path: Path
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir(mode=0o700)
+        (home / "login").write_text(name)
+        stdout = bytearray()
+        async with Volume(name) as volume:
+            stager = await Image("busybox:latest").create(
+                "true", name=f"{name}-stage", user="1234:1234", mounts=[volume.mount("/stage")]
+            )
+            try:
+                await stager.copy_in(home, "/stage/home")
+            finally:
+                await stager.remove()
+            agent = await Image("busybox:latest").run(
+                "sh",
+                "-c",
+                "touch /home/user/new; stat -c '%u %a' /home/user; cat /home/user/login",
+                name=name,
+                user="1234:1234",
+                mounts=[volume.mount("/home/user", subpath="home")],
+                stdout=stdout.extend,
+            )
+            assert await agent.wait() == 0
+            await agent.remove()
+        assert stdout.decode() == f"1234 700\n{name}"
+        assert not exists("volume", name)
+        assert not exists("container", f"{name}-stage")
 
     async def it_stops_a_build_cancelled_twice(name: str, tmp_path: Path) -> None:
         step = f"sleep 83.5; echo {name}"

@@ -1,7 +1,7 @@
 """`Botbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
 
-Every run labels its containers and volume `botbox.run=<token>` and names its temp home
-after the token.
+Every run labels its containers and volumes `botbox.run=<token>` and names its temp
+directories after the token.
 A test sees only the tokens that appeared while it ran, and cleans up only those.
 """
 
@@ -95,7 +95,7 @@ def volumes(token: str) -> list[str]:
 
 
 class Runs:
-    """The runs this test started, known by the temp homes they make in its own temp dir.
+    """The runs this test started, known by the temp directories they make in its own temp dir.
 
     A thread watches the dir, so a run's token is seen even if it is gone by the next look.
     """
@@ -331,7 +331,7 @@ def describe_run() -> None:
                     "proxy",
                     "credentials",
                 }
-                assert volumes(token) == [f"botbox-run-{token}"]
+                assert set(volumes(token)) == {f"botbox-home-{token}", f"botbox-run-{token}"}
                 listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
                 # A killed credential sidecar leaves its socket behind.
                 assert set(docker_lines(*listing, "ls", "-A", "/v")) <= {"credentials.sock"}

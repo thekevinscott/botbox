@@ -99,6 +99,7 @@ def describe_run() -> None:
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
                 f"botbox could not remove its volume botbox-run-{token(daemon)}",
+                f"botbox could not remove its volume botbox-home-{token(daemon)}",
             ]
             assert raised.value.return_code == 125
             assert (output / "stdout.txt").read_text() == "partial\n"
@@ -130,27 +131,52 @@ def describe_run() -> None:
             assert option(agent, "--network") == "none"
             assert agent[-3:] == ["sh", "-c", "true"]
 
-        async def it_removes_both_once_the_run_is_done(box: Botbox, daemon: Daemon) -> None:
-            await box.run("true")
-            run = token(daemon)
-            assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
-            assert daemon.containers == []
-            assert daemon.volumes == []
-
-        async def it_removes_the_temp_home(box: Botbox, daemon: Daemon, temp: Path) -> None:
-            await box.run("true")
-            assert homes(temp) == []
-            [agent] = daemon.runs("botbox-agent-")
-            home = next(v for v in agent if v.endswith(":/home/user:rw")).split(":")[0]
-            assert Path(home).parent.name.startswith(f"botbox-{token(daemon)}-")
-
-        async def it_uses_a_new_temp_home_and_proxy_volume_each_run(
+        async def it_removes_every_container_once_the_run_is_done(
             box: Botbox, daemon: Daemon
         ) -> None:
             await box.run("true")
+            run = token(daemon)
+            assert daemon.removed == [
+                f"botbox-stage-{run}",
+                f"botbox-agent-{run}",
+                f"botbox-proxy-{run}",
+            ]
+            assert daemon.containers == []
+            assert daemon.volumes == []
+
+        async def it_mounts_the_home_from_its_own_volume(
+            box: Botbox, daemon: Daemon, temp: Path
+        ) -> None:
+            await box.run("true")
+            run = token(daemon)
+            [agent] = daemon.runs("botbox-agent-")
+            assert (
+                f"type=volume,source=botbox-home-{run},target=/home/user,volume-subpath=home"
+                in agent
+            )
+            assert homes(temp) == []
+            assert daemon.volumes == []
+
+        async def it_copies_the_staged_home_through_an_unstarted_container(
+            box: Botbox, daemon: Daemon
+        ) -> None:
+            await box.run("true")
+            run = token(daemon)
+            [create] = [c for c in daemon.calls if c[0] == "create"]
+            [copy] = [c for c in daemon.calls if c[0] == "cp"]
+            assert option(create, "--name") == f"botbox-stage-{run}"
+            assert option(create, "--user") == f"{os.getuid()}:{os.getgid()}"
+            assert option(create, "--label") == f"botbox.run={run}"
+            assert copy[:2] == ["cp", "--archive"]
+            assert Path(copy[2]).parent.name.startswith(f"botbox-{run}-")
+            assert copy[3] == f"botbox-stage-{run}:/botbox-stage/home"
+
+        async def it_uses_a_new_home_and_proxy_volume_each_run(box: Botbox, daemon: Daemon) -> None:
+            await box.run("true")
             await box.run("true")
             first, second = daemon.runs("botbox-agent-")
-            assert volume(first, "/home/user") != volume(second, "/home/user")
+            home = [next(a for a in run if "target=/home/user" in a) for run in (first, second)]
+            assert home[0] != home[1]
             assert volume(first, "/run/botbox") != volume(second, "/run/botbox")
 
         async def it_removes_nothing_more_when_the_block_exits(box: Botbox, daemon: Daemon) -> None:
@@ -158,7 +184,7 @@ def describe_run() -> None:
                 await box.run("true")
                 removed = daemon.removed
             assert daemon.removed == removed
-            assert len(removed) == 2
+            assert len(removed) == 3
 
     def describe_the_build() -> None:
         async def it_starts_nothing_when_the_agent_image_fails(
@@ -293,6 +319,7 @@ def describe_run() -> None:
                 result = await box.run("true", output=output)
             assert result.exit_code == 0
             assert [str(w.message).split(":")[0] for w in warned] == [
+                f"botbox could not remove its staging container botbox-stage-{token(daemon)}",
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
             ]

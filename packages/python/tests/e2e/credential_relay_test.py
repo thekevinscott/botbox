@@ -10,6 +10,7 @@ import pytest
 from adocker import Image
 from botbox import Botbox, ClaudeAgent
 from botbox.credential_proxy import Credential, Injection
+from botbox.home import Home
 from botbox.lockdown import CREDENTIALS_ENV, RELAY, lockdown
 
 CREDENTIAL = Credential(
@@ -50,14 +51,15 @@ def responses(
     root = tmp_path_factory.mktemp("credential-relay")
     output = root / "output"
     output.mkdir()
-    home = root / "home"
-    home.mkdir()
     box = Botbox(ClaudeAgent(api_key="unused"))
 
     async def probe() -> tuple[list[dict[str, object]], int, str, Path]:
         image = await box.build()
         token = uuid4().hex[:12]
-        async with lockdown((), root, token, output, credential=CREDENTIAL) as jail:
+        async with (
+            Home(box.agent, image, token) as home,
+            lockdown((), root, token, output, credential=CREDENTIAL) as jail,
+        ):
             flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
             stdout, stderr = bytearray(), bytearray()
             agent = await Image(image).run(
@@ -123,14 +125,12 @@ def test_envoys_uid_is_refused(
 def without_socket(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, str]:
     """The relay in a run without a credential proxy, told one was asked for."""
     root = tmp_path_factory.mktemp("credential-relay-missing")
-    home = root / "home"
-    home.mkdir()
     box = Botbox(ClaudeAgent(api_key="unused"))
 
     async def probe() -> tuple[int, str]:
         image = await box.build()
         token = uuid4().hex[:12]
-        async with lockdown((), root, token) as jail:
+        async with Home(box.agent, image, token) as home, lockdown((), root, token) as jail:
             flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
             flags["env"][CREDENTIALS_ENV] = "1"
             stderr = bytearray()

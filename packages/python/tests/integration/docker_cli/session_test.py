@@ -110,6 +110,7 @@ def describe_session() -> None:
             assert live.result is not None
             assert live.result.exit_code == 0
             assert [str(w.message).split(":")[0] for w in warned] == [
+                f"botbox could not remove its staging container botbox-stage-{token(daemon)}",
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
             ]
@@ -238,13 +239,17 @@ def describe_session() -> None:
             assert option(agent, "--pid") == f"container:botbox-proxy-{run}"
             assert agent[-1] == SESSION
 
-        async def it_removes_both_and_the_temp_home_once_the_block_ends(
+        async def it_removes_every_container_volume_and_the_temp_directory_once_the_block_ends(
             talker: Botbox, daemon: Daemon, temp: Path
         ) -> None:
             async with talker.session() as live:
                 await live.message("hi")
             run = token(daemon)
-            assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
+            assert daemon.removed == [
+                f"botbox-stage-{run}",
+                f"botbox-agent-{run}",
+                f"botbox-proxy-{run}",
+            ]
             assert daemon.containers == []
             assert daemon.volumes == []
             assert homes(temp) == []

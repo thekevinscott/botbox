@@ -1,5 +1,6 @@
-"""The per-run temporary home a real run mounts at the agent's home path."""
+"""The per-run home volume a real run mounts at the agent's home path."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ PROBES = {
     "pwd": "pwd",
     "credentials": "test -s ~/.claude/.credentials.json && echo present || echo missing",
     "writable": "touch ~/scratch && echo written || echo refused",
+    "owner": "stat -c '%u %a' ~",
 }
 
 
@@ -40,10 +42,13 @@ def describe_the_home() -> None:
     def it_is_writable_by_the_agent(report: dict[str, str]) -> None:
         assert report["writable"] == "written"
 
-    def it_is_gone_from_the_host_after_the_run(
+    def it_is_owned_by_the_agent_alone(report: dict[str, str]) -> None:
+        assert report["owner"] == f"{os.getuid()} 700"
+
+    def it_leaves_no_volume_or_temp_directory_behind(
         session: tuple[dict[str, str], set[str], set[str]],
     ) -> None:
         _, before, after = session
-        assert {e for e in after if e.startswith("temp ")} == {
-            e for e in before if e.startswith("temp ")
-        }
+        assert {
+            e for e in after - before if e.startswith(("temp ", "volume botbox-home-"))
+        } == set()

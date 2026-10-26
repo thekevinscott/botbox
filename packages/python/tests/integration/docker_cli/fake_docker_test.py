@@ -16,7 +16,7 @@ LISTENING = "botbox-proxy: listening\n"
 # serves until its stdin closes; each agent does what the plan says for its command. A session
 # answers each message on its stdin with an event, a line that isn't JSON, and a result.
 FAKE_DOCKER = """
-import json, os, signal, sys, time
+import json, os, shutil, signal, sys, time
 from pathlib import Path
 
 READY = b"botbox-proxy: listening\\n"
@@ -37,10 +37,20 @@ def option(name):
     return argv[argv.index(name) + 1]
 
 
+def mounts(args):
+    for i, a in enumerate(args[:-1]):
+        if a == "--volume":
+            source, target, _ = args[i + 1].split(":")
+            path = Path(source) if source.startswith("/") else state / "volumes" / source
+            yield path, target
+        elif a == "--mount":
+            fields = dict(field.partition("=")[::2] for field in args[i + 1].split(","))
+            path = state / "volumes" / fields["source"] / fields.get("volume-subpath", "")
+            yield path, fields["target"]
+
+
 def volume(target):
-    mounts = (argv[i + 1].split(":") for i, a in enumerate(argv) if a == "--volume")
-    source = next(source for source, t, _ in mounts if t == target)
-    return Path(source) if source.startswith("/") else state / "volumes" / source
+    return next(path for path, t in mounts(argv) if t == target)
 
 
 def settle(name, status, code=0):
@@ -74,10 +84,7 @@ if command == "volume":
         (state / "volumes" / argv[-1]).mkdir(parents=True)
     else:
         for name in argv[3:]:
-            path = state / "volumes" / name
-            for child in path.glob("*"):
-                child.unlink()
-            path.rmdir()
+            shutil.rmtree(state / "volumes" / name)
 elif command == "container":
     name = argv[-1]
     path = state / f"{name}.json"
@@ -88,12 +95,22 @@ elif command == "ps":
     for path in sorted(state.glob("botbox-*.json")):
         if option("--filter").removeprefix("label=") in json.loads(path.read_text())["Labels"]:
             print(path.stem)
+elif command == "create":
+    settle(option("--name"), "created")
+    (state / f"{option('--name')}.argv").write_text(json.dumps(argv))
+elif command == "cp":
+    source, destination = argv[-2:]
+    name, target = destination.split(":")
+    created = json.loads((state / f"{name}.argv").read_text())
+    path, mounted = next((p, t) for p, t in mounts(created) if target.startswith(t + "/"))
+    shutil.copytree(source, path / target.removeprefix(mounted + "/"))
 elif command == "rm":
     time.sleep(plan.get("rm_seconds", 0))
     if plan.get("rm_fails"):
         fail("Error response from daemon: removal of container is already in progress\\n")
     for name in argv[2:]:
         (state / f"{name}.json").unlink(missing_ok=True)
+        (state / f"{name}.argv").unlink(missing_ok=True)
 elif option("--name").startswith("botbox-proxy-"):
     name = option("--name")
     if plan.get("proxy_fails"):

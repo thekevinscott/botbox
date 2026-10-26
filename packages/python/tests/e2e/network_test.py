@@ -149,7 +149,7 @@ def describe_allow() -> None:
 
 
 class TokenAgent(ClaudeAgent):
-    """Records its run's token: the temp home's parent, botbox-<token>-*, names it."""
+    """Records its run's token: the staged home's parent, botbox-<token>-*, names it."""
 
     token: str
 

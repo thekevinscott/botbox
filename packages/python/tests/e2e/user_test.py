@@ -1,7 +1,10 @@
 """A run as a host uid the image has no passwd entry for."""
 
 import asyncio
+import os
+from contextlib import AsyncExitStack
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -9,6 +12,7 @@ from conftest import LINE
 
 from adocker import Image
 from botbox import Botbox, ClaudeAgent, CodexAgent, PiAgent
+from botbox.home import Home
 from botbox.lockdown import RELAY, lockdown
 
 UNNAMED = """FROM botbox-claude:latest
@@ -58,16 +62,19 @@ FOREIGN_PROBES = {
 }
 
 
-async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
-    """The agent container's own flags and relay, under a uid and gid the host has no entry for.
-
-    Below `run()`: the host can't chown a home to another uid, so the home is world-writable
-    instead.
-    """
+async def run_as_foreign_uid(box: Botbox, scratch: Path) -> str:
+    """The agent container's own flags, relay and home, under a uid and gid the host has no
+    entry for."""
     image = await box.build()
     token = uuid4().hex[:12]
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
-    async with lockdown((), scratch, token) as jail:
+    async with AsyncExitStack() as stack:
+        with (
+            patch.object(os, "getuid", return_value=FOREIGN_UID),
+            patch.object(os, "getgid", return_value=FOREIGN_GID),
+        ):
+            home = await stack.enter_async_context(Home(box.agent, image, token))
+        jail = await stack.enter_async_context(lockdown((), scratch, token))
         flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
         flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         stdout, stderr = bytearray(), bytearray()
@@ -99,10 +106,8 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
 def foreign(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> dict[str, str]:
-    home = tmp_path_factory.mktemp("home")
-    home.chmod(0o777)
     scratch = tmp_path_factory.mktemp("scratch")
-    stdout = asyncio.run(run_as_foreign_uid(Botbox(request.param), scratch, home))
+    stdout = asyncio.run(run_as_foreign_uid(Botbox(request.param), scratch))
     fields = (line.split("\t", 1) for line in stdout.splitlines() if "\t" in line)
     return {name: value.strip() for name, value in fields}
 
