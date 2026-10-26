@@ -84,3 +84,8 @@ path = "src/botbox/write.py"
 rules = ["mutation"]
 lines = ["30", "43"]
 reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"
+
+[[python.exempt]]
+path = "src/adocker/Image/Image.py"
+rules = ["co-change"]
+reason = "#271 docstring-only note. Behavior unchanged. Remove for the next behavioral edit."
