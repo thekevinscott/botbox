@@ -52,7 +52,7 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines that aren't JSON objects stay in the result's stdout but aren't events. If the
+        Lines that aren't JSON objects stay in stdout but aren't events. If the
         CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
         end before the next message goes.
         """

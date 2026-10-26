@@ -40,7 +40,7 @@ module.docker_run = wrapped
 
 async def main():
     async with Botbox(ClaudeAgent()) as box:
-        await box.run("sleep 600")
+        await box.run("sleep 600", output=sys.argv[2])
 
 asyncio.run(main())
 """
@@ -73,9 +73,10 @@ def describe_sigterm() -> None:
         box: Botbox,  # noqa: ARG001
         moment: str,
         started: set[str],
+        tmp_path: Path,
     ) -> None:
         holder = subprocess.Popen(
-            [sys.executable, "-c", HOLDER, moment],
+            [sys.executable, "-c", HOLDER, moment, str(tmp_path / "output")],
             stdout=subprocess.PIPE,
             text=True,
         )

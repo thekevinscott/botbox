@@ -14,7 +14,7 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt`, or `result.stdout` without `output`, is whatever reached the container's stdout.
+Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` is whatever reached the container's stdout.
 
 ### What's Left
 
@@ -50,7 +50,7 @@ The agent, sending data out. It has nowhere to send it but the proxy.
 
 ### What botbox Does
 
-The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `proxy.log` in `output`, or in `result.proxy` without `output`.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `proxy.log` in the run's `output`.
 
 ### What's Left
 
