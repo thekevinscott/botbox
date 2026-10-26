@@ -14,8 +14,9 @@ import pytest
 from botbox import PiAgent
 
 FAKE_PI = """\
-import json, sys
-print(json.dumps({"type": "argv", "argv": sys.argv[1:]}), flush=True)
+import json, os, sys
+print(json.dumps({"type": "argv", "argv": sys.argv[1:],
+                  "tool_timeout": os.environ.get("BOTBOX_TOOL_TIMEOUT")}), flush=True)
 for line in sys.stdin:
     print('{"type":"message_update","message":{}}', flush=True)
     print('{"type":"tool_execution_update","partialResult":{}}', flush=True)
@@ -102,3 +103,17 @@ def describe_update_events() -> None:
             pi.stdin.flush()
             assert json.loads(pi.stdout.readline()) == {"type": "agent_end", "got": "go"}
             pi.stdin.close()
+
+
+def describe_tool_timeout() -> None:
+    @pytest.mark.parametrize("session", [False, True], ids=["print", "session"])
+    @pytest.mark.parametrize("timeout", [0, 2.5])
+    def it_passes_the_limit_and_extension_only_when_enabled(session: bool, timeout: float) -> None:
+        agent = PiAgent("openrouter", tool_timeout=timeout)
+        events, code = run(agent.session_command() if session else agent.command("hi"))
+        assert code == 0
+        assert events[0]["tool_timeout"] == ("2.5" if timeout else None)
+        if timeout:
+            assert events[0]["argv"][-2:] == ["-e", "/usr/local/lib/botbox/tool-timeout.ts"]
+        else:
+            assert "-e" not in events[0]["argv"]

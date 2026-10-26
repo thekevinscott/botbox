@@ -3,14 +3,21 @@
 `PiAgent` runs the pi coding agent against a model provider: one of pi's built-ins, or one you define in `~/.pi/agent/models.json`.
 
 ```python
-PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
+PiAgent(
+    provider: str,
+    model: str | None = None,
+    *,
+    api_key: str | None = None,
+    tool_timeout: float = 0,
+)
 ```
 
-| Option     | Default       | Meaning                                         |
-| ---------- | ------------- | ----------------------------------------------- |
-| `provider` | required      | passed as `--provider`                          |
-| `model`    | the CLI's own | passed as `--model`                             |
-| `api_key`  | `None`        | a key for `provider`, instead of the host login |
+| Option         | Default       | Meaning                                                  |
+| -------------- | ------------- | -------------------------------------------------------- |
+| `provider`     | required      | passed as `--provider`                                   |
+| `model`        | the CLI's own | passed as `--model`                                      |
+| `api_key`      | `None`        | a key for `provider`, instead of the host login          |
+| `tool_timeout` | `0`, no limit | seconds per bash call; see [Tool timeout](#tool-timeout) |
 
 `provider` comes first because it decides which host the proxy admits.
 
@@ -34,5 +41,9 @@ With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The 
 ## Sessions
 
 `PiAgent` has a session mode. See [Holding a session](../guide/holding-a-session).
+
+## Tool timeout
+
+pi's bash tool has no timeout unless the model asks for one. `tool_timeout` caps every bash call at that many seconds, whatever the model asks for. A call that runs out has its process tree killed, and the model gets "Command timed out after N seconds" and carries on. botbox does this with a pi extension baked into the image, loaded with `-e` only when `tool_timeout` is set.
 
 What runs in the container: [How It Works](../explanation/#pi).

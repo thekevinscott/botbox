@@ -1,16 +1,20 @@
 import json
 import shlex
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import json5
 
+from botbox.agents.with_env import with_env
+
 PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
 
 AUTH = "auth.json"
 MODELS = "models.json"
+TOOL_TIMEOUT_EXTENSION = "/usr/local/lib/botbox/tool-timeout.ts"
 
 # Each update resends the whole partial message, so a turn's output grows with its square.
 # message_end and tool_execution_end carry the final versions. pi writes `type` first.
@@ -69,24 +73,33 @@ class PiAgent:
         *,
         api_key: str | None = None,
         host_home: Path | None = None,
+        tool_timeout: float = 0,
     ) -> None:
+        if tool_timeout < 0:
+            raise ValueError(f"tool_timeout is in seconds and must be 0 or more: {tool_timeout!r}")
         self.provider = provider
         self.model = model
         self.api_key = api_key
+        self.tool_timeout = tool_timeout
+        self.env: Mapping[str, str] = (
+            {"BOTBOX_TOOL_TIMEOUT": f"{tool_timeout:g}"} if tool_timeout else {}
+        )
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
         self.allow = resolve_allow(provider, model, self.host_home / MODELS, staged=api_key is None)
 
     def command(self, prompt: str) -> str:
-        command = f"pi -p {shlex.quote(prompt)} --mode json --provider {shlex.quote(self.provider)}"
-        if self.model is not None:
-            command += f" --model {shlex.quote(self.model)}"
-        return drop_updates(command)
+        return drop_updates(self._pi(f"-p {shlex.quote(prompt)} --mode json"))
 
     def session_command(self) -> str:
-        command = f"pi --mode rpc --provider {shlex.quote(self.provider)}"
+        return drop_updates(self._pi("--mode rpc"))
+
+    def _pi(self, mode: str) -> str:
+        command = f"pi {mode} --provider {shlex.quote(self.provider)}"
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
-        return drop_updates(command)
+        if self.tool_timeout:
+            command += f" -e {TOOL_TIMEOUT_EXTENSION}"
+        return with_env(self.env, command)
 
     def encode(self, message: str) -> str:
         return json.dumps({"type": "prompt", "message": message})
