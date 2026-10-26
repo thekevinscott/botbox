@@ -3,8 +3,9 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
-from adocker import run
+from adocker import Container, Image, Mount
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,
@@ -18,6 +19,7 @@ from botbox.credential_proxy.sds_secret import sds_secret
 from botbox.credential_proxy.stop_container import stop_container
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
 from botbox.process import settle
+from botbox.write import write
 
 # envoy's uid in the image. The agent must not run as it.
 USER = "101:101"
@@ -35,7 +37,7 @@ READY_SECONDS = 30
 
 @asynccontextmanager
 async def credential_proxy(  # noqa: PLR0913
-    injection: Injection, secret: str, *, proxy: str, sockets: Path, token: str, log: Path
+    injection: Injection, secret: str, *, proxy: Container, sockets: Path, token: str, log: Path
 ) -> AsyncIterator[CredentialProxy]:
     """Start an Envoy container that adds `secret` to requests for `injection`'s upstream.
 
@@ -47,47 +49,37 @@ async def credential_proxy(  # noqa: PLR0913
     name = f"botbox-credentials-{token}"
     socket = sockets / SOCKET
     config = envoy_config(injection, f"{SOCKET_DIR}/{SOCKET}")
-    args = [
-        "--interactive",
-        "--name",
-        name,
-        "--label",
-        f"botbox.run={token}",
-        "--user",
-        USER,
-        "--pid",
-        f"container:{proxy}",
-        "--network",
-        "bridge",
-        "--pids-limit",
-        str(PIDS),
-        "--log-driver",
-        "none",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--tmpfs",
-        f"{SECRET_DIR}:uid=101,gid=101,mode=0700",
-        "--volume",
-        f"{sockets}:{SOCKET_DIR}:rw",
-        "--entrypoint",
-        "sh",
-        IMAGE,
-        "-c",
-        START,
-        "sh",
-        SECRET_FILE,
-        config,
-    ]
     stdin = preloaded(sds_secret(secret))
     try:
-        with log.open("wb") as sink:
-            client = asyncio.ensure_future(run(args, stdin=stdin, stdout=sink, stderr=sink))
+        with write(log) as sink:
+            container = Container(name)
             try:
+                container = await Image(IMAGE).run(
+                    "-c",
+                    START,
+                    "sh",
+                    SECRET_FILE,
+                    config,
+                    name=name,
+                    stdin=stdin,
+                    stdout=sink,
+                    stderr=sink,
+                    labels={"botbox.run": token},
+                    user=USER,
+                    pid=f"container:{proxy.name}",
+                    network="bridge",
+                    pids_limit=PIDS,
+                    log_driver="none",
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"],
+                    tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
+                    mounts=[Mount("bind", str(sockets), SOCKET_DIR)],
+                    entrypoint="sh",
+                )
+                client = cast("asyncio.Task[int]", container.client)
                 await wait_for_socket(socket, client, log, READY_SECONDS)
-                yield CredentialProxy(name, socket)
+                yield CredentialProxy(container, socket)
             finally:
-                await settle(stop_container(client, name))
+                await settle(stop_container(container))
     finally:
         os.close(stdin)

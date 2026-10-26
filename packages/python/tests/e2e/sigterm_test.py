@@ -26,17 +26,16 @@ from botbox import Botbox, ClaudeAgent
 
 module = importlib.import_module("botbox.Botbox")
 
-docker_run = module.docker_run
+class Image(module.Image):
+    async def run(self, *command, **options):
+        proxy = options["pid"].removeprefix("container:")
+        scratch = Path(options["mounts"][0].source).parent
+        print(options["name"], proxy, scratch.name, flush=True)
+        if sys.argv[1] == "mid_setup":
+            await asyncio.Event().wait()
+        return await super().run(*command, **options)
 
-async def wrapped(args, **streams):
-    proxy = args[args.index("--pid") + 1].removeprefix("container:")
-    scratch = Path(args[args.index("--volume") + 1].split(":")[0]).parent
-    print(args[args.index("--name") + 1], proxy, scratch.name, flush=True)
-    if sys.argv[1] == "mid_setup":
-        await asyncio.Event().wait()
-    return await docker_run(args, **streams)
-
-module.docker_run = wrapped
+module.Image = Image
 
 async def main():
     async with Botbox(ClaudeAgent()) as box:

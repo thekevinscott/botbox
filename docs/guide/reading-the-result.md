@@ -2,6 +2,8 @@
 
 Pass `run()` an `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`.
 
+The streams and the proxy log are copies. botbox writes them first to the run's temp directory, under `TMPDIR`, and reads errors and session events from there. If a write to `output` fails, botbox warns and stops writing that file, and the run goes on. Keep `TMPDIR` on disk, not a tmpfs: a chatty agent fills memory otherwise.
+
 ```text
 runs/first/
   stdout.txt
@@ -45,7 +47,7 @@ print((output / "proxy.log").read_text())
 
 ## Without `output`
 
-Omit `output` and `run()` keeps none of the streams, transcripts or proxy log. Only the `exit_code` comes back. Files the command wrote to your mounts stay.
+Omit `output` and `run()` keeps none of the streams, transcripts or proxy log. They are still written to the temp directory while the run lasts. Only the `exit_code` comes back. Files the command wrote to your mounts stay.
 
 ## Keep what the run wrote
 

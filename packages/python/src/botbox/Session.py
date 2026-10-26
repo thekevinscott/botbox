@@ -4,43 +4,30 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
-from adocker.abort_writer import abort_writer
-from adocker.Capture import Capture
 from botbox.agents.agent import SessionAgent
 from botbox.RunResult import RunResult
-from botbox.utils.CapturedLines import CapturedLines
+from botbox.utils.abort_writer import abort_writer
 
 
 class Session:
     """An agent CLI held open in a locked-down container: one message in, one turn's events out.
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
-    collects them. One turn at a time. The CLI's output lands in the `stdout` capture and in
-    `stderr`, or in files with no `stdout` capture, and `client` is its attached `docker run`.
-    `result` is set once the session's block is left.
+    collects them. One turn at a time. `client` is the CLI's attached `docker run`, and
+    `readline` reads its stdout. `result` is set once the session's block is left.
     """
 
     def __init__(
         self,
         agent: SessionAgent,
         stdin: asyncio.StreamWriter,
-        stdout: Capture | None,
-        stderr: bytearray,
         client: asyncio.Future[int],
-        *,
-        _readline: Callable[[], Awaitable[bytes]] | None = None,
+        readline: Callable[[], Awaitable[bytes]],
     ) -> None:
         self.agent = agent
         self.stdin = stdin
-        self.stdout = stdout
-        self.stderr = stderr
         self.client = client
-        if _readline is None:
-            if stdout is None:
-                raise TypeError("Session needs a stdout capture or a _readline")
-            _readline = CapturedLines(stdout, client).readline
-        self._readline = _readline
-        self._pending: bytes | None = None
+        self._readline = readline
         self.turn = False
         self.result: RunResult | None = None
         client.add_done_callback(self.ended)
@@ -73,26 +60,9 @@ class Session:
 
     async def event(self) -> dict[str, Any] | None:
         """The next JSON object the CLI prints; None once it has exited without another."""
-        while True:
-            line, self._pending = self._pending, None
-            if line is None:
-                reading = asyncio.ensure_future(self._readline())
-                try:
-                    await asyncio.wait((reading, self.client), return_when=asyncio.FIRST_COMPLETED)
-                    if not reading.done():
-                        return None
-                    line = reading.result()
-                except asyncio.CancelledError:
-                    if reading.done() and not reading.cancelled():
-                        self._pending = reading.result()
-                    raise
-                finally:
-                    reading.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await reading
-            if not line:
-                return None
+        while line := await self._readline():
             with suppress(ValueError):
                 event = json.loads(line)
                 if isinstance(event, dict):
                     return event
+        return None

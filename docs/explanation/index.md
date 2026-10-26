@@ -20,13 +20,11 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host: into `stdout.txt` and `stderr.txt` in `output` when one is given, or else into memory.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host, into `stdout.txt` and `stderr.txt` in the temporary directory, and copies in `output` when one is given.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
 7. Stops and removes the proxy, and deletes the temporary directory.
 
-The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
-
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
+The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. So does a container that never started: a missing image, say, raises with `return_code` 125. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -75,7 +73,7 @@ With `output`, `output/transcripts/` is mounted over the harness's sessions dire
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. With `output`, they go to `stdout.txt` and `stderr.txt` instead, and a `tail -F` follower of `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` in the temporary directory, and to `output` too, and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
 The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 

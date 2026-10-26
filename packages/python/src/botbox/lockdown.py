@@ -1,17 +1,17 @@
 import asyncio
-import os
 import re
 import warnings
 from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
-from adocker import build, run
-from adocker import volume as run_volume
+from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
-from botbox.process import owner_only, settle
+from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
+from botbox.write import write
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
@@ -33,7 +33,7 @@ class Lockdown:
     """The proxy a locked-down container shares a PID namespace with, and the volume holding its
     socket."""
 
-    def __init__(self, proxy: str, volume: str, envs: dict[str, str]) -> None:
+    def __init__(self, proxy: Container, volume: Volume, envs: dict[str, str]) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
@@ -50,84 +50,64 @@ async def lockdown(
     tinyproxy listens on the sidecar's loopback only, so nothing else on the bridge reaches it.
 
     The sidecar runs under an init, attached, and lives while this process holds its stdin,
-    which children forked meanwhile close. When stdin closes the init exits, and the kernel
+    which only this process holds. When stdin closes the init exits, and the kernel
     kills every process in the sidecar's PID namespace, which the agent joins. It doesn't
     remove itself: leaving the block closes its stdin and removes it, through any number of
     cancels. The volume is removed after it. An owner killed outright leaves both, the sidecar
     stopped, labelled `botbox.run=<token>`.
 
-    All of the sidecar's output goes straight to `output/proxy.log`, which stays after exit.
-    The last 64 KiB of it is the error if it won't start. Without `output` it goes to
-    `scratch/proxy.log` instead, removed with `scratch`.
+    All of the sidecar's output goes to `scratch/proxy.log`, removed with `scratch`, and to
+    `output/proxy.log` too if given, which stays. The last 64 KiB of it is the error if it
+    won't start.
     """
-    await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
+    image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
 
     name = f"botbox-proxy-{token}"
     volume = f"botbox-run-{token}"
     url = f"http://127.0.0.1:{RELAY_PORT}"
-    jail = Lockdown(
-        proxy=name,
-        volume=volume,
-        envs={
-            "HTTP_PROXY": url,
-            "HTTPS_PROXY": url,
-            "http_proxy": url,
-            "https_proxy": url,
-            "NO_PROXY": "localhost,127.0.0.1",
-        },
-    )
+    envs = {
+        "HTTP_PROXY": url,
+        "HTTPS_PROXY": url,
+        "http_proxy": url,
+        "https_proxy": url,
+        "NO_PROXY": "localhost,127.0.0.1",
+    }
 
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist = "".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities)
-    log = (scratch if output is None else output) / "proxy.log"
+    log = scratch / "proxy.log"
+    also = [] if output is None else [output / "proxy.log"]
 
-    args = [
-        "--interactive",
-        "--init",
-        "--name",
-        name,
-        "--label",
-        f"botbox.run={token}",
-        "--user",
-        PROXY_USER,
-        "--network",
-        "bridge",
-        "--pids-limit",
-        str(PROXY_PIDS),
-        "--log-driver",
-        "none",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--env",
-        f"BOTBOX_FILTER={allowlist}",
-        "--volume",
-        f"{volume}:{SOCKET_DIR}:rw",
-        PROXY_IMAGE,
-    ]
-    # Created here, not by the spawn, so the write end is owner-only before any fork can copy it.
-    read, write = os.pipe()
-    stdin = os.fdopen(write, "wb")
-    try:
-        with owner_only(stdin), log.open("wb") as sink:
+    def unremoved(error: Exception) -> None:
+        warnings.warn(
+            f"botbox could not remove its volume {volume}: {error}", RuntimeWarning, stacklevel=1
+        )
 
-            def unremoved(error: Exception) -> None:
-                warnings.warn(
-                    f"botbox could not remove its volume {volume}: {error}",
-                    RuntimeWarning,
-                    stacklevel=1,
+    labels = {"botbox.run": token}
+    with write(log, *also) as sink:
+        async with Volume(volume, labels=labels, on_error=unremoved) as socket:
+            proxy = Container(name)
+            try:
+                proxy = await image.run(
+                    name=name,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=sink,
+                    stderr=sink,
+                    init=True,
+                    labels=labels,
+                    user=PROXY_USER,
+                    network="bridge",
+                    pids_limit=PROXY_PIDS,
+                    log_driver="none",
+                    cap_drop=["ALL"],
+                    security_opt=["no-new-privileges"],
+                    env={"BOTBOX_FILTER": allowlist},
+                    mounts=[socket.mount(SOCKET_DIR)],
                 )
-
-            async with run_volume(volume, label=f"botbox.run={token}", on_error=unremoved):
-                client = asyncio.ensure_future(run(args, stdin=read, stdout=sink, stderr=sink))
-                try:
-                    await wait_for_proxy(client, log, PROXY_READY_SECONDS)
-                    yield jail
-                finally:
-                    await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
-    finally:
-        with suppress(OSError):
-            stdin.close()
-        os.close(read)
+                await wait_for_proxy(
+                    cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
+                )
+                yield Lockdown(proxy, socket, envs)
+            finally:
+                await settle(stop_proxy(proxy, PROXY_EXIT_SECONDS))

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import remove, run
+from adocker import Container, Image
 from botbox.credential_proxy.envoy_config import IMAGE
 from botbox.credential_proxy.preloaded import preloaded
 
@@ -27,10 +27,18 @@ async def docker_run_reading(stdin: int, script: str) -> str:
     out, err = bytearray(), bytearray()
     name = f"botbox-test-{uuid4().hex[:12]}"
     try:
-        args = ["--interactive", "--name", name, "--entrypoint", "sh", IMAGE, "-c", script]
-        code = await run(args, stdin=stdin, stdout=out, stderr=err)
+        container = await Image(IMAGE).run(
+            "-c",
+            script,
+            name=name,
+            stdin=stdin,
+            stdout=out.extend,
+            stderr=err.extend,
+            entrypoint="sh",
+        )
+        code = await container.wait()
     finally:
-        await remove(name)
+        await Container(name).remove()
     assert code == 0, err.decode()
     return out.decode().strip()
 
@@ -52,7 +60,7 @@ async def container() -> AsyncIterator[str]:
     )
     assert await process.wait() == 0
     yield name
-    await remove(name)
+    await Container(name).remove()
 
 
 async def docker_exec_reading(container: str, stdin: int, script: str) -> int:

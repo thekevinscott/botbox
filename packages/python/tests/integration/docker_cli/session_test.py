@@ -42,19 +42,6 @@ def stdout(output: Path) -> str:
     return (output / "stdout.txt").read_text()
 
 
-def followers(path: Path) -> list[str]:
-    """Processes still running with `path` on their command line."""
-    found = []
-    for proc in Path("/proc").iterdir():
-        try:
-            cmdline = (proc / "cmdline").read_bytes()
-        except OSError:
-            continue
-        if str(path).encode() in cmdline.split(b"\0"):
-            found.append(cmdline.replace(b"\0", b" ").decode(errors="replace"))
-    return found
-
-
 def describe_session() -> None:
     def describe_a_turn() -> None:
         async def it_streams_the_events_up_to_the_turns_end(talker: Botbox, output: Path) -> None:
@@ -128,6 +115,35 @@ def describe_session() -> None:
             ]
 
     def describe_output() -> None:
+        async def it_reads_events_from_its_own_copy_when_the_output_is_truncated(
+            talker: Botbox, output: Path
+        ) -> None:
+            async with talker.session(output=output) as live:
+                first = await live.message("one")
+                (output / "stdout.txt").write_bytes(b"")
+                second = await live.message("two")
+            assert first[-1] == {"type": "result", "result": "ONE"}
+            assert second[-1] == {"type": "result", "result": "TWO"}
+            assert live.result == RunResult(0)
+
+        async def it_drops_an_output_file_that_fails_and_carries_on(
+            talker: Botbox, output: Path
+        ) -> None:
+            output.mkdir()
+            (output / "stdout.txt").symlink_to("/dev/full")
+            with pytest.warns(RuntimeWarning, match="stopped writing to .*stdout.txt"):
+                async with talker.session(output=output) as live:
+                    events = await live.message("one")
+            assert events[-1] == {"type": "result", "result": "ONE"}
+            assert live.result == RunResult(0)
+            assert (output / "stderr.txt").is_file()
+
+        async def it_leaves_nothing_behind_without_output(talker: Botbox, temp: Path) -> None:
+            async with talker.session() as live:
+                assert (await live.message("one"))[-1] == {"type": "result", "result": "ONE"}
+            assert live.result == RunResult(0)
+            assert list(temp.iterdir()) == []
+
         async def it_streams_events_from_the_files_it_writes(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
         ) -> None:
@@ -137,7 +153,6 @@ def describe_session() -> None:
             async with talker.session(output=output) as live:
                 first = await live.message("one")
                 second = await live.message("two")
-                assert followers(output / "stdout.txt")
             assert first[-1] == {"type": "result", "result": "ONE"}
             assert second[-1] == {"type": "result", "result": "TWO"}
             assert live.result == RunResult(0)
@@ -148,19 +163,18 @@ def describe_session() -> None:
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
-            assert followers(output / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []
 
-        async def it_points_at_stderr_when_the_container_never_ran(
+        async def it_raises_with_stderr_when_the_container_never_ran(
             box: Botbox, daemon: Daemon, tmp_path: Path
         ) -> None:
             daemon.agent(SESSION, missing=True)
             with pytest.raises(DockerException) as raised:
                 async with box.session(output=tmp_path) as live:
                     assert await live.message("hi") == []
-            assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
-            assert "Unable to find image" in (tmp_path / "stderr.txt").read_text()
+            assert "Unable to find image" in raised.value.stderr
+            assert (tmp_path / "stderr.txt").read_text() == raised.value.stderr
 
         async def it_ends_a_turn_the_cli_cuts_short_and_leaves_the_files(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
@@ -170,10 +184,9 @@ def describe_session() -> None:
                     events = await live.message("die")
             assert events == [{"type": "assistant", "said": "die"}]
             assert raised.value.return_code == -9
-            assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+            assert raised.value.stderr == ""
             assert live.result == RunResult(-1)
             assert '"said": "die"' in (tmp_path / "stdout.txt").read_text()
-            assert followers(tmp_path / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -196,7 +209,6 @@ def describe_session() -> None:
             assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
             transcript = tmp_path / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
-            assert followers(tmp_path / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -208,7 +220,6 @@ def describe_session() -> None:
                     await live.message("hang")
             assert raised.value.result == RunResult(-1)
             assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
-            assert followers(tmp_path / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []
 
@@ -253,7 +264,7 @@ def describe_session() -> None:
                 async with box.session(output=output) as live:
                     assert await live.message("hi") == []
             assert raised.value.return_code == 125
-            assert raised.value.stderr == f"See {output / 'stderr.txt'}"
+            assert "Unable to find image" in raised.value.stderr
             assert "Unable to find image" in (output / "stderr.txt").read_text()
             assert live.result is not None
             assert live.result.exit_code == -1

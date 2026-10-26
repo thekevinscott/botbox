@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from conftest import docker_lines, leftovers
 
-from botbox import Botbox, RunResult
+from botbox import Botbox, DockerException
 
 DOCKER_SOCKET = "/var/run/docker.sock"
 
@@ -81,7 +81,7 @@ def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def result(box: Botbox, output: Path) -> Iterator[RunResult]:
+def raised(box: Botbox, output: Path) -> Iterator[DockerException]:
     before = leftovers()
     with (
         tempfile.TemporaryDirectory(prefix="relay-") as directory,
@@ -91,11 +91,12 @@ def result(box: Botbox, output: Path) -> Iterator[RunResult]:
         monkeypatch.setenv("DOCKER_HOST", f"unix://{relay.path}")
         threading.Thread(target=cut_when_running, args=(relay,), daemon=True).start()
         try:
-            with pytest.warns(RuntimeWarning, match="^botbox could not remove"):
-                result = asyncio.run(
-                    box.run("echo started; sleep 60; echo finished", output=output)
-                )
-            yield result
+            with (
+                pytest.warns(RuntimeWarning, match="^botbox could not remove"),
+                pytest.raises(DockerException) as raised,
+            ):
+                asyncio.run(box.run("echo started; sleep 60; echo finished", output=output))
+            yield raised.value
         finally:
             relay.cut()
             monkeypatch.delenv("DOCKER_HOST")
@@ -107,16 +108,13 @@ def result(box: Botbox, output: Path) -> Iterator[RunResult]:
 
 
 def describe_the_daemon_dying_mid_run() -> None:
-    def it_returns_a_run_result(result: RunResult) -> None:
-        assert isinstance(result, RunResult)
+    def it_raises_with_the_agents_docker_run(raised: DockerException) -> None:
+        assert raised.docker_command[:2] == ["docker", "run"]
 
-    def it_has_no_exit_code(result: RunResult) -> None:
-        assert result.exit_code == -1
-
-    @pytest.mark.usefixtures("result")
+    @pytest.mark.usefixtures("raised")
     def it_keeps_the_output_that_arrived(output: Path) -> None:
         assert (output / "stdout.txt").read_text() == "started\n"
 
-    @pytest.mark.usefixtures("result")
+    @pytest.mark.usefixtures("raised")
     def it_keeps_the_proxy_log(output: Path) -> None:
         assert "Starting main loop" in (output / "proxy.log").read_text(errors="replace")

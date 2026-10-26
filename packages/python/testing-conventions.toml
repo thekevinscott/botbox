@@ -1,35 +1,14 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["59-60", "92"]
+lines = ["69-70", "102"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["51"]
+lines = ["55"]
 reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
-
-[[python.exempt]]
-path = "src/botbox/utils/CapturedLines.py"
-rules = ["mutation"]
-lines = ["27"]
-reason = "== -> >= is equivalent: read is capped at len(printed). == -> is only differs past CPython's small-int cache, where it loops without yielding, so only a timeout could catch it"
-
-[[python.exempt]]
-path = "src/botbox/Botbox.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/lockdown.py"
-rules = ["co-change"]
-reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/Session.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
 path = "src/botbox/__init__.py"
@@ -37,24 +16,9 @@ rules = ["co-change"]
 reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
-path = "src/botbox/agent_exit.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/remove_within.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/utils/CapturedLines.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
 path = "src/botbox/lockdown.py"
 rules = ["mutation"]
-lines = ["121"]
+lines = ["88"]
 reason = "stacklevel 1 -> 0 is equivalent: warnings treats both as the warn call's own frame"
 
 [[python.exempt]]
@@ -70,11 +34,53 @@ lines = ["27"]
 reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
 
 [[python.exempt]]
-path = "src/botbox/credential_proxy/CredentialProxy.py"
+path = "src/adocker/__init__.py"
 rules = ["co-change"]
-reason = "#248 import-only change (adocker.DockerException -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
+reason = "#251 export-only change: the classes replace the free functions. tests/integration/package_test.py covers the exports."
 
 [[python.exempt]]
-path = "src/botbox/credential_proxy/credential_proxy.py"
+path = "src/botbox/process/__init__.py"
 rules = ["co-change"]
-reason = "#248 import-only change (adocker.run -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
+reason = "#251 export-only change: owner_only and close_held left with StdinPipe."
+
+[[python.exempt]]
+path = "src/adocker/Image/Image.py"
+rules = ["mutation"]
+lines = ["59"]
+reason = "== -> is is equivalent: PIPE is the small int -1, which CPython caches"
+
+[[python.exempt]]
+path = "src/adocker/Image/Image.py"
+rules = ["mutation"]
+lines = ["93"]
+reason = "return_exceptions True -> False is equivalent: either way the error that ends up raised is the client's own, or the cancel"
+
+[[python.exempt]]
+path = "src/adocker/utils/execute.py"
+rules = ["mutation"]
+lines = ["11"]
+reason = "the chunk size is a tuning value: any positive size drains the same bytes"
+
+[[python.exempt]]
+path = "src/adocker/Image/run_args.py"
+rules = ["mutation"]
+lines = ["9"]
+reason = "* -> / only lets the internal caller pass flags by position; Image.run passes them all by keyword"
+
+[[python.exempt]]
+path = "src/botbox/hold_session.py"
+rules = ["mutation"]
+lines = ["21"]
+reason = "* -> / only lets the internal caller pass scratch and output by position; Botbox passes them by keyword"
+
+[[python.exempt]]
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["271"]
+reason = "* -> / on the private _attach only widens how its one caller may pass keywords"
+
+[[python.exempt]]
+path = "src/botbox/write.py"
+rules = ["mutation"]
+lines = ["30", "43"]
+reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"

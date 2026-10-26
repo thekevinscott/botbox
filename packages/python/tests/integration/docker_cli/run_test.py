@@ -47,6 +47,22 @@ def started_nothing(daemon: Daemon) -> bool:
 
 
 def describe_run() -> None:
+    async def it_leaves_nothing_behind_without_output(
+        box: Botbox, daemon: Daemon, temp: Path
+    ) -> None:
+        daemon.agent("true", stdout="out\n", stderr="err\n")
+        assert await box.run("true") == RunResult(0)
+        assert list(temp.iterdir()) == []
+
+    async def it_drops_an_output_file_that_fails_and_carries_on(
+        box: Botbox, daemon: Daemon, tmp_path: Path
+    ) -> None:
+        daemon.agent("true", stdout="out\n", stderr="err\n", exit=3)
+        (tmp_path / "stdout.txt").symlink_to("/dev/full")
+        with pytest.warns(RuntimeWarning, match="stopped writing to .*stdout.txt"):
+            assert await box.run("true", output=tmp_path) == RunResult(3)
+        assert (tmp_path / "stderr.txt").read_text() == "err\n"
+
     def describe_the_result() -> None:
         async def it_returns_only_the_exit_code(box: Botbox, daemon: Daemon) -> None:
             daemon.agent("claude -p hi", stdout="out\n", stderr="err\n", exit=3)
@@ -69,19 +85,22 @@ def describe_run() -> None:
             name = f"botbox-agent-{token(daemon)}"
             assert ["container", "inspect", "--format", "json", name] in daemon.calls
 
-        async def it_returns_minus_one_with_warnings_when_the_daemon_goes_away(
+        async def it_raises_with_warnings_when_the_daemon_goes_away(
             box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent("true", stdout="partial\n", mode="daemon_gone")
             daemon.set(proxy_log=REFUSAL)
-            with pytest.warns(RuntimeWarning) as warned:
-                result = await box.run("true", output=output)
+            with (
+                pytest.warns(RuntimeWarning) as warned,
+                pytest.raises(DockerException, match="Cannot connect") as raised,
+            ):
+                await box.run("true", output=output)
             assert [str(w.message).split(":")[0] for w in warned] == [
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
                 f"botbox could not remove its volume botbox-run-{token(daemon)}",
             ]
-            assert result == RunResult(-1)
+            assert raised.value.return_code == 125
             assert (output / "stdout.txt").read_text() == "partial\n"
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
@@ -233,7 +252,7 @@ def describe_run() -> None:
             with pytest.raises(DockerException) as raised:
                 await box.run("true", output=output)
             assert raised.value.return_code == -9
-            assert raised.value.stderr == f"See {output / 'stderr.txt'}"
+            assert raised.value.stderr == "lost\n"
             assert (output / "stderr.txt").read_text() == "lost\n"
             assert daemon.containers == []
 
@@ -381,13 +400,13 @@ def describe_run_output() -> None:
         assert (tmp_path / "stderr.txt").read_text() == stderr
         assert daemon.containers == []
 
-    async def it_points_to_stderr_when_the_container_never_ran(
+    async def it_raises_with_stderr_when_the_container_never_ran(
         box: Botbox, daemon: Daemon, tmp_path: Path
     ) -> None:
         daemon.agent("true", missing=True)
         with pytest.raises(DockerException) as raised:
             await box.run("true", output=tmp_path)
-        assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+        assert "Unable to find image" in raised.value.stderr
         assert "Unable to find image" in (tmp_path / "stderr.txt").read_text()
         assert daemon.containers == []
 
