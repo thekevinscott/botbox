@@ -2,10 +2,10 @@
 
 Nothing parsed.
 
-When [`run(output=...)`](./run) is used, `stdout`, `stderr` and `proxy` are empty strings;
-read `stdout.txt`, `stderr.txt` and `proxy.log` in that directory instead. `exit_code` and
-`image` are unchanged. Transcripts are only kept in `output/transcripts/`; without `output`
-they are deleted with the temporary home.
+When [`run(output=...)`](./run) or [`session(output=...)`](./session) is used, `stdout`,
+`stderr` and `proxy` are empty strings; read `stdout.txt`, `stderr.txt` and `proxy.log` in
+that directory instead. `exit_code` and `image` are unchanged. Transcripts are only kept in
+`output/transcripts/`; without `output` they are deleted with the temporary home.
 
 | Field       | What it is                                                           |
 | ----------- | -------------------------------------------------------------------- |
