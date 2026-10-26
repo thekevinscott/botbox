@@ -74,9 +74,16 @@ Nothing from the host is visible except your mounts and the staged credentials. 
 
 Everything in a mount is readable: `.env` files, tokens in `.git/config` remote URLs, anything else in the tree. A `"rw"` mount lets the agent write files that run later on the host, outside the box: git hooks, `core.hooksPath` or `core.fsmonitor` in `.git/config`, build scripts, package scripts, direnv or editor config. It can also leave a symlink that a host tool follows later.
 
+Reviewing the result is a way in too. Git reads `.git/config` from the repo it runs in, and that file is in the mount. In a clone the agent wrote to, `git status` runs a planted `core.fsmonitor` command and the hooks in a planted `core.hooksPath`. `git diff` runs the fsmonitor command, plus any filter or diff driver that a planted `.gitattributes` names and the planted config defines. `git log` runs a planted `core.pager`. A shell prompt that shows whether the tree is dirty can run the hooks the moment you `cd` in.
+
 ### Why botbox Doesn't Close It
 
-Writing to the mount is the feature. botbox can't tell a fix from a planted hook. It could offer a mode that copies a directory in and hands back a diff; that isn't done yet. Until then, mount a fresh clone or a copy, not your working tree, and review what changed before you run anything in it on the host.
+Writing to the mount is the feature. botbox can't tell a fix from a planted hook. It could offer a mode that copies a directory in and hands back a diff; that isn't done yet. Until then, keep the agent's tree apart from yours and review it from outside:
+
+1. Mount a fresh clone, not your working tree. Leave out `.env` files, and keep tokens out of its remote URL.
+2. Don't run git inside the clone, and don't open it in a tool that runs git for you.
+3. Bring the work back from your own repo with `git fetch /path/to/clone <branch>`. The fetch copies the clone's commits and runs nothing from its config or hooks.
+4. Review with `git log -p HEAD..FETCH_HEAD` in your repo, so your config applies, not the clone's. Read changes to build scripts, package scripts, `.gitattributes`, `.envrc` and editor config before you check the branch out or run anything from it.
 
 ## Transcript reads that follow links
 
