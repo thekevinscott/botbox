@@ -52,6 +52,12 @@ rules = ["co-change"]
 reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
+path = "src/botbox/lockdown.py"
+rules = ["mutation"]
+lines = ["122"]
+reason = "stacklevel 1 -> 0 is equivalent: warnings treats both as the warn call's own frame"
+
+[[python.exempt]]
 path = "src/botbox/credential_proxy/preloaded.py"
 rules = ["mutation"]
 lines = ["12"]

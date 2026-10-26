@@ -5,15 +5,18 @@ from pathlib import Path
 
 POLL = 0.05
 ERROR_BYTES = 64 * 1024
+# botbox-proxy prints this once its socket exists, which sits in a volume the host can't see.
+READY = b"botbox-proxy: listening\n"
 
 
-async def wait_for_proxy(
-    socket: Path, client: asyncio.Future[int], output: Path, timeout: float
-) -> None:
-    """Return once `socket` exists. Raise with the end of `output` if `client` exits or
-    `timeout` passes."""
+async def wait_for_proxy(client: asyncio.Future[int], output: Path, timeout: float) -> None:
+    """Return once the proxy says in `output` that it is listening. Raise with the end of
+    `output` if `client` exits or `timeout` passes."""
     deadline = time.monotonic() + timeout
-    while not socket.exists():
+    while True:
+        with suppress(OSError):
+            if READY in output.read_bytes():
+                return
         if client.done() or time.monotonic() > deadline:
             cause = client.exception() if client.done() else None
             text = ""

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
     PROXY_CONF,
     PROXY_DIR,
@@ -21,6 +22,7 @@ ALLOW = ("api.anthropic.com",)
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 TOKEN = "0123456789ab"
 PROXY = "botbox-proxy-0123456789ab"
+VOLUME = "botbox-run-0123456789ab"
 
 
 @pytest.fixture
@@ -52,6 +54,32 @@ def run(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
 
     with patch("botbox.lockdown.run", autospec=True, side_effect=attached) as m:
         yield m
+
+
+@pytest.fixture
+def volume_fails() -> dict[str, BaseException]:
+    """What `docker volume create` or `rm` raises, keyed by subcommand."""
+    return {}
+
+
+@pytest.fixture(autouse=True)
+def docker_volume(steps: list[str], volume_fails: dict[str, BaseException]) -> Iterator[None]:
+    """The real `adocker.volume` over a fake `docker volume`."""
+
+    async def docker(*args: str) -> str:
+        if args[1] == "create":
+            steps.append(f"create {args[-1]} {args[-2]}")
+        if args[1] in volume_fails:
+            raise volume_fails[args[1]]
+        if args[1] == "rm":
+            steps.append(f"remove {args[-1]}")
+        return ""
+
+    with (
+        patch("adocker.volume.run_docker", side_effect=docker),
+        patch("adocker.remove_volume.run_docker", side_effect=docker),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -125,7 +153,7 @@ for flag in ("--interactive", "--init"):
     RUN.add_argument(flag, action="store_true")
 for flag in ("--name", "--user", "--pids-limit", "--label", "--log-driver"):
     RUN.add_argument(flag)
-for flag in ("--network", "--cap-drop", "--security-opt", "--volume"):
+for flag in ("--network", "--cap-drop", "--security-opt", "--volume", "--env"):
     RUN.add_argument(flag, action="append", default=[])
 RUN.add_argument("image")
 
@@ -136,16 +164,21 @@ def started(run: AsyncMock) -> dict[str, Any]:
     return vars(RUN.parse_args(args))
 
 
-def volumes(run: AsyncMock) -> dict[str, tuple[Path, str]]:
+def volumes(run: AsyncMock) -> dict[str, tuple[str, str]]:
     mounts = (volume.split(":") for volume in started(run)["volume"])
-    return {target: (Path(source), mode) for source, target, mode in mounts}
+    return {target: (source, mode) for source, target, mode in mounts}
+
+
+def allowlist(run: AsyncMock) -> str:
+    [env] = started(run)["env"]
+    return str(env).removeprefix("BOTBOX_FILTER=")
 
 
 def describe_lockdown() -> None:
     async def it_yields_what_a_locked_down_container_needs(scratch: Path) -> None:
         async with jail(scratch) as net:
             assert net.proxy == PROXY
-            assert net.sockets == scratch / "sockets"
+            assert net.volume == VOLUME
             url = "http://127.0.0.1:41893"
             assert net.envs == {
                 "HTTP_PROXY": url,
@@ -166,7 +199,8 @@ def describe_lockdown() -> None:
             "file": context / "Dockerfile",
         }
         assert (context / "tinyproxy.conf").exists()
-        assert steps[:2] == ["build botbox-proxy:latest", "run proxy"]
+        assert steps[0] == "build botbox-proxy:latest"
+        assert "run proxy" in steps
 
     async def it_starts_nothing_when_the_build_fails(
         scratch: Path, build: AsyncMock, run: AsyncMock
@@ -185,7 +219,7 @@ def describe_lockdown() -> None:
             lockdown(ALLOW, tmp_path / "b", "bbbbbbbbbbbb") as second,
         ):
             assert first.proxy != second.proxy
-            assert first.sockets != second.sockets
+            assert first.volume != second.volume
 
     def describe_the_proxy_container() -> None:
         async def it_runs_attached_on_the_default_bridge_as_its_pinned_user(
@@ -226,46 +260,70 @@ def describe_lockdown() -> None:
                 assert "limit" not in options
             assert options["stdout"].closed
 
-        async def it_waits_for_the_socket_with_the_client_and_its_output(
+        async def it_waits_for_the_proxy_with_the_client_and_its_output(
             scratch: Path, wait: AsyncMock, steps: list[str]
         ) -> None:
             async with jail(scratch):
                 steps.append("body")
-            [socket, client, output, timeout] = wait.call_args.args
-            assert socket == scratch / "sockets" / "proxy.sock"
+            [client, output, timeout] = wait.call_args.args
             assert isinstance(client, asyncio.Future)
             assert output == scratch / "proxy.log"
             assert timeout == 30
             assert steps.index("proxy up") < steps.index("body")
 
-    def describe_the_mounts() -> None:
-        async def it_mounts_the_filter_read_only(scratch: Path, run: AsyncMock) -> None:
+    def describe_the_volume() -> None:
+        async def it_mounts_only_the_runs_volume_read_write(scratch: Path, run: AsyncMock) -> None:
             async with jail(scratch):
                 mounts = volumes(run)
-            assert mounts["/etc/tinyproxy/filter"] == (scratch / "filter", "ro")
-            assert "/etc/tinyproxy/tinyproxy.conf" not in mounts
+            assert mounts == {"/run/botbox": (VOLUME, "rw")}
 
-        async def it_mounts_only_the_sockets_read_write(scratch: Path, run: AsyncMock) -> None:
+        async def it_creates_it_labelled_before_the_proxy_starts(
+            scratch: Path, steps: list[str]
+        ) -> None:
             async with jail(scratch):
-                mounts = volumes(run)
-            assert mounts["/run/botbox"] == (scratch / "sockets", "rw")
-            assert set(mounts) == {"/etc/tinyproxy/filter", "/run/botbox"}
+                pass
+            assert steps.index(f"create {VOLUME} botbox.run={TOKEN}") < steps.index("run proxy")
 
-        async def it_lets_the_proxy_user_create_the_socket(scratch: Path) -> None:
+        async def it_removes_it_once_the_proxy_is_stopped(scratch: Path, steps: list[str]) -> None:
             async with jail(scratch):
-                assert (scratch / "sockets").stat().st_mode & 0o777 == 0o777
+                pass
+            assert steps[-2:] == ["proxy stopped", f"remove {VOLUME}"]
 
-        async def it_lets_the_proxy_user_read_the_filter(scratch: Path) -> None:
-            async with jail(scratch):
-                assert (scratch / "filter").stat().st_mode & 0o777 == 0o644
+        async def it_removes_it_when_the_proxy_never_came_up(
+            scratch: Path, wait: AsyncMock, steps: list[str]
+        ) -> None:
+            wait.side_effect = RuntimeError("botbox proxy did not start")
+            with pytest.raises(RuntimeError, match="did not start"):
+                async with jail(scratch):
+                    pass
+            assert steps[-1] == f"remove {VOLUME}"
+
+        async def it_starts_nothing_when_it_cannot_be_created(
+            scratch: Path, run: AsyncMock, volume_fails: dict[str, BaseException]
+        ) -> None:
+            volume_fails["create"] = RuntimeError("no space")
+            with pytest.raises(RuntimeError, match="no space"):
+                async with jail(scratch):
+                    pass
+            run.assert_not_called()
+
+        async def it_warns_when_it_cannot_be_removed(
+            scratch: Path, volume_fails: dict[str, BaseException]
+        ) -> None:
+            volume_fails["rm"] = RuntimeError("volume is in use")
+            match = f"^botbox could not remove its volume {VOLUME}: volume is in use$"
+            with pytest.warns(RuntimeWarning, match=match) as warned:
+                async with jail(scratch):
+                    pass
+            assert warned[0].filename == lockdown_module.__file__
 
     def describe_the_allowlist() -> None:
         async def it_admits_each_host_by_connect_on_443_and_plain_http_on_80(
-            scratch: Path,
+            scratch: Path, run: AsyncMock
         ) -> None:
             async with jail(scratch, ("api.anthropic.com", "[::1]:8443")):
                 pass
-            assert (scratch / "filter").read_text() == (
+            assert allowlist(run) == (
                 "^api\\.anthropic\\.com(:443)?$\n"
                 "^http://api\\.anthropic\\.com(:80)?(/|$)\n"
                 "^\\[::1\\]:8443(:443)?$\n"
@@ -281,12 +339,12 @@ def describe_lockdown() -> None:
             ],
         )
         async def it_matches_the_urls_tinyproxy_filters_only_on_443_and_80(
-            scratch: Path, host: str, authority: str
+            scratch: Path, run: AsyncMock, host: str, authority: str
         ) -> None:
             """tinyproxy reads each line as a case-insensitive ERE; they read the same in `re`."""
             async with jail(scratch, (host,)):
                 pass
-            patterns = (scratch / "filter").read_text().splitlines()
+            patterns = allowlist(run).splitlines()
 
             def admitted(url: str) -> bool:
                 return any(re.search(p, url, re.IGNORECASE) for p in patterns)
@@ -342,7 +400,7 @@ def describe_lockdown() -> None:
         ) -> None:
             async with jail(scratch):
                 steps.append("body")
-            assert steps[-3:] == ["body", "settle", "proxy stopped"]
+            assert steps[-4:-1] == ["body", "settle", "proxy stopped"]
 
         async def it_stops_the_proxy_when_the_body_raises(scratch: Path, stop: AsyncMock) -> None:
             with pytest.raises(KeyError):
@@ -463,6 +521,22 @@ def describe_the_shipped_proxy() -> None:
         script = (PROXY_DIR / "botbox-proxy").read_text()
         assert "max-children=" in script
         assert "UNIX-LISTEN:/run/botbox/proxy.sock" in script
+
+    def it_gives_the_socket_directory_to_the_proxy_user_for_the_volume_to_copy() -> None:
+        assert (
+            "install -d -o tinyproxy -g tinyproxy -m 0755 /run/botbox"
+            in (PROXY_DIR / "Dockerfile").read_text()
+        )
+
+    def it_says_it_is_listening_once_its_socket_exists() -> None:
+        script = (PROXY_DIR / "botbox-proxy").read_text()
+        assert "until [ -S /run/botbox/proxy.sock ]" in script
+        assert 'echo "botbox-proxy: listening"' in script
+
+    def it_writes_its_filter_from_the_environment() -> None:
+        script = (PROXY_DIR / "botbox-proxy").read_text()
+        assert "printf '%s' \"$BOTBOX_FILTER\" >/etc/tinyproxy/filter" in script
+        assert 'Filter "/etc/tinyproxy/filter"' in PROXY_CONF.read_text()
 
     def it_listens_in_the_box_on_the_relay_port() -> None:
         script = (RELAY_DIR / "botbox-relay").read_text()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, token, volume
+from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token, volume
 
 from botbox import (
     Botbox,
@@ -56,7 +56,7 @@ def describe_run() -> None:
                 stdout="out\n",
                 stderr="err\n",
                 exit_code=3,
-                proxy=REFUSAL,
+                proxy=LISTENING + REFUSAL,
                 image="botbox-claude:latest",
             )
 
@@ -65,13 +65,14 @@ def describe_run() -> None:
         ) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
             assert (await box.run("true", output=output)).proxy == ""
-            assert (output / "proxy.log").read_bytes() == b"GET http://caf\xe9/ HTTP/1.1\n"
+            log = (output / "proxy.log").read_bytes()
+            assert log == LISTENING.encode() + b"GET http://caf\xe9/ HTTP/1.1\n"
 
         async def it_replaces_proxy_log_bytes_that_are_not_utf8_without_output(
             box: Botbox, daemon: Daemon
         ) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
-            assert (await box.run("true")).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
+            assert (await box.run("true")).proxy == LISTENING + "GET http://caf\ufffd/ HTTP/1.1\n"
 
         async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
             box: Botbox, daemon: Daemon
@@ -100,6 +101,7 @@ def describe_run() -> None:
             assert [str(w.message).split(":")[0] for w in warned] == [
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
+                f"botbox could not remove its volume botbox-run-{token(daemon)}",
             ]
             assert result.exit_code == -1
             assert result.stdout == ""
@@ -107,7 +109,7 @@ def describe_run() -> None:
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert result.proxy == ""
-            assert (output / "proxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
             assert homes(temp) == []
 
     def describe_the_containers() -> None:
@@ -138,6 +140,7 @@ def describe_run() -> None:
             run = token(daemon)
             assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
             assert daemon.containers == []
+            assert daemon.volumes == []
 
         async def it_removes_the_temp_home(box: Botbox, daemon: Daemon, temp: Path) -> None:
             await box.run("true")
@@ -146,7 +149,7 @@ def describe_run() -> None:
             home = next(v for v in agent if v.endswith(":/home/user:rw")).split(":")[0]
             assert Path(home).parent.name.startswith(f"botbox-{token(daemon)}-")
 
-        async def it_uses_a_new_temp_home_and_socket_directory_each_run(
+        async def it_uses_a_new_temp_home_and_proxy_volume_each_run(
             box: Botbox, daemon: Daemon
         ) -> None:
             await box.run("true")
@@ -322,6 +325,7 @@ def describe_run() -> None:
             await asyncio.wait({run}, timeout=10)
             assert run.cancelled()
             assert daemon.containers == []
+            assert daemon.volumes == []
             assert homes(temp) == []
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
@@ -363,7 +367,7 @@ def describe_run() -> None:
             with pytest.raises(Timeout) as raised:
                 await Botbox(box.agent, timeout=2).run("sleep 600", output=output)
             assert (output / "stdout.txt").read_text() == "partial\n"
-            assert (output / "proxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
             assert raised.value.result == RunResult(
                 stdout="",
                 stderr="",

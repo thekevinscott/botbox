@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, token
+from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token
 
 from botbox import (
     Botbox,
@@ -112,7 +112,7 @@ def describe_session() -> None:
             )
             assert (output / "stderr.txt").read_text() == ""
             assert transcript(output) == '{"type": "user"}\n'
-            assert (output / "proxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
 
         async def it_holds_what_the_session_left_in_the_result_without_output(
             talker: Botbox, daemon: Daemon
@@ -130,7 +130,7 @@ def describe_session() -> None:
                 ),
                 stderr="",
                 exit_code=0,
-                proxy=REFUSAL,
+                proxy=LISTENING + REFUSAL,
                 image="botbox-claude:latest",
             )
 
@@ -175,7 +175,7 @@ def describe_session() -> None:
             assert '{"type": "result", "result": "TWO"}\n' in stdout
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
-            assert (output / "proxy.log").read_text() == REFUSAL
+            assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
             assert followers(output / "stdout.txt") == []
             assert daemon.containers == []
             assert homes(temp) == []
@@ -263,6 +263,7 @@ def describe_session() -> None:
             run = token(daemon)
             assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
             assert daemon.containers == []
+            assert daemon.volumes == []
             assert homes(temp) == []
 
     def describe_failure() -> None:

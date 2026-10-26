@@ -33,17 +33,19 @@ def docker_lines(*args: str) -> list[str]:
 
 
 def leftovers() -> set[str]:
-    """Every container, network and host temp directory a botbox run could leave behind."""
+    """Every container, network, volume and host temp directory a botbox run could leave behind."""
     names = docker_lines("ps", "-a", "--format", "{{.Names}}")
     descendants = docker_lines(
         "ps", "-a", "--filter", "ancestor=botbox-claude:latest", "--format", "{{.Names}}"
     )
     networks = docker_lines("network", "ls", "--format", "{{.Name}}")
+    volumes = docker_lines("volume", "ls", "--format", "{{.Name}}")
     temps = Path(tempfile.gettempdir()).glob("botbox-*")
     return {
         *(f"container {n}" for n in names if n.startswith("botbox-")),
         *(f"container {n}" for n in descendants),
         *(f"network {n}" for n in networks if n.startswith("botbox-")),
+        *(f"volume {n}" for n in volumes if n.startswith("botbox-")),
         *(f"temp {p.name}" for p in temps if p.is_dir()),
     }
 

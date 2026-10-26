@@ -10,6 +10,7 @@ from typing import Any
 
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
+LISTENING = "botbox-proxy: listening\n"
 
 # Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
 # serves until its stdin closes; each agent does what the plan says for its command. A session
@@ -17,6 +18,8 @@ REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 FAKE_DOCKER = """
 import json, os, signal, sys, time
 from pathlib import Path
+
+READY = b"botbox-proxy: listening\\n"
 
 argv = sys.argv[1:]
 state = Path(os.environ["FAKE_DOCKER_STATE"])
@@ -36,7 +39,8 @@ def option(name):
 
 def volume(target):
     mounts = (argv[i + 1].split(":") for i, a in enumerate(argv) if a == "--volume")
-    return next(Path(source) for source, t, _ in mounts if t == target)
+    source = next(source for source, t, _ in mounts if t == target)
+    return Path(source) if source.startswith("/") else state / "volumes" / source
 
 
 def settle(name, status, code=0):
@@ -67,6 +71,15 @@ if (state / "down").exists():
     fail("Cannot connect to the Docker daemon\\n")
 if command == "version":
     print("{}")
+elif command == "volume":
+    if argv[1] == "create":
+        (state / "volumes" / argv[-1]).mkdir(parents=True)
+    else:
+        for name in argv[3:]:
+            path = state / "volumes" / name
+            for child in path.glob("*"):
+                child.unlink()
+            path.rmdir()
 elif command == "container":
     name = argv[-1]
     path = state / f"{name}.json"
@@ -88,14 +101,14 @@ elif option("--name").startswith("botbox-proxy-"):
     if plan.get("proxy_fails"):
         fail("tinyproxy: bad config\\n")
     settle(name, "running")
-    sys.stdout.buffer.write(plan.get("proxy_log", "").encode("latin-1"))
+    sys.stdout.buffer.write(READY + plan.get("proxy_log", "").encode("latin-1"))
     sys.stdout.buffer.flush()
+    (volume("/run/botbox") / "proxy.sock").touch()
+    sys.stdin.buffer.read()
     if plan.get("proxy_log_unreadable"):
         log = Path(os.readlink("/proc/self/fd/1"))
         log.unlink()
         log.mkdir()
-    (volume("/run/botbox") / "proxy.sock").touch()
-    sys.stdin.buffer.read()
     exit_container(name)
 else:
     name = option("--name")
@@ -181,6 +194,11 @@ class Daemon:
     def containers(self) -> list[str]:
         """The containers the daemon still holds."""
         return sorted(p.stem for p in self.state.glob("botbox-*.json"))
+
+    @property
+    def volumes(self) -> list[str]:
+        """The volumes the daemon still holds."""
+        return sorted(p.name for p in (self.state / "volumes").glob("*"))
 
     @property
     def removed(self) -> list[str]:

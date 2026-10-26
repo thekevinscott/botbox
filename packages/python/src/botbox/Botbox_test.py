@@ -390,10 +390,10 @@ def bind_mounts() -> Iterator[Mock]:
 
 
 @pytest.fixture
-def jail(scratch: Path) -> Mock:
+def jail() -> Mock:
     return Mock(
         proxy=PROXY,
-        sockets=scratch / "sockets",
+        volume="botbox-run-0123456789ab",
         envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
         log="",
     )
@@ -638,13 +638,13 @@ def describe_run() -> None:
             assert options["log_driver"] == "none"
             assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
 
-        async def it_mounts_the_home_the_sockets_and_the_callers_mounts(
+        async def it_mounts_the_home_the_proxy_volume_and_the_callers_mounts(
             runner: Mock, docker_run: Mock, scratch: Path
         ) -> None:
             await Botbox(runner).run("true")
             assert agent_options(docker_run)["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",
-                f"{scratch / 'sockets'}:/run/botbox:ro",
+                "botbox-run-0123456789ab:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
 
@@ -1015,7 +1015,7 @@ def describe_session() -> None:
             assert options["workdir"] == "/home/user/src"
             assert options["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",
-                f"{scratch / 'sockets'}:/run/botbox:ro",
+                "botbox-run-0123456789ab:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
 
@@ -1299,7 +1299,7 @@ def describe_run_output() -> None:
         await Botbox(runner).run("true", output=output)
         assert agent_options(file_run)["volume"] == [
             f"{home}:/home/user:rw",
-            f"{scratch / 'sockets'}:/run/botbox:ro",
+            "botbox-run-0123456789ab:/run/botbox:ro",
             "/src:/home/user/src:ro",
             f"{output / 'transcripts'}:/home/user/.claude/projects:rw",
         ]

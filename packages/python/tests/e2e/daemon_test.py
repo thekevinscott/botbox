@@ -99,8 +99,8 @@ def result(box: Botbox, output: Path) -> Iterator[RunResult]:
         finally:
             relay.cut()
             monkeypatch.delenv("DOCKER_HOST")
-            # Containers first: a network cannot go while the proxy is still on it.
-            for kind in ("container", "network"):
+            # Containers first: a network or volume cannot go while the proxy still uses it.
+            for kind in ("container", "network", "volume"):
                 for leftover in leftovers() - before:
                     if leftover.startswith(f"{kind} "):
                         subprocess.run(["docker", kind, "rm", "-f", leftover.split()[1]])
