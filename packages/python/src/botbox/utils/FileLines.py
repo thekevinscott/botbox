@@ -34,33 +34,26 @@ class FileLines:
     async def readline(self) -> bytes:
         """The next line, the unterminated rest once ended, then b""."""
         while self.read < self.written or not self.ended.is_set():
+            if self.ended.is_set():
+                with self.path.open("rb") as file:
+                    file.seek(self.read)
+                    line = file.readline()
+                self.read += len(line)
+                return line
             if self.next is None:
                 self.next = asyncio.ensure_future(anext(self.followed, b""))
-            if self.ended.is_set():
-                rest = self.unterminated()
-                if rest is not None:
-                    self.read = self.written
-                    return rest
-                await asyncio.wait({self.next})
-            else:
-                ended = asyncio.ensure_future(self.ended.wait())
-                racing: set[asyncio.Future[Any]] = {self.next, ended}
-                try:
-                    await asyncio.wait(racing, return_when=asyncio.FIRST_COMPLETED)
-                finally:
-                    ended.cancel()
+            ended = asyncio.ensure_future(self.ended.wait())
+            racing: set[asyncio.Future[Any]] = {self.next, ended}
+            try:
+                await asyncio.wait(racing, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                ended.cancel()
             if self.next.done():
                 line = self.next.result()
                 self.next = None
                 if not line:
-                    break
+                    await self.ended.wait()
+                    continue
                 self.read += len(line)
                 return line
         return b""
-
-    def unterminated(self) -> bytes | None:
-        """What is left past the lines read, if it holds no whole line."""
-        with self.path.open("rb") as file:
-            file.seek(self.read)
-            rest = file.readline()
-        return None if rest.endswith(b"\n") else rest

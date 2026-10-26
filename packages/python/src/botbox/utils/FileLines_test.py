@@ -75,16 +75,12 @@ def describe_FileLines() -> None:
         assert await lines.readline() == b""
         assert await lines.readline() == b""
 
-    async def it_waits_for_tail_to_catch_up_on_whole_lines_once_ended(
-        path: Path, followed: Followed, lines: FileLines
+    async def it_reads_whole_lines_without_waiting_for_tail_once_ended(
+        path: Path, lines: FileLines
     ) -> None:
         append(path, lines, b"a\nb")
         lines.end()
-        reading = asyncio.ensure_future(lines.readline())
-        await asyncio.sleep(0.01)
-        assert not reading.done()
-        followed.queue.put_nowait(b"a\n")
-        assert await reading == b"a\n"
+        assert await lines.readline() == b"a\n"
         assert await lines.readline() == b"b"
 
     async def it_wakes_a_waiting_read_when_ended(lines: FileLines) -> None:
@@ -100,10 +96,13 @@ def describe_FileLines() -> None:
         lines.end()
         assert await reading == b"last"
 
-    async def it_ends_when_tail_does(path: Path, followed: Followed, lines: FileLines) -> None:
+    async def it_reads_written_lines_even_if_tail_ends_first(
+        path: Path, followed: Followed, lines: FileLines
+    ) -> None:
         append(path, lines, b"a\n")
         lines.end()
         followed.queue.put_nowait(b"")
+        assert await lines.readline() == b"a\n"
         assert await lines.readline() == b""
 
     async def it_loses_nothing_to_a_cancelled_read(followed: Followed, lines: FileLines) -> None:
