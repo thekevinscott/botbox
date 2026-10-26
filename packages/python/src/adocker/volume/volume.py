@@ -1,9 +1,9 @@
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
-from adocker.remove_volume import remove_volume
 from adocker.run_docker import run_docker
-from adocker.settle import settle
+from adocker.volume.remove_volume import remove_volume
+from adocker.volume.settle import settle
 
 REMOVE_SECONDS = 30
 
