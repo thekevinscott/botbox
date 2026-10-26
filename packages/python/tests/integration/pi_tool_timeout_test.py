@@ -9,8 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker.remove import remove
-from adocker.run import run
+from adocker import Container, Image
 from botbox import Botbox, PiAgent
 
 FAKE_MODEL = Path(__file__).with_name("fake_model_test.py")
@@ -26,16 +25,22 @@ async def bash_call(image: str, arguments: dict[str, Any]) -> tuple[dict[str, An
     """pi's `tool_execution_end` for the one bash call, and how long the run took."""
     out, err = bytearray(), bytearray()
     name = f"botbox-test-{uuid4().hex[:12]}"
-    args = [
-        *("--name", name, "--network", "none", "--env", "BOTBOX_TOOL_TIMEOUT=2"),
-        *("--volume", f"{FAKE_MODEL}:/fake/model.py:ro", "--entrypoint", "python3", image),
-        *("/fake/model.py", json.dumps(arguments), "-e", EXTENSION),
-    ]
     started = time.monotonic()
     try:
-        code = await run(args, stdin=None, stdout=out, stderr=err)
+        container = await Image(image).run(
+            *("/fake/model.py", json.dumps(arguments), "-e", EXTENSION),
+            name=name,
+            stdin=None,
+            stdout=out.extend,
+            stderr=err.extend,
+            network="none",
+            env={"BOTBOX_TOOL_TIMEOUT": "2"},
+            mounts=[(str(FAKE_MODEL), "/fake/model.py", "ro")],
+            entrypoint="python3",
+        )
+        code = await container.wait()
     finally:
-        await remove(name)
+        await Container(name).remove()
     elapsed = time.monotonic() - started
     assert code == 0, err.decode()
     events = [json.loads(line) for line in out.decode().splitlines() if line.startswith("{")]

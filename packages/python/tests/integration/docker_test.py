@@ -13,8 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import DockerException, build, inspect_image, remove, run, version
-from adocker.wait import wait
+from adocker import Container, Daemon, DockerException, Dockerfile, Image
 
 Install = Callable[[str], None]
 
@@ -125,17 +124,20 @@ async def cancel_twice(task: asyncio.Task[object]) -> None:
 def describe_docker() -> None:
     async def it_runs_docker_in_a_session_of_its_own(install: Install) -> None:
         install(RECORD)
-        assert (await version())["leader"] is True
+        assert (await Daemon().version())["leader"] is True
 
     async def it_raises_what_docker_said_when_it_fails(install: Install) -> None:
         install("import sys; print('Cannot connect to the daemon', file=sys.stderr); sys.exit(1)")
         with pytest.raises(DockerException, match="Cannot connect to the daemon"):
-            await version()
+            await Daemon().version()
 
     async def it_builds_with_buildx(install: Install, tmp_path: Path) -> None:
         out = tmp_path / "argv"
         install(f"import json, sys; open({str(out)!r}, 'w').write(json.dumps(sys.argv[1:]))")
-        await build(tmp_path, tag="sdk-x:latest", file=tmp_path / "D", contexts={"b": "/r"})
+        image = await Dockerfile(tmp_path / "D", context=tmp_path).build(
+            "sdk-x:latest", contexts={"b": "/r"}
+        )
+        assert image.tag == "sdk-x:latest"
         assert json.loads(out.read_text()) == [
             "buildx",
             "build",
@@ -152,43 +154,46 @@ def describe_docker() -> None:
 
     async def it_parses_version_json(install: Install) -> None:
         install('print(\'{"Server": {"Version": "29.1"}}\')')
-        assert await version() == {"Server": {"Version": "29.1"}}
+        assert await Daemon().version() == {"Server": {"Version": "29.1"}}
 
     async def it_reads_an_images_id(install: Install) -> None:
         install('print(\'[{"Id": "sha256:abc"}]\')')
-        assert (await inspect_image("sdk-x:latest"))["Id"] == "sha256:abc"
+        assert (await Image("sdk-x:latest").inspect())["Id"] == "sha256:abc"
 
     async def it_reads_the_exit_code_wait_prints(install: Install) -> None:
         install("print(3)")
-        assert await wait("sdk-box") == 3
+        assert await Container("sdk-box").wait() == 3
 
     async def it_force_removes(install: Install) -> None:
         install(RECORD)
-        await remove("sdk-box")
+        await Container("sdk-box").remove()
 
-    async def it_runs_an_attached_run_to_its_exit_into_its_buffers(install: Install) -> None:
+    async def it_runs_an_attached_run_to_its_exit_into_its_sinks(install: Install) -> None:
         install(
             "import sys; print(sys.argv[1:], sys.stdin.read()); "
             "print('said this', file=sys.stderr); sys.exit(3)"
         )
-        read, write = os.pipe()
-        os.write(write, b"hello")
-        os.close(write)
         stdout, stderr = bytearray(), bytearray()
-        try:
-            code = await run(["busybox", "cat"], stdin=read, stdout=stdout, stderr=stderr)
-        finally:
-            os.close(read)
-        assert code == 3
-        assert stdout == b"['run', 'busybox', 'cat'] hello\n"
+        container = await Image("busybox").run(
+            "cat",
+            name="box",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=stdout.extend,
+            stderr=stderr.extend,
+        )
+        assert container.stdin is not None
+        container.stdin.write(b"hello")
+        container.stdin.close()
+        assert await container.wait() == 3
+        assert stdout == b"['run', '--interactive', '--name', 'box', 'busybox', 'cat'] hello\n"
         assert stderr == b"said this\n"
 
     async def it_kills_an_attached_run_that_ignores_the_terminate_when_cancelled(
         install: Install, pids: Path
     ) -> None:
         install(STUBBORN)
-        out, err = bytearray(), bytearray()
-        task = asyncio.ensure_future(run([], stdin=None, stdout=out, stderr=err))
+        container = await Image("img").run(name="box", stdin=None)
+        task = asyncio.ensure_future(container.wait())
         (client,) = await started(pids)
         started_at = time.monotonic()
         await cancel_twice(task)
@@ -200,7 +205,7 @@ def describe_docker() -> None:
             install: Install, pids: Path
         ) -> None:
             install(FLOOD)
-            task = asyncio.create_task(build(Path(), tag="sdk-x:latest", file=Path("D")))
+            task = asyncio.create_task(Dockerfile("D").build("sdk-x:latest"))
             client, child = await started(pids)
             await cancel_twice(task)
             assert await gone(client)
@@ -211,7 +216,7 @@ def describe_docker() -> None:
         ) -> None:
             install(PLUGIN)
             marker = f"sdk-{uuid4().hex}"
-            task = asyncio.create_task(build(Path(marker), tag="sdk-x:latest", file=Path("D")))
+            task = asyncio.create_task(Dockerfile("D", context=marker).build("sdk-x:latest"))
             # Blocks the loop once docker is forked, so spawn is still connecting its pipes
             # when the cancel lands and the plugin is up.
             for _ in range(10):
@@ -224,13 +229,20 @@ def describe_docker() -> None:
                 while marked(marker):
                     await asyncio.sleep(0.01)
 
-    async def it_writes_complete_binary_output_directly_to_files(
-        install: Install,
-        tmp_path: Path,
-    ) -> None:
+    async def it_hands_over_complete_binary_output(install: Install) -> None:
         install("import os, sys; os.write(1, b'x' * 131072); os.write(2, b'err\\xff'); sys.exit(3)")
-        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
-            assert await run(["image"], stdin=None, stdout=out, stderr=err, limit=1) == 3
-            assert not out.closed and not err.closed
-        assert (tmp_path / "out").read_bytes() == b"x" * 131072
-        assert (tmp_path / "err").read_bytes() == b"err\xff"
+        out, err = bytearray(), bytearray()
+        container = await Image("image").run(name="box", stdout=out.extend, stderr=err.extend)
+        assert await container.wait() == 3
+        assert out == b"x" * 131072
+        assert err == b"err\xff"
+
+    async def it_fails_the_wait_when_a_sink_fails(install: Install) -> None:
+        install("import os; os.write(1, b'out'); os.write(2, b'err')")
+
+        def full(_chunk: bytes) -> None:
+            raise OSError("disk full")
+
+        container = await Image("image").run(name="box", stdout=full)
+        with pytest.raises(OSError, match="disk full"):
+            await container.wait()
