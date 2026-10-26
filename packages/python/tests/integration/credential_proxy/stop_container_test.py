@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker.run import run
+from adocker import run
 from botbox.credential_proxy import Injection, envoy_config, sds_secret
 from botbox.credential_proxy.envoy_config import IMAGE, SECRET_DIR, SECRET_FILE
 from botbox.credential_proxy.stop_container import stop_container

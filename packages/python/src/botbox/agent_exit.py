@@ -1,8 +1,6 @@
 from collections.abc import Sequence
 
-from adocker.DockerException import DockerException
-from adocker.inspect_container import inspect_container
-from adocker.version import version
+from adocker import DockerException, inspect_container, version
 
 
 async def agent_exit(container: str, command: Sequence[str], client: int, stderr: str) -> int:

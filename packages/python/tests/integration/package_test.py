@@ -6,7 +6,7 @@ import inspect
 
 import adocker
 import botbox
-from adocker.DockerException import DockerException
+from adocker import DockerException
 from botbox.Timeout import Timeout
 
 
@@ -42,13 +42,18 @@ def describe_adocker() -> None:
             "build",
             "inspect_container",
             "inspect_image",
+            "remove",
             "run",
+            "stop",
+            "version",
+            "volume",
         ]
         assert all(
             inspect.iscoroutinefunction(getattr(adocker, name))
             for name in adocker.__all__
-            if name != "DockerException"
+            if name not in ("DockerException", "volume")
         )
+        assert inspect.isasyncgenfunction(inspect.unwrap(adocker.volume))
 
     def it_shares_botboxs_docker_exception() -> None:
         assert adocker.DockerException is botbox.DockerException

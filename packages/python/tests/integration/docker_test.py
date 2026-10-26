@@ -13,13 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker.build import build
-from adocker.DockerException import DockerException
-from adocker.inspect_image import inspect_image
-from adocker.remove import remove
-from adocker.run import run
-from adocker.run_docker import run_docker
-from adocker.version import version
+from adocker import DockerException, build, inspect_image, remove, run, version
 from adocker.wait import wait
 
 Install = Callable[[str], None]
@@ -131,7 +125,7 @@ async def cancel_twice(task: asyncio.Task[object]) -> None:
 def describe_docker() -> None:
     async def it_runs_docker_in_a_session_of_its_own(install: Install) -> None:
         install(RECORD)
-        assert json.loads(await run_docker("version"))["leader"] is True
+        assert (await version())["leader"] is True
 
     async def it_raises_what_docker_said_when_it_fails(install: Install) -> None:
         install("import sys; print('Cannot connect to the daemon', file=sys.stderr); sys.exit(1)")
@@ -206,7 +200,7 @@ def describe_docker() -> None:
             install: Install, pids: Path
         ) -> None:
             install(FLOOD)
-            task = asyncio.create_task(run_docker("buildx", "build"))
+            task = asyncio.create_task(build(Path(), tag="sdk-x:latest", file=Path("D")))
             client, child = await started(pids)
             await cancel_twice(task)
             assert await gone(client)
@@ -217,7 +211,7 @@ def describe_docker() -> None:
         ) -> None:
             install(PLUGIN)
             marker = f"sdk-{uuid4().hex}"
-            task = asyncio.create_task(run_docker("buildx", "build", marker))
+            task = asyncio.create_task(build(Path(marker), tag="sdk-x:latest", file=Path("D")))
             # Blocks the loop once docker is forked, so spawn is still connecting its pipes
             # when the cancel lands and the plugin is up.
             for _ in range(10):

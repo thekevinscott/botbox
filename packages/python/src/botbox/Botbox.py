@@ -10,8 +10,8 @@ from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
 
-from adocker.build import build as docker_build
-from adocker.run import run as docker_run
+from adocker import build as docker_build
+from adocker import run as docker_run
 from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
