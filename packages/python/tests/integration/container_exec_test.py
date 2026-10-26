@@ -28,6 +28,12 @@ def loud(tmp_path: Path) -> Iterator[None]:
         yield
 
 
+@pytest.fixture
+def _failed_exec() -> Iterator[None]:
+    with patch.dict(os.environ, {"FAKE_EXEC_CODE": "3"}):
+        yield
+
+
 def describe_Container_exec() -> None:
     async def it_streams_output_to_the_sinks_chunk_by_chunk() -> None:
         sizes: list[int] = []
@@ -39,11 +45,8 @@ def describe_Container_exec() -> None:
         assert max(sizes) <= 65536
         assert bytes(err) == b"done\n"
 
-    async def it_raises_with_the_end_of_stderr_on_failure() -> None:
-        with (
-            patch.dict(os.environ, {"FAKE_EXEC_CODE": "3"}),
-            pytest.raises(DockerException) as raised,
-        ):
+    async def it_raises_with_the_end_of_stderr_on_failure(_failed_exec: None) -> None:
+        with pytest.raises(DockerException) as raised:
             await Container("box").exec("cat")
         assert raised.value.return_code == 3
         assert raised.value.stderr == "done\n"
