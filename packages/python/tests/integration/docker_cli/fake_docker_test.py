@@ -5,7 +5,6 @@ Named `_test` so the checks treat it as test code, not source.
 
 import asyncio
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -192,35 +191,15 @@ class Daemon:
             while len(list(self.state.glob("*.hanging"))) < count:
                 await asyncio.sleep(0.01)
 
-    async def hung_clients_gone(self) -> None:
-        """Wait for every client that hung to exit, as `docker run` does once its container goes."""
-        pids = [int(path.read_text()) for path in self.state.glob("*.hanging")]
-        async with asyncio.timeout(10):
-            while any(alive(pid) for pid in pids):
-                await asyncio.sleep(0.01)
-
-
-def alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
-
 
 def token(daemon: Daemon) -> str:
     [run] = daemon.runs("botbox-agent-")
     return run[run.index("--name") + 1].removeprefix("botbox-agent-")
 
 
-def runs(temp: Path) -> Path:
-    """Where runs keep their locks and temp homes."""
-    return temp / f"botbox-{os.getuid()}"
-
-
 def homes(temp: Path) -> list[Path]:
     """The temp homes left behind."""
-    return [path for path in runs(temp).iterdir() if path.is_dir()] if runs(temp).exists() else []
+    return [path for path in temp.iterdir() if path.is_dir()]
 
 
 def option(run: list[str], name: str) -> str:

@@ -5,7 +5,6 @@ box started, then either goes on (mid-run) or waits forever with the proxy up an
 not yet started (mid-setup), so the signal lands at a known point instead of a race.
 """
 
-import os
 import shutil
 import signal
 import subprocess
@@ -65,8 +64,7 @@ def started() -> Iterator[set[str]]:
         if kind == "container":
             subprocess.run(["docker", "rm", "-f", rest], check=False, capture_output=True)
         elif kind == "temp":
-            runs = Path(tempfile.gettempdir()) / f"botbox-{os.getuid()}"
-            shutil.rmtree(runs / rest, ignore_errors=True)
+            shutil.rmtree(Path(tempfile.gettempdir()) / rest, ignore_errors=True)
 
 
 def describe_sigterm() -> None:

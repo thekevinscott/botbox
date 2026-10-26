@@ -18,7 +18,7 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 
 1. Checks the mounts and `workdir`. A `workdir` outside every mount raises here, before anything is built. Then a missing host path is created as a dir owned by you. Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
-3. Sweeps up after runs whose owner died (see [Lifetime](#lifetime)), then makes a temporary directory on the host. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
+3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
 5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
@@ -28,7 +28,7 @@ The client attaches before the container starts, so no output is missed. Neither
 
 If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and the transcript and proxy log are read from the host directory as usual. That's why both live on the host and not in the container.
 
-Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label lets the sweep find it.
+Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
 Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
 

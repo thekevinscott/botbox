@@ -1,0 +1,1 @@
+**Changed**: a run's temp home is a `botbox-<token>-*` directory from Python's `tempfile` again, deleted when the run ends. The per-user `botbox-<uid>/` dir and the `<token>.lock` file beside each home are gone, so botbox no longer refuses to run over a `botbox-<uid>` it doesn't trust. A `botbox-<uid>/` left by an earlier release isn't removed.

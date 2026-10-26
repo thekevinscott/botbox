@@ -59,8 +59,8 @@ FOREIGN_PROBES = {
 async def run_as_foreign_uid(box: Botbox, scratch: Path, home: Path) -> str:
     """The agent container's own flags and relay, under a uid and gid the host has no entry for.
 
-    Below `run()`: its per-uid run dir refuses a faked `os.getuid`, and the host can't chown a
-    home to another uid, so the home is world-writable instead.
+    Below `run()`: the host can't chown a home to another uid, so the home is world-writable
+    instead.
     """
     image = await box.build()
     token = uuid4().hex[:12]
