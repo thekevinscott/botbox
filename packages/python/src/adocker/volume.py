@@ -23,17 +23,18 @@ async def volume(
     failure is raised, unless the block already raised, whose error it never replaces.
     """
     await run_docker("volume", "create", "--label", label, name)
-    failed = False
     try:
         yield name
     except BaseException:
-        failed = True
-        raise
-    finally:
         try:
             await settle(remove_volume(name, remove_seconds))
         except Exception as error:
             if on_error is not None:
                 on_error(error)
-            elif not failed:
-                raise
+        raise
+    try:
+        await settle(remove_volume(name, remove_seconds))
+    except Exception as error:
+        if on_error is None:
+            raise
+        on_error(error)

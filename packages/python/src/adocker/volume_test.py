@@ -48,11 +48,8 @@ def describe_volume() -> None:
 
     async def it_enters_nothing_when_creation_fails(run_docker: AsyncMock) -> None:
         run_docker.side_effect = RuntimeError("no space")
-        body = Mock()
         with pytest.raises(RuntimeError, match="no space"):
-            async with volume("v", label="botbox.run=x"):
-                body()
-        body.assert_not_called()
+            await volume("v", label="botbox.run=x").__aenter__()
         assert run_docker.await_args_list == [CREATE]
 
     async def it_raises_a_failed_removal_after_a_clean_block(run_docker: AsyncMock) -> None:
@@ -115,3 +112,14 @@ def describe_volume() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         removed.assert_called_once_with()
+
+    async def it_hands_a_failed_removal_to_on_error_when_the_block_raises(
+        run_docker: AsyncMock,
+    ) -> None:
+        error = RuntimeError("in use")
+        failing_removal(run_docker, error)
+        on_error = Mock()
+        with pytest.raises(KeyError):
+            async with volume("v", label="botbox.run=x", on_error=on_error):
+                raise KeyError
+        on_error.assert_called_once_with(error)
