@@ -65,7 +65,7 @@ asyncio.run(main())
 ```
 
 
-`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command with its output, transcripts and proxy log written to `output`, deletes the temporary home, stops the proxy, and returns.
+`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command with its streams and proxy log written to a private temp directory and copied to `output` as they arrive, mounts `output/transcripts/` for the transcripts, deletes the temporary home, stops the proxy, and returns.
 
 The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
@@ -74,7 +74,13 @@ The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 ### `Botbox`
 
 ```python
-Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[str] = ())
+Botbox(
+    agent: Agent,
+    *,
+    dockerfile: str | Path | None = None,
+    allow: Sequence[str] = (),
+    timeout: float | None = None,
+)
 ```
 
 | Argument     | What it is                                                     |
@@ -82,6 +88,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 | `agent`      | Which agent. See [Agents](#agents).                            |
 | `dockerfile` | Your layer on top of the agent's image. See [Extending the image](#extending-the-image). |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
+| `timeout`    | Seconds each run or session may take once the image is built. `None` means no limit. |
 
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run in progress tears down, then the block raises `SystemExit(143)`. `build()`, `run()` and `session()` work without the block too.
 
@@ -94,21 +101,23 @@ await box.run(
     output: str | Path | None = None,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
     workdir: str | Path | None = None,
+    timeout: float | None = None,
 ) -> RunResult
 ```
 
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
-| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, they are deleted after the run. |
+| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. botbox writes the streams to the run's temp directory first and copies them here. Without it, they are deleted after the run. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
+| `timeout`        | Seconds the run may take once the image is built. Defaults to the box's `timeout`. |
 
 `RunResult`: `exit_code` only. Read the rest from `output`.
 
 The container is removed once its exit code is read. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with `exit_code` -1, and what the run left so far stays in `output`. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started (an image the daemon can't find raises with `return_code` 125) and a daemon that goes away mid-run. What the run left so far stays in `output`. A run that outlasts its `timeout` tears down and raises `botbox.Timeout`. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 
@@ -118,7 +127,7 @@ await box.build() -> str
 
 Builds the agent's image, then your `dockerfile` on top, and returns the tag. `run()` calls this every time.
 
-Concurrent builds of one tag, from any process, take turns.
+Concurrent builds of one tag, from any process, all succeed; the tag ends on whichever finished last.
 
 ### Mounts
 
@@ -141,6 +150,11 @@ Each run gets a fresh temporary home, mounted at the agent's home path. With `ou
 
 - Default: `~/.claude/.credentials.json` is copied into the temporary home.
 - `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
+
+`CodexAgent` likewise, never both:
+
+- Default: `~/.codex/auth.json` is copied into the temporary home.
+- `CodexAgent(api_key=key)`: a fresh `.codex/auth.json` (mode 600) holds the key in API-key mode.
 
 `PiAgent` likewise, never both:
 
@@ -192,23 +206,25 @@ Two rules: end as `USER user`; leave the agent's home where it is.
 
 An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI.
 
-| Agent       | Class         | Dockerfile                 | Status     |
-| ----------- | ------------- | -------------------------- | ---------- |
-| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | supported  |
-| pi          | `PiAgent`     | `agents/pi/Dockerfile`     | image only |
+| Agent       | Class         | Dockerfile                 | Sessions |
+| ----------- | ------------- | -------------------------- | -------- |
+| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | yes      |
+| Codex       | `CodexAgent`  | `agents/codex/Dockerfile`  | no       |
+| pi          | `PiAgent`     | `agents/pi/Dockerfile`     | yes      |
 
 No shared base image. To add an agent: one Dockerfile, one class, one row.
 
 ### `command()`
 
 ```python
-ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None)
-PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None)
+ClaudeAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None, tool_timeout: float = 0)
+CodexAgent(model: str | None = None, effort: str | None = None, *, api_key: str | None = None, tool_timeout: float = 0)
+PiAgent(provider: str, model: str | None = None, *, api_key: str | None = None, tool_timeout: float = 0)
 
 agent.command(prompt: str) -> str
 ```
 
-Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
+Renders the agent's CLI invocation for a prompt. For `ClaudeAgent`: `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set. The prompt is shell-quoted. `run()` still takes any string; `command()` is the agent's.
 
 `PiAgent` requires `provider` first because it selects the egress allowlist.
 

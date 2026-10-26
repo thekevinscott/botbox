@@ -12,6 +12,29 @@ runs/first/
   transcripts/
 ```
 
+A whole run, start to finish. It needs a Claude Code login on the host, though the command never calls the model:
+
+```python
+import asyncio
+from pathlib import Path
+
+from botbox import Botbox, ClaudeAgent
+
+
+async def main() -> None:
+    output = Path("runs/hello")
+    async with Botbox(ClaudeAgent()) as box:
+        result = await box.run("echo hello; echo oops >&2; exit 3", output=output)
+    print(result.exit_code)                      # 3
+    print((output / "stdout.txt").read_text())   # hello
+    print((output / "stderr.txt").read_text())   # oops
+
+
+asyncio.run(main())
+```
+
+How the two copies are written: [Output](../explanation/#output).
+
 `run()` returns a `RunResult`, which holds only the `exit_code`. Read everything else from the files.
 
 ## Check the exit code

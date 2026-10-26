@@ -21,9 +21,10 @@ await box.run(
 
 Returns a [`RunResult`](./run-result). A non-zero exit is a normal `RunResult`.
 
-With `output`, stdout, stderr and the proxy's log go directly to files without being
-captured in Python. `output/transcripts/` is bind-mounted over the agent's sessions
-directory, such as `~/.claude/projects`, so the CLI writes its transcripts there directly.
+With `output`, botbox copies stdout, stderr and the proxy's log there chunk by chunk as they
+arrive (see [Output](../explanation/#output)). `output/transcripts/` is bind-mounted over the
+agent's sessions directory, such as `~/.claude/projects`, so the CLI writes its transcripts
+there directly.
 botbox stages credentials outside the sessions directory, so nothing botbox writes to
 `output` contains them. The agent can still print them into a stream or a transcript.
 Everything in `output` is agent-written and untrusted, symlinks included: don't follow links
