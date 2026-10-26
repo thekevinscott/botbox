@@ -26,6 +26,8 @@ class Injection:
     """The header the proxy sets to the secret, replacing the client's own."""
     strip: tuple[str, ...] = ()
     """More client headers to drop, such as the auth header the upstream doesn't expect."""
+    methods: tuple[str, ...] = ("POST",)
+    """The HTTP methods forwarded on `paths`. Other methods get a 403."""
 
 
 def envoy_config(injection: Injection, socket: str) -> str:
@@ -38,6 +40,7 @@ def envoy_config(injection: Injection, socket: str) -> str:
         "__SOCKET__": socket,
         "__UPSTREAM__": injection.upstream,
         "__PATHS__": injection.paths,
+        "__METHODS__": "|".join(injection.methods),
         "__HEADER__": injection.header,
         "__STRIP__": list(injection.strip),
         "__SECRET_NAME__": SECRET_NAME,
