@@ -12,7 +12,10 @@ REMOVE = call("volume", "rm", "--force", "v")
 
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("adocker.volume.run_docker", autospec=True) as m:
+    with (
+        patch("adocker.volume.run_docker", autospec=True) as m,
+        patch("adocker.remove_volume.run_docker", m),
+    ):
         yield m
 
 
