@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any, get_type_hints
 
-from botbox.agents.agent import Agent, SessionAgent
+from botbox.agents.agent import Agent, InjectingAgent, SessionAgent
 
 
 def describe_agent() -> None:
@@ -50,6 +50,23 @@ def describe_session_agent() -> None:
         assert not isinstance(OneShot(), SessionAgent)
 
 
+def describe_injecting_agent() -> None:
+    def it_is_an_agent() -> None:
+        assert Agent in InjectingAgent.__mro__
+
+    def it_names_a_credential_source_or_none() -> None:
+        hints = get_type_hints(InjectingAgent.credential_source.fget)  # type: ignore[attr-defined]
+        assert str(hints["return"]) == (
+            "botbox.credential_proxy.CredentialSource.CredentialSource | None"
+        )
+
+    def it_recognises_an_agent_with_a_credential_source() -> None:
+        assert isinstance(Injecting(), InjectingAgent)
+
+    def it_recognises_one_that_has_its_credentials_copied() -> None:
+        assert not isinstance(OneShot(), InjectingAgent)
+
+
 class OneShot:
     image = "an-agent:latest"
     dockerfile = Path("/agents/an-agent.Dockerfile")
@@ -72,3 +89,7 @@ class Streaming(OneShot):
 
     def turn_ended(self, event: dict[str, Any]) -> bool:
         return bool(event)
+
+
+class Injecting(OneShot):
+    credential_source = None

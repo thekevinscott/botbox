@@ -79,7 +79,7 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
+Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in (Claude Code's is not; see [Claude Code](#claude-code)), or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
 With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
 
@@ -106,15 +106,15 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 - **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
 - **Command:** `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set.
 - **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
-- **Credentials:** `.credentials.json` is copied into `.claude/`. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
-- **Hosts:** `api.anthropic.com`.
+- **Credentials:** the host login stays on the host. `.claude/.credentials.json` in the box holds placeholder tokens with a far-future expiry, and `ANTHROPIC_BASE_URL` points Claude Code at the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /v1/messages` and `/v1/messages/count_tokens` on their way to `api.anthropic.com`. Its access log goes to `credentials.log`. Claude Code also calls `api.anthropic.com` directly for a few things, past `ANTHROPIC_BASE_URL`. botbox turns off its claude.ai MCP server fetch (`ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its OAuth profile fetch is refused by the proxy, and the run goes on without it. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
+- **Hosts:** none on a login, since the credential proxy carries the traffic. `api.anthropic.com` with `api_key`.
 - **Transcript:** `.claude/projects/**/*.jsonl`.
 
 ### Login Expiry
 
-A copied login is a snapshot. Its access token expires, typically within hours. Renewing it needs a host outside the allowlist (`platform.claude.com`), so the agent can't renew it inside the box, and a run that outlasts the token fails with a 401. Renewals on the host don't reach a running container.
+The access token expires, typically within hours, and botbox never renews it. Renewing likely rotates the login, which would sign out the host's own sessions.
 
-botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely rotates the login, which would sign out the host's own sessions.
+Before it starts anything, a run reads the host login and raises `CredentialsExpired` if the token has already expired. While the agent runs, botbox rereads the host's file every 2 seconds and sends a changed token from the next request on. So a renewal that rewrites the host's file reaches a running box. If nothing on the host renews it, a run that outlasts the token fails its turns with a 401.
 
 ## Codex
 

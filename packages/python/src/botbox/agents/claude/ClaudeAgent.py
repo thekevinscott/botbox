@@ -1,11 +1,11 @@
 import json
 import math
 import shlex
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from botbox.agents.claude.ClaudeLogin import ClaudeLogin
 from botbox.agents.with_env import with_env
 
 CREDENTIALS = ".credentials.json"
@@ -19,7 +19,10 @@ class ClaudeAgent:
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
     sessions_dir = ".claude/projects"
-    allow: tuple[str, ...] = ("api.anthropic.com",)
+    allow: tuple[str, ...]
+    """With a login, nothing: the credential proxy reaches the API for it."""
+    credential_source: ClaudeLogin | None
+    """The host's login, which the proxy sends upstream, or None with an `api_key`."""
 
     def __init__(
         self,
@@ -46,6 +49,13 @@ class ClaudeAgent:
                 "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
             }
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
+        self.login = ClaudeLogin(self.host_home / CREDENTIALS)
+        if api_key is None:
+            self.allow = ()
+            self.credential_source = self.login
+        else:
+            self.allow = ("api.anthropic.com",)
+            self.credential_source = None
 
     def command(self, prompt: str) -> str:
         command = (
@@ -79,7 +89,10 @@ class ClaudeAgent:
         destination = home / ".claude"
         destination.mkdir()
         if self.api_key is None:
-            shutil.copy(self.host_home / CREDENTIALS, destination / CREDENTIALS)
+            placeholder = self.login.placeholder()
+            login = destination / CREDENTIALS
+            login.touch(mode=0o600)
+            login.write_text(placeholder)
             return
         key = destination / API_KEY
         key.touch(mode=0o600)

@@ -208,7 +208,7 @@ def describe_run() -> None:
         result = await box.run(command, output=output)
         assert result == RunResult(0)
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
-        assert [p.name for p in output.rglob("*credentials*")] == []
+        assert [p.name for p in output.rglob("*credentials*")] == ["credentials.log"]
         assert runs.leftovers() == []
 
     async def it_returns_an_exit_of_125_from_the_container(
@@ -326,10 +326,15 @@ def describe_run() -> None:
                 while containers(token, "status=running"):
                     assert time.monotonic() - started < GRACE, containers(token, "status=running")
                     await asyncio.sleep(0.1)
-                assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
+                assert {c.split("-")[1] for c in containers(token)} <= {
+                    "agent",
+                    "proxy",
+                    "credentials",
+                }
                 assert volumes(token) == [f"botbox-run-{token}"]
                 listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
-                assert docker_lines(*listing, "ls", "-A", "/v") == []
+                # A killed credential sidecar leaves its socket behind.
+                assert set(docker_lines(*listing, "ls", "-A", "/v")) <= {"credentials.sock"}
                 if holder == OWNER:
                     assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
                     assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"

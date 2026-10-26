@@ -148,7 +148,7 @@ Each run gets a fresh temporary home, mounted at the agent's home path. With `ou
 
 `ClaudeAgent` authenticates one of two ways, never both:
 
-- Default: `~/.claude/.credentials.json` is copied into the temporary home.
+- Default: the login in `~/.claude/.credentials.json` stays on the host. The temporary home gets a placeholder, and a credential proxy adds the real token to Claude Code's requests. An expired login raises `CredentialsExpired` before the run starts.
 - `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
 
 `CodexAgent` likewise, never both:
@@ -165,7 +165,7 @@ botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ### Network
 
-The container runs with `--network none`. The only way out is a unix socket to a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code); add more with `allow`:
+The container runs with `--network none`. The only way out is a unix socket to a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code on an API key); add more with `allow`:
 
 ```python
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])

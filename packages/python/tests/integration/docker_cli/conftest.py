@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from fake_docker_test import CREDENTIALS, FAKE_DOCKER, Daemon
+from fake_docker_test import FAKE_DOCKER, Daemon
 
 from botbox import Botbox, ClaudeAgent
 
@@ -38,7 +38,5 @@ def temp(tmp_path: Path) -> Iterator[Path]:
 
 @pytest.fixture
 def box(tmp_path: Path) -> Botbox:
-    home = tmp_path / "claude-home"
-    home.mkdir()
-    (home / ".credentials.json").write_text(CREDENTIALS)
-    return Botbox(ClaudeAgent(host_home=home))
+    # On a key: these test the run, and a login adds the credential sidecar's calls.
+    return Botbox(ClaudeAgent(api_key="sk-test", host_home=tmp_path / "claude-home"))

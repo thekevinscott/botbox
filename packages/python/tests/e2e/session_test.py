@@ -6,6 +6,7 @@ no session mode) need OPENROUTER_API_KEY, and are skipped without it.
 
 import asyncio
 import os
+import re
 import tempfile
 import time
 from collections.abc import Iterator
@@ -14,7 +15,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from conftest import transcripts
+from conftest import refused, transcripts
 from run_test import Runs
 
 from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
@@ -177,8 +178,16 @@ def describe_a_session() -> None:
         output: Path,
     ) -> None:
         proxy = (output / "proxy.log").read_text()
-        refused = [line for line in proxy.splitlines() if "Proxying refused" in line]
-        assert refused == []
+        assert refused(proxy) == []
+
+    def it_sends_claudes_turns_through_the_credential_proxy(
+        harness: str, session: tuple[Turns, list[float], RunResult], output: Path
+    ) -> None:
+        if harness != "claude":
+            pytest.skip("only Claude's login is injected")
+        turns, _, _ = session
+        log = (output / "credentials.log").read_text()
+        assert len(re.findall(r" POST /v1/messages\S* 200 ", log)) >= len(turns), log
 
 
 def describe_cancelling_mid_turn() -> None:

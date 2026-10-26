@@ -3,7 +3,7 @@ import os
 import signal
 import threading
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
@@ -13,10 +13,11 @@ from uuid import uuid4
 from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
-from botbox.agents.agent import Agent, SessionAgent
+from botbox.agents.agent import Agent, InjectingAgent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
+from botbox.credential_proxy import Credential, CredentialSource
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
@@ -138,9 +139,13 @@ class Botbox:
         since Docker can't mount it.
 
         Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
-        a fresh host temp directory with the credentials staged in. The temp directory is
-        removed when the run ends, so without `output` the streams, transcripts and proxy log
-        are not kept; files written to `mounts` are.
+        a fresh host temp directory with the credentials staged in. For an agent with a
+        `credential_source`, that is a placeholder, and a proxy outside the box sends the real
+        credential upstream. A host login that has already expired raises `CredentialsExpired`
+        before anything is built. botbox never refreshes it: a run that outlives it needs the
+        host's CLI to refresh it, and the new one is sent from the next request on. The temp
+        directory is removed when the run ends, so without `output` the streams, transcripts and
+        proxy log are not kept; files written to `mounts` are.
         A non-zero exit is a normal result. A daemon that goes away mid-run raises
         `DockerException` with the client's stderr.
 
@@ -157,6 +162,8 @@ class Botbox:
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        source = self._credential_source()
+        credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
         image = await self.build()
         token = uuid4().hex[:12]
@@ -166,7 +173,13 @@ class Botbox:
             home = self._stage_home(Path(scratch.name))
             allow = (*agent.allow, *self.allow)
             try:
-                async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
+                async with (
+                    deadline,
+                    lockdown(
+                        allow, Path(scratch.name), token, output, credential=credential
+                    ) as jail,
+                    self._following(jail, source, credential),
+                ):
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
                         token,
@@ -195,10 +208,10 @@ class Botbox:
     ) -> AsyncIterator[Session]:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
-        The same lockdown, home and mounts as `run()`, with the container labelled and its temp
-        home named the same way. Leaving the block ends the CLI's input, waits for it to exit,
-        removes the session's containers and temp home, and leaves the `RunResult` in the
-        session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
+        The same lockdown, home, credentials and mounts as `run()`, with the container labelled
+        and its temp home named the same way. Leaving the block ends the CLI's input, waits for it
+        to exit, removes the session's containers and temp home, and leaves the `RunResult` in
+        the session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
         tears down the same way, through any number of further cancels, leaving exit code -1 if
         none was read. Raises `TypeError` for an agent with no session mode, and
         `DockerException` as `run()` does.
@@ -216,6 +229,8 @@ class Botbox:
         limit = self.timeout if timeout is None else check_timeout(timeout)
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        source = self._credential_source()
+        credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
         image = await self.build()
         token = uuid4().hex[:12]
@@ -227,7 +242,13 @@ class Botbox:
             try:
                 home = self._stage_home(Path(scratch.name))
                 allow = (*agent.allow, *self.allow)
-                async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
+                async with (
+                    deadline,
+                    lockdown(
+                        allow, Path(scratch.name), token, output, credential=credential
+                    ) as jail,
+                    self._following(jail, source, credential),
+                ):
                     name = f"botbox-agent-{token}"
                     started = Container(name)
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
@@ -292,6 +313,19 @@ class Botbox:
             await settle(warned(remove_within(container), f"remove its agent container {name}"))
         return exit_code
 
+    def _credential_source(self) -> CredentialSource | None:
+        """The agent's credential for the proxy to send, or None to have it copied in."""
+        agent = self.agent
+        return agent.credential_source if isinstance(agent, InjectingAgent) else None
+
+    def _following(
+        self, jail: Lockdown, source: CredentialSource | None, credential: Credential | None
+    ) -> AbstractAsyncContextManager[None]:
+        """Follow the host's credential into the proxy while the run lasts, when it has one."""
+        if jail.credentials is None or source is None or credential is None:
+            return nullcontext()
+        return jail.credentials.following(source, credential.secret)
+
     def _stage_home(self, scratch: Path) -> Path:
         """Make the agent's home in `scratch` and stage its credentials there."""
         home = scratch / "home"
@@ -334,9 +368,11 @@ class Botbox:
         No `rm`: the run reads the exit code from the stopped container, then removes it.
         """
         agent = self.agent
+        source = self._credential_source()
+        injected = {} if jail.credentials is None or source is None else source.env
         return {
             "labels": {"botbox.run": token},
-            "env": {"HOME": agent.home, **jail.envs},
+            "env": {"HOME": agent.home, **jail.envs, **injected},
             "mounts": [
                 DockerMount("bind", str(home), agent.home),
                 jail.volume.mount(SOCKET_DIR, read_only=True),

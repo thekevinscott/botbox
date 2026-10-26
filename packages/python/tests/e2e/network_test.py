@@ -77,8 +77,9 @@ PROBES = {
 
 
 @pytest.fixture(scope="module")
-def report(box: Botbox, output: Path) -> dict[str, str]:
-    return run_probes(box, PROBES, output)
+def report(output: Path) -> dict[str, str]:
+    # On a key, the agent's host goes through the proxy's allow list; a login is injected instead.
+    return run_probes(Botbox(ClaudeAgent(api_key="unused")), PROBES, output)
 
 
 @pytest.fixture(scope="module")

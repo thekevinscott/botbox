@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from botbox.credential_proxy import CredentialSource
+
 
 class Agent(Protocol):
     """What botbox needs to know to run an agent's CLI in a container."""
@@ -15,7 +17,8 @@ class Agent(Protocol):
     """Hosts the CLI needs the proxy to admit."""
 
     def stage_auth(self, home: Path) -> None:
-        """Copy the host's credentials into `home`, the per-run temp home."""
+        """Stage the agent's login into `home`, the per-run temp home: a copy of the host's, or
+        a placeholder when the credential proxy sends the real one."""
         ...
 
     def command(self, prompt: str) -> str:
@@ -37,4 +40,17 @@ class SessionAgent(Agent, Protocol):
 
     def turn_ended(self, event: dict[str, Any]) -> bool:
         """Whether `event`, one line of the CLI's stdout, is the last of a turn."""
+        ...
+
+
+@runtime_checkable
+class InjectingAgent(Agent, Protocol):
+    """An agent whose credential the proxy sends upstream, so the box never holds it.
+
+    An agent without `credential_source` has its credentials copied in by `stage_auth`.
+    """
+
+    @property
+    def credential_source(self) -> CredentialSource | None:
+        """The host credential the proxy injects, or None to have `stage_auth` copy it."""
         ...
