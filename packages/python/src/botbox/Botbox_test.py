@@ -5,11 +5,10 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from adocker import Container
 from botbox.Botbox import STDERR_BYTES, Botbox
 
 AGENT_STEP = Mock(
@@ -415,15 +414,16 @@ def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
         yield m
 
 
-def exited(name: str, code: int) -> Container:
-    client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
-    client.set_result(code)
-    return Container(name, client=client)  # type: ignore[arg-type]
+def exited(name: str, code: int) -> Mock:
+    """The container `Image.run` returns, its client already exited with `code`."""
+    container = Mock(wait=AsyncMock(return_value=code))
+    container.name = name
+    return container
 
 
 @pytest.fixture(autouse=True)
 def image(steps: list[str]) -> Iterator[Mock]:
-    async def attached(*_command: str, name: str, stdout: Any, stderr: Any, **_: Any) -> Container:
+    async def attached(*_command: str, name: str, stdout: Any, stderr: Any, **_: Any) -> Mock:
         steps.append("run agent")
         stdout(b"out\xff\n")
         stderr(b"err\n")
@@ -495,7 +495,7 @@ def run_steps(steps: list[str]) -> list[str]:
 def hang_forever(steps: list[str]) -> Any:
     """A `docker run` that prints part of its output, then never exits."""
 
-    async def hang(*_command: str, stdout: Any, stderr: Any, **_options: Any) -> Container:
+    async def hang(*_command: str, stdout: Any, stderr: Any, **_options: Any) -> Mock:
         steps.append("run agent")
         stdout(b"partial\n")
         stderr(b"err\n")
@@ -586,7 +586,7 @@ def describe_run() -> None:
     async def it_gives_only_the_tail_of_a_long_stderr(
         runner: Mock, docker_run: Mock, agent_exit: Mock
     ) -> None:
-        async def attached(*_command: str, name: str, stderr: Any, **_: Any) -> Container:
+        async def attached(*_command: str, name: str, stderr: Any, **_: Any) -> Mock:
             stderr(b"x" * STDERR_BYTES + b"tail")
             return exited(name, 3)
 
@@ -711,7 +711,7 @@ def describe_run() -> None:
         ) -> None:
             started = asyncio.Event()
 
-            async def hang(*_args: object, stdout: Any, **_options: object) -> Container:
+            async def hang(*_args: object, stdout: Any, **_options: object) -> Mock:
                 stdout(b"partial\n")
                 started.set()
                 await asyncio.Event().wait()
@@ -739,7 +739,7 @@ def describe_run() -> None:
         async def it_raises_a_timeout_holding_only_the_exit_code_without_output(
             runner: Mock, docker_run: Mock
         ) -> None:
-            async def hang(*_args: object, **_options: object) -> Container:
+            async def hang(*_args: object, **_options: object) -> Mock:
                 await asyncio.Event().wait()
                 raise AssertionError
 
@@ -842,13 +842,15 @@ def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
     async def hold(
         agent: Any, _image: str, _command: Any, *, scratch: Path, name: str, **_: Any
-    ) -> AsyncIterator[tuple[Mock, Container]]:
+    ) -> AsyncIterator[tuple[Mock, Mock]]:
         held.agent = agent
         held.client = asyncio.get_running_loop().create_future()
         (scratch / "stderr.txt").write_bytes(b"err\n")
         steps.append("hold session")
         try:
-            yield held, Container(name, client=held.client)
+            container = Mock()
+            container.name = name
+            yield held, container
         finally:
             steps.append("release session")
 
@@ -1259,7 +1261,7 @@ def describe_run_output() -> None:
     ) -> None:
         home = scratch / "home"
 
-        async def attached(*_command: str, name: str, **_: Any) -> Container:
+        async def attached(*_command: str, name: str, **_: Any) -> Mock:
             assert (home / ".credentials").read_text() == "token"
             assert (home / ".claude" / "projects").is_dir()
             return exited(name, 0)

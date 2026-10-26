@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from adocker.Image import Image, attach
-from adocker.StdinPipe import StdinPipe
 
 DEVNULL = asyncio.subprocess.DEVNULL
 PIPE = asyncio.subprocess.PIPE
@@ -41,12 +40,25 @@ def execute(calls: list[dict[str, Any]], release: asyncio.Event) -> Iterator[Asy
         yield m
 
 
+class StdinPipe:
+    """Stands in for adocker's StdinPipe, so `attach` can tell it from a plain stdin."""
+
+    def __init__(self) -> None:
+        self.read = 11
+        self.writer = Mock()
+        self.release = Mock()
+
+
+@pytest.fixture(autouse=True)
+def stdin_pipe() -> Iterator[type[StdinPipe]]:
+    with patch("adocker.Image.StdinPipe", StdinPipe):
+        yield StdinPipe
+
+
 @pytest.fixture
-def pipe() -> Iterator[Mock]:
-    made = Mock(spec=StdinPipe)
-    made.read = 11
-    made.writer = Mock()
-    with patch("adocker.Image.StdinPipe.open", AsyncMock(return_value=made)):
+def pipe() -> Iterator[Any]:
+    made = StdinPipe()
+    with patch.object(StdinPipe, "open", AsyncMock(return_value=made), create=True):
         yield made
 
 
@@ -221,14 +233,13 @@ def describe_Image() -> None:
 
 def describe_attach() -> None:
     async def it_lets_go_of_the_pipe_when_the_client_fails() -> None:
-        pipe = Mock(spec=StdinPipe)
-        pipe.read = 11
+        pipe = StdinPipe()
         started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         with (
             patch("adocker.Image.execute", AsyncMock(side_effect=OSError("boom"))),
             pytest.raises(OSError, match="boom"),
         ):
-            await attach(["run"], pipe, None, None, started)
+            await attach(["run"], pipe, None, None, started)  # type: ignore[arg-type]
         pipe.release.assert_called_once_with()
 
     async def it_passes_a_plain_stdin_through() -> None:

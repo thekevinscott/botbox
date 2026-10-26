@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 import botbox.lockdown as lockdown_module
-from adocker import Container
 from botbox.lockdown import (
     PROXY_CONF,
     PROXY_DIR,
@@ -44,9 +43,9 @@ class Image:
         self.steps = steps
         self.command: tuple[str, ...] | None = None
         self.options: dict[str, Any] = {}
-        self.container: Container | None = None
+        self.container: Mock | None = None
 
-    async def run(self, *command: str, **options: Any) -> Container:
+    async def run(self, *command: str, **options: Any) -> Mock:
         self.command, self.options = command, options
         self.steps.append("run proxy")
 
@@ -54,9 +53,12 @@ class Image:
             await self.served.wait()
             return 0
 
-        self.container = Container(
-            options["name"], client=asyncio.ensure_future(attached()), stdin=Mock()
-        )
+        client = asyncio.ensure_future(attached())
+
+        async def wait() -> int:
+            return await client
+
+        self.container = Mock(client=client, stdin=Mock(), wait=wait)
         return self.container
 
 
@@ -121,7 +123,7 @@ def wait(steps: list[str]) -> Iterator[AsyncMock]:
 
 @pytest.fixture(autouse=True)
 def stop(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
-    async def stopped(proxy: Container, *_args: object) -> None:
+    async def stopped(proxy: Mock, *_args: object) -> None:
         served.set()
         await proxy.wait()
         steps.append("proxy stopped")
@@ -259,7 +261,7 @@ def describe_lockdown() -> None:
         ) -> None:
             async with jail(scratch):
                 pass
-            proxy: Container
+            proxy: Mock
             [proxy, stdin, grace] = stop.call_args.args
             assert proxy is image.container
             assert stdin is proxy.stdin

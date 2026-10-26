@@ -32,3 +32,13 @@ path = "src/botbox/credential_proxy/wait_for_socket.py"
 rules = ["mutation"]
 lines = ["27"]
 reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
+
+[[python.exempt]]
+path = "src/adocker/__init__.py"
+rules = ["co-change"]
+reason = "#251 export-only change: the classes replace the free functions. tests/integration/package_test.py covers the exports."
+
+[[python.exempt]]
+path = "src/botbox/process/__init__.py"
+rules = ["co-change"]
+reason = "#251 export-only change: owner_only and close_held left with StdinPipe."

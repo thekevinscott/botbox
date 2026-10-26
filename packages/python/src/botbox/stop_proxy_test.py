@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from adocker import Container
 from botbox.stop_proxy import stop_proxy
 
 
@@ -47,8 +46,13 @@ def client_ending_on(stdin: Mock) -> asyncio.Task[int]:
     return asyncio.ensure_future(attached())
 
 
-def proxy(client: "asyncio.Future[int]") -> Container:
-    return Container("botbox-proxy-1", client=client)  # type: ignore[arg-type]
+def proxy(client: "asyncio.Future[int]") -> Mock:
+    async def wait() -> int:
+        return await client
+
+    container = Mock(wait=wait)
+    container.name = "botbox-proxy-1"
+    return container
 
 
 def describe_stop_proxy() -> None:

@@ -7,8 +7,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from adocker import Container
-from adocker.StdinPipe import StdinPipe
 from botbox.hold_session import hold_session
 
 
@@ -27,19 +25,24 @@ class Image:
         self.tag = tag
         return self
 
-    async def run(self, *command: str, **options: Any) -> Container:
+    async def run(self, *command: str, **options: Any) -> Mock:
         self.command, self.options = command, options
         if self.refuses is not None:
             raise self.refuses
         assert options["stdin"] == asyncio.subprocess.PIPE
-        pipe = await StdinPipe.open()
-        client = asyncio.ensure_future(self.attached(pipe, options["stdout"], options["stderr"]))
-        return Container(options["name"], client=client, stdin=pipe.writer)
+        loop = asyncio.get_running_loop()
+        read, write = os.pipe()
+        transport, protocol = await loop.connect_write_pipe(
+            asyncio.streams.FlowControlMixin, os.fdopen(write, "wb")
+        )
+        stdin = asyncio.StreamWriter(transport, protocol, None, loop)
+        client = asyncio.ensure_future(self.attached(read, options["stdout"], options["stderr"]))
+        return Mock(client=client, stdin=stdin)
 
-    async def attached(self, pipe: StdinPipe, out: Any, err: Any) -> int:
+    async def attached(self, read: int, out: Any, err: Any) -> int:
         reader = asyncio.StreamReader()
         transport, _ = await asyncio.get_running_loop().connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(os.dup(pipe.read), "rb")
+            lambda: asyncio.StreamReaderProtocol(reader), os.fdopen(read, "rb")
         )
         try:
             if self.fails is not None:
@@ -53,7 +56,6 @@ class Image:
             raise
         finally:
             transport.close()
-            pipe.release()
 
 
 @pytest.fixture(autouse=True)
