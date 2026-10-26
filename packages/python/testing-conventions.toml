@@ -68,3 +68,13 @@ path = "src/botbox/credential_proxy/wait_for_socket.py"
 rules = ["mutation"]
 lines = ["27"]
 reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/CredentialProxy.py"
+rules = ["co-change"]
+reason = "#248 import-only change (adocker.DockerException -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/credential_proxy.py"
+rules = ["co-change"]
+reason = "#248 import-only change (adocker.run -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
