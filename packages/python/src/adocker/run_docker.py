@@ -1,8 +1,8 @@
 import asyncio
 
-from botbox.docker.Capture import Capture
-from botbox.docker.DockerException import DockerException
-from botbox.docker.execute import execute
+from adocker.Capture import Capture
+from adocker.DockerException import DockerException
+from adocker.execute import execute
 
 STDERR_LIMIT = 64 * 1024
 

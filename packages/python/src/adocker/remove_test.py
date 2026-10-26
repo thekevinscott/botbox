@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.remove import remove
+from adocker.remove import remove
 
 
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.remove.run_docker", autospec=True) as m:
+    with patch("adocker.remove.run_docker", autospec=True) as m:
         yield m
 
 

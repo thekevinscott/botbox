@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from botbox.docker.run_docker import run_docker
+from adocker.run_docker import run_docker
 
 
 async def version() -> dict[str, Any]:

@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.build import build
+from adocker.build import build
 
 
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.build.run_docker", autospec=True) as m:
+    with patch("adocker.build.run_docker", autospec=True) as m:
         yield m
 
 

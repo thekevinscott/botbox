@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.run_docker import STDERR_LIMIT, run_docker
+from adocker.run_docker import STDERR_LIMIT, run_docker
 
 
 class Capture:
@@ -41,14 +41,14 @@ class DockerException(Exception):
 
 @pytest.fixture(autouse=True)
 def docker_exception() -> Iterator[None]:
-    with patch("botbox.docker.run_docker.DockerException", DockerException):
+    with patch("adocker.run_docker.DockerException", DockerException):
         yield
 
 
 @pytest.fixture(autouse=True)
 def captures() -> Iterator[list[Capture]]:
     MADE.clear()
-    with patch("botbox.docker.run_docker.Capture", Capture):
+    with patch("adocker.run_docker.Capture", Capture):
         yield MADE
 
 
@@ -65,7 +65,7 @@ def execute(output: list[bytes]) -> Iterator[AsyncMock]:
         stderr.into += output[1]
         return 0
 
-    with patch("botbox.docker.run_docker.execute", autospec=True, side_effect=write) as m:
+    with patch("adocker.run_docker.execute", autospec=True, side_effect=write) as m:
         yield m
 
 

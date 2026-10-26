@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.inspect_container import inspect_container
+from adocker.inspect_container import inspect_container
 
 
 @pytest.fixture(autouse=True)
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.inspect_container.run_docker", autospec=True) as m:
+    with patch("adocker.inspect_container.run_docker", autospec=True) as m:
         m.return_value = '[{"Name":"/sdk-box","State":{"Status":"exited","ExitCode":5}}]\n'
         yield m
 
