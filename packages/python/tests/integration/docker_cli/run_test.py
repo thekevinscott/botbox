@@ -1,7 +1,6 @@
 """`Botbox.run()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
-import base64
 import contextlib
 import io
 import os
@@ -159,14 +158,18 @@ def describe_run() -> None:
             mounts = [agent[i + 1] for i, arg in enumerate(agent) if arg == "--volume"]
             assert [m for m in mounts if m.split(":")[1] == "/home/user"] == []
 
-        async def it_passes_the_staged_files_in_the_env(box: Botbox, daemon: Daemon) -> None:
+        async def it_sends_the_staged_files_ahead_on_its_stdin(box: Botbox, daemon: Daemon) -> None:
             await box.run("true")
             [agent] = daemon.runs("botbox-agent-")
+            assert "--interactive" in agent
             envs = [agent[i + 1] for i, arg in enumerate(agent) if arg == "--env"]
-            [staged] = [e for e in envs if e.startswith("BOTBOX_HOME_FILES=")]
-            archive = io.BytesIO(base64.b64decode(staged.split("=", 1)[1]))
-            with tarfile.open(fileobj=archive) as tar:
+            [size] = [e for e in envs if e.startswith("BOTBOX_HOME_BYTES=")]
+            name = agent[agent.index("--name") + 1]
+            archive = (daemon.state / f"{name}.home").read_bytes()
+            assert len(archive) == int(size.split("=", 1)[1])
+            with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
                 assert tar.getnames() == [".claude/api_key", ".claude/settings.json"]
+            assert not any("api_key" in arg or "settings.json" in arg for arg in agent)
 
         async def it_uses_a_new_proxy_volume_each_run(box: Botbox, daemon: Daemon) -> None:
             await box.run("true")

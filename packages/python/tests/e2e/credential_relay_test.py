@@ -56,7 +56,7 @@ def responses(
         image = await box.build()
         token = uuid4().hex[:12]
         async with lockdown((), root, token, output, credential=CREDENTIAL) as jail:
-            flags = box._lockdown_flags(token, box._home_files(), jail, [], None)  # noqa: SLF001
+            flags = box._lockdown_flags(token, b"", jail, [], None)  # noqa: SLF001
             stdout, stderr = bytearray(), bytearray()
             agent = await Image(image).run(
                 RELAY,
@@ -127,7 +127,7 @@ def without_socket(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, str]:
         image = await box.build()
         token = uuid4().hex[:12]
         async with lockdown((), root, token) as jail:
-            flags = box._lockdown_flags(token, box._home_files(), jail, [], None)  # noqa: SLF001
+            flags = box._lockdown_flags(token, b"", jail, [], None)  # noqa: SLF001
             flags["env"][CREDENTIALS_ENV] = "1"
             stderr = bytearray()
             agent = await Image(image).run(

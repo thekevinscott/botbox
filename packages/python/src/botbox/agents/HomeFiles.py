@@ -1,11 +1,9 @@
-import base64
 import gzip
 import io
 import tarfile
 
-ENV = "BOTBOX_HOME_FILES"
-# Linux's limit on one argument, which `docker run --env NAME=VALUE` must fit in.
-ARG_MAX = 128 * 1024
+# The relay reads this many bytes of its stdin as the files, and hands the rest to the command.
+SIZE_ENV = "BOTBOX_HOME_BYTES"
 
 
 class HomeFiles:
@@ -18,13 +16,10 @@ class HomeFiles:
         """Add `content` at `path`, relative to the home, with permissions `mode`."""
         self.files[path] = (content.encode() if isinstance(content, str) else content, mode)
 
-    def env(self) -> dict[str, str]:
-        """The env var that carries the files to the relay, as a base64 tar.gz; none without files.
-
-        Raises `ValueError` if the files are too large for Docker to pass.
-        """
+    def archive(self) -> bytes:
+        """The files as a tar.gz, for the relay's stdin; empty without files."""
         if not self.files:
-            return {}
+            return b""
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w") as archive:
             for path, (content, mode) in self.files.items():
@@ -32,7 +27,4 @@ class HomeFiles:
                 entry.size = len(content)
                 entry.mode = mode
                 archive.addfile(entry, io.BytesIO(content))
-        value = base64.b64encode(gzip.compress(buffer.getvalue(), mtime=0)).decode()
-        if len(ENV) + 1 + len(value) >= ARG_MAX:
-            raise ValueError(f"the agent's home files are too large to pass: {len(value)} bytes")
-        return {ENV: value}
+        return gzip.compress(buffer.getvalue(), mtime=0)

@@ -17,7 +17,7 @@ from unittest.mock import patch
 import pytest
 from conftest import API_KEY, docker_lines, leaked, transcripts
 
-from botbox import Botbox, ClaudeAgent, DockerException, RunResult
+from botbox import Botbox, ClaudeAgent, DockerException, HomeFiles, RunResult
 
 
 @pytest.fixture(scope="module")
@@ -77,6 +77,12 @@ def config(agent: ClaudeAgent, tmp_path_factory: pytest.TempPathFactory) -> str:
     return out
 
 
+def staged_size(agent: ClaudeAgent) -> int:
+    files = HomeFiles()
+    agent.stage_auth(files)
+    return len(files.archive())
+
+
 def agents(temp: Path) -> set[str]:
     """The running agent containers of the runs whose temp directories are in `temp`."""
     names = {f"botbox-agent-{p.name.split('-')[1]}" for p in temp.iterdir()}
@@ -132,6 +138,15 @@ def describe_an_api_key_session() -> None:
     def it_keeps_the_key_out_of_the_container_config(config: str) -> None:
         leaked = API_KEY in config
         assert not leaked
+
+    def it_keeps_the_staged_files_out_of_the_container_config(
+        agent: ClaudeAgent, config: str
+    ) -> None:
+        [container] = json.loads(config)
+        assert "sk-ant-api03-botbox-placeholder" not in config
+        assert [e for e in container["Config"]["Env"] if e.startswith("BOTBOX_HOME")] == [
+            f"BOTBOX_HOME_BYTES={staged_size(agent)}"
+        ]
 
     def it_keeps_the_key_out_of_a_refused_container(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=API_KEY)

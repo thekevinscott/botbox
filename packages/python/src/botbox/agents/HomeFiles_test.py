@@ -1,34 +1,30 @@
-import base64
 import io
-import os
 import tarfile
 
-import pytest
-
-from botbox.agents.HomeFiles import ENV, HomeFiles
+from botbox.agents.HomeFiles import HomeFiles
 
 
-def entries(env: dict[str, str]) -> dict[str, tuple[bytes, int, bool]]:
-    with tarfile.open(fileobj=io.BytesIO(base64.b64decode(env[ENV]))) as archive:
+def entries(archive: bytes) -> dict[str, tuple[bytes, int, bool]]:
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         return {
             entry.name: (
-                archive.extractfile(entry).read() if entry.isfile() else b"",  # type: ignore[union-attr]
+                tar.extractfile(entry).read() if entry.isfile() else b"",  # type: ignore[union-attr]
                 entry.mode,
                 entry.isfile(),
             )
-            for entry in archive.getmembers()
+            for entry in tar.getmembers()
         }
 
 
 def describe_home_files() -> None:
-    def it_passes_nothing_without_files() -> None:
-        assert HomeFiles().env() == {}
+    def it_is_empty_without_files() -> None:
+        assert HomeFiles().archive() == b""
 
     def it_carries_each_file_with_its_mode() -> None:
         home = HomeFiles()
         home.write(".claude/.credentials.json", "placeholder", mode=0o600)
         home.write(".claude/settings.json", b"{}")
-        assert entries(home.env()) == {
+        assert entries(home.archive()) == {
             ".claude/.credentials.json": (b"placeholder", 0o600, True),
             ".claude/settings.json": (b"{}", 0o644, True),
         }
@@ -37,16 +33,10 @@ def describe_home_files() -> None:
         home = HomeFiles()
         home.write("a", "first")
         home.write("a", "second")
-        assert entries(home.env()) == {"a": (b"second", 0o644, True)}
+        assert entries(home.archive()) == {"a": (b"second", 0o644, True)}
 
     def it_is_the_same_for_the_same_files() -> None:
         first, second = HomeFiles(), HomeFiles()
         first.write("a", "content")
         second.write("a", "content")
-        assert first.env() == second.env()
-
-    def it_refuses_files_too_large_for_docker_to_pass() -> None:
-        home = HomeFiles()
-        home.write("big", os.urandom(100 * 1024))
-        with pytest.raises(ValueError, match="too large"):
-            home.env()
+        assert first.archive() == second.archive()

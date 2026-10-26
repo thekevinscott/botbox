@@ -9,6 +9,7 @@ from posix_tools import tail
 from adocker import Container, Image
 from botbox.agents.agent import SessionAgent
 from botbox.process import settle
+from botbox.send_home import send_home
 from botbox.Session import Session
 from botbox.utils.abort_writer import abort_writer
 from botbox.utils.FileLines import FileLines
@@ -16,11 +17,12 @@ from botbox.write import write
 
 
 @asynccontextmanager
-async def hold_session(
+async def hold_session(  # noqa: PLR0913
     agent: SessionAgent,
     image: str,
     command: Sequence[str],
     *,
+    home: bytes,
     scratch: Path,
     output: Path | None,
     **options: Any,
@@ -56,6 +58,7 @@ async def hold_session(
                 client = cast("asyncio.Task[int]", container.client)
                 stdin = cast("asyncio.StreamWriter", container.stdin)
                 try:
+                    await send_home(stdin, home)
                     client.add_done_callback(lambda _: lines.end())
                     yield Session(agent, stdin, client, lines.readline), container
                 finally:

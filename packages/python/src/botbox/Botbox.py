@@ -14,6 +14,7 @@ from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles, InjectingAgent, SessionAgent
+from botbox.agents.HomeFiles import SIZE_ENV
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
@@ -23,6 +24,7 @@ from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
+from botbox.send_home import send_home
 from botbox.Session import Session
 from botbox.Timeout import Timeout
 from botbox.warned import warned
@@ -186,6 +188,7 @@ class Botbox:
                         token,
                         image,
                         (RELAY, "sh", "-c", command),
+                        home=home,
                         flags=flags,
                         scratch=Path(scratch.name),
                         output=output,
@@ -258,6 +261,7 @@ class Botbox:
                             agent,
                             image,
                             (RELAY, "sh", "-c", command),
+                            home=home,
                             scratch=Path(scratch.name),
                             output=output,
                             name=name,
@@ -294,11 +298,13 @@ class Botbox:
         image: str,
         command: Sequence[str],
         *,
+        home: bytes,
         flags: dict[str, Any],
         scratch: Path,
         output: Path | None,
     ) -> int:
-        """Run attached, writing to `scratch` and `output`, then remove the agent container."""
+        """Run attached, with `home` on its stdin, writing to `scratch` and `output`, then
+        remove the agent container."""
         name = f"botbox-agent-{token}"
         container = Container(name)
         also = [] if output is None else [output]
@@ -308,8 +314,17 @@ class Botbox:
                 write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
             ):
                 container = await Image(image).run(
-                    *command, name=name, stdout=out, stderr=err, **flags
+                    *command,
+                    name=name,
+                    stdin=asyncio.subprocess.PIPE if home else asyncio.subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    **flags,
                 )
+                if home:
+                    stdin = cast("asyncio.StreamWriter", container.stdin)
+                    await send_home(stdin, home)
+                    stdin.close()
                 client = await container.wait()
             exit_code = await agent_exit(container, client, last_stderr(scratch))
         finally:
@@ -329,11 +344,11 @@ class Botbox:
             return nullcontext()
         return jail.credentials.following(source, credential.secret)
 
-    def _home_files(self) -> dict[str, str]:
-        """The env var that carries the agent's staged credentials into its home."""
+    def _home_files(self) -> bytes:
+        """The agent's staged credentials and config, as the archive the relay unpacks."""
         home = HomeFiles()
         self.agent.stage_auth(home)
-        return home.env()
+        return home.archive()
 
     def _prepare_output(
         self, output: str | Path | None, volumes: list[tuple[str, str, str]]
@@ -356,7 +371,7 @@ class Botbox:
     def _lockdown_flags(
         self,
         token: str,
-        home: dict[str, str],
+        home: bytes,
         jail: Lockdown,
         volumes: list[tuple[str, str, str]],
         workdir: str | Path | None,
@@ -371,7 +386,12 @@ class Botbox:
         injected = {} if jail.credentials is None or source is None else source.env
         return {
             "labels": {"botbox.run": token},
-            "env": {"HOME": agent.home, **home, **jail.envs, **injected},
+            "env": {
+                "HOME": agent.home,
+                **({SIZE_ENV: str(len(home))} if home else {}),
+                **jail.envs,
+                **injected,
+            },
             "mounts": [
                 jail.volume.mount(SOCKET_DIR, read_only=True),
                 *(

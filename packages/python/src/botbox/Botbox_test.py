@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.agents.HomeFiles import ENV, HomeFiles
+from botbox.agents.HomeFiles import SIZE_ENV, HomeFiles
 from botbox.Botbox import Botbox
 
 
@@ -367,11 +367,22 @@ def scratch(tmp_path: Path) -> Path:
     return scratch
 
 
-def staged_env() -> dict[str, str]:
-    """The env `runner`'s staged credentials travel in."""
+def staged() -> bytes:
+    """The archive of `runner`'s staged credentials."""
     home = HomeFiles()
     home.write(".credentials", "token")
-    return home.env()
+    return home.archive()
+
+
+def staged_env() -> dict[str, str]:
+    """The env that tells the relay how much of its stdin is the staged archive."""
+    return {SIZE_ENV: str(len(staged()))}
+
+
+@pytest.fixture(autouse=True)
+def send_home() -> Iterator[AsyncMock]:
+    with patch("botbox.Botbox.send_home", autospec=True) as m:
+        yield m
 
 
 @pytest.fixture
@@ -575,10 +586,24 @@ def describe_run() -> None:
         await Botbox(runner).run("true")
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
 
-    async def it_passes_the_staged_credentials_in_the_env(runner: Mock, docker_run: Mock) -> None:
+    async def it_sends_the_staged_credentials_on_the_agents_stdin_then_closes_it(
+        runner: Mock, docker_run: Mock, send_home: AsyncMock
+    ) -> None:
         await Botbox(runner).run("true")
         runner.stage_auth.assert_called_once()
-        assert docker_run.call_args.kwargs["env"][ENV] == staged_env()[ENV]
+        assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.PIPE
+        stdin = send_home.call_args.args[0]
+        send_home.assert_called_once_with(stdin, staged())
+        stdin.close.assert_called_once_with()
+
+    async def it_gives_the_agent_no_stdin_with_nothing_staged(
+        runner: Mock, docker_run: Mock, send_home: AsyncMock
+    ) -> None:
+        runner.stage_auth.side_effect = None
+        await Botbox(runner).run("true")
+        assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.DEVNULL
+        assert SIZE_ENV not in docker_run.call_args.kwargs["env"]
+        send_home.assert_not_called()
 
     async def it_makes_no_home_on_the_host(runner: Mock, scratch: Path) -> None:
         await Botbox(runner).run("true")
@@ -653,7 +678,6 @@ def describe_run() -> None:
             await Botbox(runner).run("true")
             options = docker_run.call_args.kwargs
             assert "rm" not in options
-            assert "stdin" not in options
             assert options["stdout"] is not options["stderr"]
 
         @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
@@ -982,6 +1006,7 @@ def describe_session() -> None:
         [container, client, stderr] = agent_exit.call_args.args
         assert (container.name, client, stderr) == (AGENT, 3, "err\n")
         assert hold_session.call_args.args[0] is talker
+        assert hold_session.call_args.kwargs["home"] == staged()
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(

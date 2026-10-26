@@ -87,8 +87,10 @@ def scratch(tmp_path: Path) -> Path:
     return path
 
 
-def hold(agent: Mock, scratch: Path, output: Path | None = None) -> Any:
-    return hold_session(agent, "img", ["cli"], scratch=scratch, output=output, name="c", init=True)
+def hold(agent: Mock, scratch: Path, output: Path | None = None, home: bytes = b"") -> Any:
+    return hold_session(
+        agent, "img", ["cli"], home=home, scratch=scratch, output=output, name="c", init=True
+    )
 
 
 def describe_hold_session() -> None:
@@ -111,6 +113,13 @@ def describe_hold_session() -> None:
             assert await live.client == 7
         assert (scratch / "stdout.txt").read_bytes() == b'{"type": "end"}\n'
         assert (scratch / "stderr.txt").read_bytes() == b"bye\n"
+
+    async def it_sends_the_home_ahead_of_the_first_message(agent: Mock, scratch: Path) -> None:
+        async with hold(agent, scratch, home=b"home\n") as (live, _):
+            assert await live.message('{"type": "end"}') == [{"type": "end"}]
+            live.stdin.close()
+            await live.client
+        assert (scratch / "stdout.txt").read_bytes() == b'home\n{"type": "end"}\n'
 
     async def it_copies_the_output_to_the_output_folder(
         agent: Mock, scratch: Path, tmp_path: Path

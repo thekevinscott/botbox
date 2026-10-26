@@ -128,6 +128,11 @@ else:
     if agent.get("missing"):
         fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
+    # The relay's share of stdin: the staged home archive, as many bytes as the env says.
+    envs = dict(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a == "--env")
+    if "BOTBOX_HOME_BYTES" in envs:
+        home = sys.stdin.buffer.read(int(envs["BOTBOX_HOME_BYTES"]))
+        (state / f"{name}.home").write_bytes(home)
     # Without a transcripts mount, the transcript stays in the container's own home.
     with contextlib.suppress(StopIteration):
         session = volume("/home/user/.claude/projects") / "-work"

@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -10,6 +11,7 @@ from conftest import LINE
 from adocker import Image
 from botbox import Agent, Botbox, ClaudeAgent, CodexAgent, HomeFiles, PiAgent
 from botbox.lockdown import RELAY, lockdown
+from botbox.send_home import send_home
 
 UNNAMED = """FROM botbox-claude:latest
 USER root
@@ -86,7 +88,8 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, transcripts: Path) -> s
     target = f"{box.agent.home}/{box.agent.sessions_dir}"
     volumes = [(str(transcripts), target, "rw")]
     async with lockdown((), scratch, token) as jail:
-        flags = box._lockdown_flags(token, box._home_files(), jail, volumes, None)  # noqa: SLF001
+        home = box._home_files()  # noqa: SLF001
+        flags = box._lockdown_flags(token, home, jail, volumes, None)  # noqa: SLF001
         flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         stdout, stderr = bytearray(), bytearray()
         container = await Image(image).run(
@@ -96,10 +99,14 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, transcripts: Path) -> s
             script,
             name=f"botbox-agent-{token}",
             rm=True,
+            stdin=asyncio.subprocess.PIPE,
             stdout=stdout.extend,
             stderr=stderr.extend,
             **flags,
         )
+        stdin = cast("asyncio.StreamWriter", container.stdin)
+        await send_home(stdin, home)
+        stdin.close()
         code = await container.wait()
     assert code == 0, stderr.decode()
     return stdout.decode()

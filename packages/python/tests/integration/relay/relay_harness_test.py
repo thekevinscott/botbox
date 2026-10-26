@@ -3,6 +3,7 @@ treat it as test code.
 """
 
 import asyncio
+import contextlib
 import xml.etree.ElementTree as ET
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -46,6 +47,7 @@ class Relay:
         user: str,
         env: dict[str, str] | None = None,
         mounts: Sequence[Mount] = (),
+        stdin: bytes = b"",
     ) -> Exit:
         name = f"botbox-relay-test-{uuid4().hex[:12]}"
         argv: tuple[str, ...] = (RELAY, *command)
@@ -62,9 +64,15 @@ class Relay:
             mounts=[proxy.sockets.mount(SOCKET_DIR), *mounts],
             network="none",
             pid=f"container:{proxy.container.name}",
+            stdin=asyncio.subprocess.PIPE if stdin else asyncio.subprocess.DEVNULL,
             stdout=stdout.extend,
             stderr=stderr.extend,
         )
+        if container.stdin is not None:
+            container.stdin.write(stdin)
+            with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                await container.stdin.drain()
+            container.stdin.close()
         code = await asyncio.wait_for(container.wait(), 60)
         return Exit(code, stdout.decode(), stderr.decode())
 

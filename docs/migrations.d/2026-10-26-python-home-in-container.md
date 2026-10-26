@@ -36,7 +36,7 @@ None. `stage_auth(home: Path)` is replaced without a deprecation period.
 - No `botbox-<token>-*/home` on the host. The temp directory holds only streams and logs.
 - Without `output`, transcripts go with the container.
 - Mounting your own directory at the harness's home no longer collides with botbox's mount.
-- Staged files past 128 KiB, gzipped and base64-encoded, raise `ValueError` before the run.
+- The agent container's stdin carries the staged files first, as a gzipped tar. A run's command still gets no other input on it.
 
 ## Verification
 
