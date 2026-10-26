@@ -1,0 +1,1 @@
+Added: `Botbox(limits=Limits(memory=..., pids=...))` caps the agent's container in `run()` and `session()` with `--memory` and `--pids-limit`. No cap unless set. An agent killed for running out of memory exits 137 with a `RuntimeWarning`.

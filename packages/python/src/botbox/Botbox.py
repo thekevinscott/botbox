@@ -18,6 +18,7 @@ from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
 from botbox.hold_session import hold_session
+from botbox.Limits import Limits
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
@@ -33,6 +34,8 @@ class Botbox:
 
     `timeout` is in seconds and bounds every run and session; None, the default, is no limit.
     A call's own `timeout` takes its place.
+
+    `limits` caps the agent's container; None, the default, is no cap.
 
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
     so a run or session in progress unwinds and tears down, then the block raises
@@ -50,6 +53,7 @@ class Botbox:
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
         timeout: float | None = None,
+        limits: Limits | None = None,
     ) -> None:
         if os.getuid() == 0:
             raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
@@ -59,6 +63,7 @@ class Botbox:
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
         self.timeout = check_timeout(timeout)
+        self.limits = limits
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -380,4 +385,5 @@ class Botbox:
             "no-new-privileges",
             "--log-driver",
             "none",
+            *([] if self.limits is None else self.limits.args()),
         ]

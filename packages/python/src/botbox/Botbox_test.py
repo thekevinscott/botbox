@@ -18,6 +18,12 @@ AGENT_STEP = Mock(
     file=Path("/agents/D"),
     contexts={"botbox": "/r"},
 )
+
+
+def limits(*args: str) -> Mock:
+    return Mock(**{"args.return_value": list(args)})
+
+
 LAYER_STEP = Mock(
     context=Path("/consumer"), tag="an-agent-123:latest", file=Path("/consumer/D"), contexts={}
 )
@@ -102,6 +108,9 @@ def describe_botbox() -> None:
     def it_refuses_a_bare_string_that_would_split_into_characters(agent: Mock) -> None:
         with pytest.raises(TypeError, match=r"allow=\('github\.com',\)"):
             Botbox(agent, allow="github.com")
+
+    def it_caps_nothing_by_default(agent: Mock) -> None:
+        assert Botbox(agent).limits is None
 
     def it_refuses_to_run_an_agent_as_root(agent: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(os, "getuid", lambda: 0)
@@ -471,7 +480,17 @@ def settle(steps: list[str]) -> Iterator[Mock]:
 
 
 RUN = argparse.ArgumentParser()
-for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user", "--log-driver"):
+for flag in (
+    "--name",
+    "--label",
+    "--workdir",
+    "--network",
+    "--pid",
+    "--user",
+    "--memory",
+    "--pids-limit",
+    "--log-driver",
+):
     RUN.add_argument(flag)
 for flag in ("--env", "--volume", "--cap-drop", "--security-opt"):
     RUN.add_argument(flag, action="append", default=[])
@@ -647,6 +666,25 @@ def describe_run() -> None:
                 "botbox-run-0123456789ab:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
+
+        async def it_caps_nothing_by_default(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner).run("true")
+            [args] = docker_run.call_args.args
+            assert "--memory" not in args
+            assert "--pids-limit" not in args
+
+        async def it_caps_memory_and_pids_as_the_box_says(runner: Mock, docker_run: Mock) -> None:
+            caps = limits("--memory", "2g", "--pids-limit", "1024")
+            await Botbox(runner, limits=caps).run("true")
+            options = agent_options(docker_run)
+            assert options["memory"] == "2g"
+            assert options["pids_limit"] == "1024"
+
+        async def it_passes_no_caps_the_limits_leave_out(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner, limits=limits()).run("true")
+            [args] = docker_run.call_args.args
+            assert "--memory" not in args
+            assert "--pids-limit" not in args
 
         async def it_works_in_the_home_by_default(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner).run("true")
@@ -1013,11 +1051,19 @@ def describe_session() -> None:
             assert options["log_driver"] == "none"
             assert options["env"] == ["HOME=/home/user", "HTTPS_PROXY=http://127.0.0.1:41893"]
             assert options["workdir"] == "/home/user/src"
+            assert "--memory" not in session_args(hold_session)
             assert options["volume"] == [
                 f"{scratch / 'home'}:/home/user:rw",
                 "botbox-run-0123456789ab:/run/botbox:ro",
                 "/src:/home/user/src:ro",
             ]
+
+        async def it_caps_memory_and_pids_as_the_box_says(talker: Mock, hold_session: Mock) -> None:
+            async with Botbox(talker, limits=limits("--memory", "2g")).session():
+                pass
+            options = session_options(hold_session)
+            assert options["memory"] == "2g"
+            assert "--pids-limit" not in session_args(hold_session)
 
     def describe_failure() -> None:
         async def it_lets_a_failed_docker_command_through_after_tearing_down(

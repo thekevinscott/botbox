@@ -3,6 +3,7 @@
 from adocker.DockerException import DockerException
 from botbox.agents import Agent, ClaudeAgent, CodexAgent, PiAgent, SessionAgent
 from botbox.Botbox import Botbox
+from botbox.Limits import Limits
 from botbox.RunResult import RunResult
 from botbox.Session import Session
 from botbox.Timeout import Timeout
@@ -13,6 +14,7 @@ __all__ = [
     "ClaudeAgent",
     "CodexAgent",
     "DockerException",
+    "Limits",
     "PiAgent",
     "RunResult",
     "Session",

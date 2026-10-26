@@ -9,6 +9,7 @@ Botbox(
     dockerfile: str | Path | None = None,
     allow: Sequence[str] = (),
     timeout: float | None = None,
+    limits: Limits | None = None,
 )
 ```
 
@@ -18,6 +19,7 @@ Botbox(
 | `dockerfile` | Your layer on top of the agent's image. Build context is the Dockerfile's directory. Must end as `USER user` and leave the agent's home where it is. |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 | `timeout`    | Seconds each [`run()`](./run) and [`session()`](./session) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
+| `limits`     | Caps on the agent's container. See [`Limits`](#limits). `None` means no cap. |
 
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
 
@@ -28,3 +30,16 @@ A sync caller wraps each call in `asyncio.run(...)`.
 ## `Timeout`
 
 A run or session that runs out of time tears down as a cancel does, then raises `botbox.Timeout`. It is a `TimeoutError`, so `except TimeoutError` catches it. `result` holds the [`RunResult`](./run-result) captured so far, with `exit_code` -1. `seconds` is the limit that ran out. A timeout that runs out before the agent starts leaves `stdout`, `stderr` and `proxy` empty.
+
+## `Limits`
+
+```python
+Limits(*, memory: str | None = None, pids: int | None = None)
+```
+
+| Field    | Meaning |
+| -------- | ------- |
+| `memory` | Memory cap on the agent's container, in `docker run --memory` form (`"4g"`, `"512m"`). `None` for no cap. |
+| `pids`   | Cap on processes and threads in the agent's container (`docker run --pids-limit`). `None` for no cap. |
+
+The caps apply to the agent's container in both [`run()`](./run) and [`session()`](./session). botbox sets no cap of its own: set what your agent needs, e.g. `Botbox(agent, limits=Limits(memory="8g"))`. Builds and test suites inside the box can need several GiB. An agent killed for going over `memory` shows up as `exit_code` 137, along with a `RuntimeWarning` naming the container.
