@@ -23,7 +23,7 @@ async def main():
         task = asyncio.current_task()
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
-        async with Botbox(ClaudeAgent(host_home=home)) as box:
+        async with Botbox(ClaudeAgent(api_key="sk-test", host_home=home)) as box:
             if moment == "session":
                 async with box.session(output=output) as live:
                     await live.message("hang")
