@@ -154,17 +154,7 @@ class Botbox:
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
-        if output is not None:
-            output = Path(output).resolve()
-            if ":" in str(output):
-                raise ValueError(f"output {output} contains ':', which Docker can't mount")
-            output.mkdir(parents=True, exist_ok=True)
-            (output / "stdout.txt").open("wb").close()
-            (output / "stderr.txt").open("wb").close()
-            (output / "proxy.log").open("wb").close()
-            (output / "transcripts").mkdir(exist_ok=True)
-            sessions = f"{agent.home}/{agent.sessions_dir}"
-            volumes.append((str(output / "transcripts"), sessions, "rw"))
+        output = self._prepare_output(output, volumes)
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
@@ -172,12 +162,7 @@ class Botbox:
         jail: Lockdown | None = None
         deadline = asyncio.timeout(limit)
         try:
-            home = Path(scratch.name) / "home"
-            # Owner-only, so an agent under another uid can't leave files the host can't delete.
-            home.mkdir(mode=0o700)
-            agent.stage_auth(home)
-            # Docker would create the mount point root-owned.
-            (home / agent.sessions_dir).mkdir(parents=True, exist_ok=True)
+            home = self._stage_home(Path(scratch.name))
             allow = (*agent.allow, *self.allow)
 
             async def read() -> dict[str, str]:
@@ -228,6 +213,7 @@ class Botbox:
         mounts: Sequence[Mount] = (),
         workdir: str | Path | None = None,
         timeout: float | None = None,
+        output: str | Path | None = None,
     ) -> AsyncIterator[Session]:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
@@ -243,6 +229,10 @@ class Botbox:
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
         raises `Timeout` with the session's `result`.
+
+        `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
+        transcripts go straight to files there, and the result holds only the exit code and
+        image. Events are read by following stdout.txt.
         """
         agent = self.agent
         if not isinstance(agent, SessionAgent):
@@ -250,6 +240,7 @@ class Botbox:
         limit = self.timeout if timeout is None else check_timeout(timeout)
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        output = self._prepare_output(output, volumes)
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
@@ -258,11 +249,9 @@ class Botbox:
         deadline = asyncio.timeout(limit)
         try:
             try:
-                home = Path(scratch.name) / "home"
-                home.mkdir(mode=0o700)
-                agent.stage_auth(home)
+                home = self._stage_home(Path(scratch.name))
                 allow = (*agent.allow, *self.allow)
-                async with deadline, lockdown(allow, Path(scratch.name), token) as jail:
+                async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
                     name = f"botbox-agent-{token}"
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     args = [
@@ -277,11 +266,15 @@ class Botbox:
                         command,
                     ]
                     try:
-                        async with hold_session(agent, args) as live:
+                        async with hold_session(agent, args, output=output) as live:
                             yield live
                             live.stdin.close()
                             client = await live.client
-                        stderr = live.stderr.decode(errors="replace")
+                        stderr = (
+                            live.stderr.decode(errors="replace")
+                            if output is None
+                            else f"See {output / 'stderr.txt'}"
+                        )
                         exit_code = await agent_exit(name, ["docker", "run", *args], client, stderr)
                     finally:
                         await settle(
@@ -289,7 +282,9 @@ class Botbox:
                         )
             finally:
                 try:
-                    if live is not None:
+                    if live is not None and output is not None:
+                        live.result = RunResult("", "", exit_code, {}, "", image)
+                    elif live is not None:
                         await settle(
                             warned(
                                 session_result(live, home, jail.log, image, exit_code),
@@ -336,6 +331,34 @@ class Botbox:
         finally:
             await settle(warned(remove_within(name), f"remove its agent container {name}"))
         return exit_code
+
+    def _stage_home(self, scratch: Path) -> Path:
+        """Make the agent's home in `scratch` and stage its credentials there."""
+        home = scratch / "home"
+        # Owner-only, so an agent under another uid can't leave files the host can't delete.
+        home.mkdir(mode=0o700)
+        self.agent.stage_auth(home)
+        # Docker would create the mount point root-owned.
+        (home / self.agent.sessions_dir).mkdir(parents=True, exist_ok=True)
+        return home
+
+    def _prepare_output(
+        self, output: str | Path | None, volumes: list[tuple[str, str, str]]
+    ) -> Path | None:
+        """Truncate the stream files in `output` and mount its transcripts/ over `sessions_dir`."""
+        if output is None:
+            return None
+        output = Path(output).resolve()
+        if ":" in str(output):
+            raise ValueError(f"output {output} contains ':', which Docker can't mount")
+        output.mkdir(parents=True, exist_ok=True)
+        (output / "stdout.txt").open("wb").close()
+        (output / "stderr.txt").open("wb").close()
+        (output / "proxy.log").open("wb").close()
+        (output / "transcripts").mkdir(exist_ok=True)
+        sessions = f"{self.agent.home}/{self.agent.sessions_dir}"
+        volumes.append((str(output / "transcripts"), sessions, "rw"))
+        return output
 
     def _lockdown_flags(
         self,
