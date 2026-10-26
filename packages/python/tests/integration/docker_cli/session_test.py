@@ -3,6 +3,7 @@
 import asyncio
 import os
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token
@@ -256,18 +257,18 @@ def describe_session() -> None:
                     pass
             assert daemon.calls == []
 
-        async def it_raises_when_the_container_never_ran(
+        async def it_raises_on_entering_when_the_container_cant_be_created(
             box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent(SESSION, missing=True)
+            entered = Mock()
             with pytest.raises(DockerException) as raised:
-                async with box.session(output=output) as live:
-                    assert await live.message("hi") == []
-            assert raised.value.return_code == 125
+                async with box.session(output=output):
+                    entered()
+            entered.assert_not_called()
+            assert raised.value.return_code == 1
             assert "Unable to find image" in raised.value.stderr
             assert "Unable to find image" in (output / "stderr.txt").read_text()
-            assert live.result is not None
-            assert live.result.exit_code == -1
             assert daemon.containers == []
             assert homes(temp) == []
 

@@ -22,6 +22,19 @@ import json, os, sys
 print(json.dumps({"argv": sys.argv[1:], "leader": os.getsid(0) == os.getpid()}))
 """
 
+# What `Image.run` asks before it attaches: the rest of the script is the attached client.
+ATTACHED = """
+import sys, time
+if sys.argv[1] == "create":
+    sys.exit(0)
+if sys.argv[1] == "container":
+    print('[{"Created": "T"}]')
+    sys.exit(0)
+if sys.argv[1] == "events":
+    print("start", flush=True)
+    time.sleep(60)
+"""
+
 # Starts a child in its group, reports both pids, then floods stderr once told to stop.
 FLOOD = """
 import os, signal, subprocess, sys, time
@@ -166,7 +179,7 @@ def describe_docker() -> None:
 
     async def it_runs_an_attached_run_to_its_exit_into_its_sinks(install: Install) -> None:
         install(
-            "import sys; print(sys.argv[1:], sys.stdin.read()); "
+            ATTACHED + "print(sys.argv[1:], sys.stdin.read()); "
             "print('said this', file=sys.stderr); sys.exit(3)"
         )
         stdout, stderr = bytearray(), bytearray()
@@ -181,16 +194,18 @@ def describe_docker() -> None:
         container.stdin.write(b"hello")
         container.stdin.close()
         assert await container.wait() == 3
-        assert stdout == b"['run', '--interactive', '--name', 'box', 'busybox', 'cat'] hello\n"
+        assert stdout == b"['start', '--attach', '--interactive', 'box'] hello\n"
         assert stderr == b"said this\n"
 
     async def it_kills_an_attached_run_that_ignores_the_terminate_when_cancelled(
         install: Install, pids: Path
     ) -> None:
-        install(STUBBORN)
+        install(ATTACHED + STUBBORN)
         container = await Image("img").run(name="box", stdin=None)
-        task = asyncio.ensure_future(container.wait())
         (client,) = await started(pids)
+        task = asyncio.ensure_future(container.wait())
+        # A cancel before the wait's first step never reaches the client.
+        await asyncio.sleep(0)
         started_at = time.monotonic()
         await cancel_twice(task)
         assert await gone(client)
@@ -226,7 +241,10 @@ def describe_docker() -> None:
                     await asyncio.sleep(0.01)
 
     async def it_hands_over_complete_binary_output(install: Install) -> None:
-        install("import os, sys; os.write(1, b'x' * 131072); os.write(2, b'err\\xff'); sys.exit(3)")
+        install(
+            ATTACHED
+            + "import os, sys; os.write(1, b'x' * 131072); os.write(2, b'err\\xff'); sys.exit(3)"
+        )
         out, err = bytearray(), bytearray()
         container = await Image("image").run(name="box", stdout=out.extend, stderr=err.extend)
         assert await container.wait() == 3
@@ -234,7 +252,7 @@ def describe_docker() -> None:
         assert err == b"err\xff"
 
     async def it_fails_the_wait_when_a_sink_fails(install: Install) -> None:
-        install("import os; os.write(1, b'out'); os.write(2, b'err')")
+        install(ATTACHED + "import os; os.write(1, b'out'); os.write(2, b'err')")
 
         def full(_chunk: bytes) -> None:
             raise OSError("disk full")

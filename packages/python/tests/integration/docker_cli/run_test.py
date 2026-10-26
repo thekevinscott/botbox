@@ -276,7 +276,7 @@ def describe_run() -> None:
             daemon.agent("true", missing=True)
             with pytest.raises(DockerException) as raised:
                 await box.run("true", output=output)
-            assert raised.value.return_code == 125
+            assert raised.value.return_code == 1
             assert "Unable to find image" in (output / "stderr.txt").read_text()
             assert daemon.containers == []
 

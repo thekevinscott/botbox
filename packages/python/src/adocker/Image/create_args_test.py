@@ -1,7 +1,7 @@
 from typing import Any
 from unittest.mock import Mock
 
-from adocker.Image.run_args import run_args
+from adocker.Image.create_args import create_args
 
 NONE: dict[str, Any] = {
     "name": "box",
@@ -24,10 +24,10 @@ NONE: dict[str, Any] = {
 }
 
 
-def describe_run_args() -> None:
+def describe_create_args() -> None:
     def it_names_the_container_and_runs_the_command_on_the_image() -> None:
-        assert run_args("img", ["sh", "-c", "x"], **NONE) == [
-            "run",
+        assert create_args("img", ["sh", "-c", "x"], **NONE) == [
+            "create",
             "--name",
             "box",
             "img",
@@ -59,8 +59,8 @@ def describe_run_args() -> None:
             "log_driver": "none",
             "entrypoint": "sh",
         }
-        assert run_args("img", [], **options) == [
-            "run",
+        assert create_args("img", [], **options) == [
+            "create",
             "--interactive",
             "--init",
             "--rm",
@@ -104,4 +104,4 @@ def describe_run_args() -> None:
         ]
 
     def it_passes_a_zero_pids_limit() -> None:
-        assert run_args("img", [], **{**NONE, "pids_limit": 0})[3:5] == ["--pids-limit", "0"]
+        assert create_args("img", [], **{**NONE, "pids_limit": 0})[3:5] == ["--pids-limit", "0"]

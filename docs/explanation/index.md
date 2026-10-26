@@ -20,17 +20,17 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)), and a credential proxy when the harness's login is injected (see [Credential Proxy](#credential-proxy)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host, into `stdout.txt` and `stderr.txt` in the temporary directory, and copies in `output` when one is given.
+5. Creates the container with the command as `sh -c` (`docker create`), then starts it with one attached `docker start --attach`, and carries on once the daemon reports it started. Its stdout and stderr stream to the host, into `stdout.txt` and `stderr.txt` in the temporary directory, and copies in `output` when one is given.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
 7. Stops and removes the proxies, and deletes the temporary directory.
 
-The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. So does a container that never started: a missing image, say, raises with `return_code` 125. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
+The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. A container Docker can't create raises from `docker create`: a missing image, say, raises with `return_code` 1, and Docker's error goes to `stderr.txt` too. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
 
 ## Output
 
 A run's output has two homes. The first is the run's temporary directory, the one that holds the agent's home. botbox always writes there, and removes it when the run ends. The second is `output`, a host directory you pass. It is optional, and it stays.
 
-The agent's `docker run` client and the proxy's each pipe their stdout and stderr to botbox. botbox reads each pipe in chunks of up to 64 KiB, as they arrive, and writes each chunk to a file in the temporary directory, then to the same file in `output`, flushing both. The agent's go to `stdout.txt` and `stderr.txt`. Both of the proxy's go to `proxy.log`. No stream is held in memory whole.
+The agent's attached `docker start` client and the proxy's each pipe their stdout and stderr to botbox. botbox reads each pipe in chunks of up to 64 KiB, as they arrive, and writes each chunk to a file in the temporary directory, then to the same file in `output`, flushing both. The agent's go to `stdout.txt` and `stderr.txt`. Both of the proxy's go to `proxy.log`. No stream is held in memory whole.
 
 A failed write to the temporary copy raises, and the run tears down. A failed write to `output`, a full disk say, is a `RuntimeWarning`: botbox stops writing that one file and the run carries on.
 
@@ -63,11 +63,11 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client pipes all of the container's output to botbox, which writes it to `proxy.log` (see [Output](#output)). The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker start` client pipes all of the container's output to botbox, which writes it to `proxy.log` (see [Output](#output)). The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
 
 ### Lifetime
 
-The owning Python process starts the proxy with one attached `docker run --interactive` and holds its stdin. The proxy runs under an init (`--init`). When stdin closes, the proxy exits and its init with it. The agent container joins the proxy's PID namespace (`--pid container:<proxy>`), and when a namespace's init exits the kernel kills every process in it. So the agent dies with the proxy, however the owner dies: a normal return, an exception, or SIGKILL. The agent can't prevent it by ignoring signals.
+The owning Python process starts the proxy with one attached `docker start --attach --interactive` and holds its stdin. The proxy runs under an init (`--init`). When stdin closes, the proxy exits and its init with it. The agent container joins the proxy's PID namespace (`--pid container:<proxy>`), and when a namespace's init exits the kernel kills every process in it. So the agent dies with the proxy, however the owner dies: a normal return, an exception, or SIGKILL. The agent can't prevent it by ignoring signals.
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
@@ -99,7 +99,7 @@ With `output`, `output/transcripts/` is mounted over the harness's sessions dire
 
 ## Sessions
 
-`session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
+`session()` sets up the same way as `run()`, then starts the agent's session command in a `docker start --attach --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
 The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` as in a run (see [Output](#output)), and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 

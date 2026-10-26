@@ -110,8 +110,8 @@ def raised(box: Botbox, output: Path) -> Iterator[DockerException]:
 
 
 def describe_the_daemon_dying_mid_run() -> None:
-    def it_raises_with_the_agents_docker_run(raised: DockerException) -> None:
-        assert raised.docker_command[:2] == ["docker", "run"]
+    def it_raises_with_the_agents_attached_client(raised: DockerException) -> None:
+        assert raised.docker_command[:2] == ["docker", "start"]
 
     @pytest.mark.usefixtures("raised")
     def it_keeps_the_output_that_arrived(output: Path) -> None:

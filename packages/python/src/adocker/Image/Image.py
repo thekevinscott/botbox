@@ -4,7 +4,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from adocker.Container import Container
-from adocker.Image.run_args import run_args
+from adocker.DockerException import DockerException
+from adocker.Image.create_args import create_args
+from adocker.Image.started import started
 from adocker.Image.StdinPipe import StdinPipe
 from adocker.Mount import Mount
 from adocker.utils import Sink, Stream, execute, run_docker, settle
@@ -48,20 +50,24 @@ class Image:
         log_driver: str | None = None,
         entrypoint: str | None = None,
     ) -> Container:
-        """Start `command` in a container `name` with an attached `docker run`, and return it
-        once the client has started.
+        """Create a container `name` that runs `command`, start it with an attached client, and
+        return it once it is running.
 
         `stdin` is the client's stdin, passed with `--interactive` unless DEVNULL or None.
         PIPE gives the container a `stdin` writer that only this process holds. `stdout` and
         `stderr` are sinks, handed each chunk of output as it arrives; without one, the
         output is dropped. The other options are `docker run`'s flags of the same names.
+
+        Raises DockerException if the container can't be created, with docker's error handed
+        to `stderr` too. A client that exits before the container starts is returned anyway,
+        for `wait` to report.
         """
-        pipe = await StdinPipe.open() if stdin == PIPE else None
-        args = run_args(
+        interactive = stdin not in (None, DEVNULL)
+        create = create_args(
             self.tag,
             command,
             name=name,
-            interactive=stdin not in (None, DEVNULL),
+            interactive=interactive,
             init=init,
             rm=rm,
             labels=labels or {},
@@ -78,15 +84,30 @@ class Image:
             log_driver=log_driver,
             entrypoint=entrypoint,
         )
-        started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        client = asyncio.ensure_future(
-            attach(args, stdin if pipe is None else pipe, stdout, stderr, started)
-        )
         try:
-            waiting: set[asyncio.Future[Any]] = {started, client}
-            await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
-            if not started.done():
-                await client
+            await run_docker(*create)
+        except DockerException as error:
+            if stderr is not None:
+                stderr(error.stderr.encode())
+            raise
+        created: str = (await Container(name).inspect())["Created"]
+        args = ["start", "--attach", *(["--interactive"] if interactive else []), name]
+        pipe = await StdinPipe.open() if stdin == PIPE else None
+        spawned: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        client = asyncio.ensure_future(
+            attach(args, stdin if pipe is None else pipe, stdout, stderr, spawned)
+        )
+        running = asyncio.ensure_future(started(Container(name), created))
+        try:
+            try:
+                await asyncio.wait({running, client}, return_when=asyncio.FIRST_COMPLETED)
+                if running.done():
+                    running.result()
+                elif not spawned.done():
+                    await client
+            finally:
+                running.cancel()
+                await settle(asyncio.gather(running, return_exceptions=True))
         except BaseException:
             client.cancel()
             try:

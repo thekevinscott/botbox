@@ -136,7 +136,7 @@ def describe_an_api_key_session() -> None:
             asyncio.run(
                 Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")], output=output)
             )
-        assert refused.value.return_code == 125
+        assert refused.value.return_code == 1
         stderr = (output / "stderr.txt").read_text()
         leaked = API_KEY in stderr or API_KEY in str(refused.value)
         assert not leaked

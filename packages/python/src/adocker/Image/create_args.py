@@ -3,7 +3,7 @@ from collections.abc import Mapping, Sequence
 from adocker.Mount import Mount
 
 
-def run_args(  # noqa: PLR0913
+def create_args(  # noqa: PLR0913
     image: str,
     command: Sequence[str],
     *,
@@ -25,7 +25,7 @@ def run_args(  # noqa: PLR0913
     log_driver: str | None,
     entrypoint: str | None,
 ) -> list[str]:
-    """The `docker run` arguments for `image` and `command` with these options."""
+    """The `docker create` arguments for `image` and `command` with these options."""
     flags = [
         *(["--interactive"] if interactive else []),
         *(["--init"] if init else []),
@@ -49,4 +49,4 @@ def run_args(  # noqa: PLR0913
         ("--entrypoint", entrypoint),
     ]
     flags += [arg for flag, value in pairs if value is not None for arg in (flag, value)]
-    return ["run", *flags, image, *command]
+    return ["create", *flags, image, *command]

@@ -14,7 +14,8 @@ CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 LISTENING = "botbox-proxy: listening\n"
 
-# Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
+# Each container is a state file, `<name>.json`, that inspect reads and rm deletes; create keeps
+# its arguments in `args/<name>.json` for start. Events reports a start once one began. The proxy
 # serves until its stdin closes; each agent does what the plan says for its command. A session
 # answers each message on its stdin with an event, a line that isn't JSON, and a result.
 FAKE_DOCKER = """
@@ -65,6 +66,8 @@ def exit_container(name, code=0):
 
 
 command = argv[0]
+if command == "start":
+    argv = json.loads((state / "args" / f"{argv[-1]}.json").read_text())
 if command == "buildx":
     if option("--tag") in plan.get("builds_fail", ()):
         fail("ERROR: failed to solve\\n")
@@ -85,7 +88,8 @@ elif command == "container":
     path = state / f"{name}.json"
     if not path.exists():
         fail(f"Error: No such container: {name}\\n")
-    print(json.dumps([{"Name": "/" + name, "State": json.loads(path.read_text())}]))
+    container = json.loads(path.read_text())
+    print(json.dumps([{"Name": "/" + name, "Created": "T", "State": container}]))
 elif command == "ps":
     for path in sorted(state.glob("botbox-*.json")):
         if option("--filter").removeprefix("label=") in json.loads(path.read_text())["Labels"]:
@@ -96,6 +100,24 @@ elif command == "rm":
         fail("Error response from daemon: removal of container is already in progress\\n")
     for name in argv[2:]:
         (state / f"{name}.json").unlink(missing_ok=True)
+elif command == "create":
+    name = option("--name")
+    if plan["agents"].get(argv[-1], {}).get("missing"):
+        fail("Unable to find image 'botbox-claude:latest' locally\\n")
+    (state / "args").mkdir(exist_ok=True)
+    (state / "args" / f"{name}.json").write_text(json.dumps(argv))
+    settle(name, "created")
+elif command == "events":
+    path = state / (option("--filter").removeprefix("container=") + ".json")
+    while True:
+        try:
+            if json.loads(path.read_text())["Status"] != "created":
+                break
+        except (OSError, ValueError):
+            break
+        time.sleep(0.01)
+    print("start", flush=True)
+    time.sleep(3600)
 elif option("--name").startswith("botbox-proxy-"):
     name = option("--name")
     if plan.get("proxy_fails"):
@@ -109,8 +131,6 @@ elif option("--name").startswith("botbox-proxy-"):
 else:
     name = option("--name")
     agent = plan["agents"].get(argv[-1], {})
-    if agent.get("missing"):
-        fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
     try:
         session = volume("/home/user/.claude/projects") / "-work"
@@ -192,7 +212,9 @@ class Daemon:
 
     def runs(self, prefix: str) -> list[list[str]]:
         return [
-            c for c in self.calls if c[0] == "run" and c[c.index("--name") + 1].startswith(prefix)
+            c
+            for c in self.calls
+            if c[0] == "create" and c[c.index("--name") + 1].startswith(prefix)
         ]
 
     @property
