@@ -50,3 +50,15 @@ reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests a
 path = "src/botbox/utils/CapturedLines.py"
 rules = ["co-change"]
 reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/preloaded.py"
+rules = ["mutation"]
+lines = ["12"]
+reason = "!= -> < is equivalent: os.write never returns more than it was given"
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/wait_for_socket.py"
+rules = ["mutation"]
+lines = ["27"]
+reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
