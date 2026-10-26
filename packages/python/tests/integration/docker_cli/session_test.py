@@ -131,6 +131,7 @@ def describe_session() -> None:
         async def it_streams_events_from_the_files_it_writes(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
         ) -> None:
+            daemon.agent(SESSION, mode="session", stdout="booting\n", stderr="diagnostic\n")
             daemon.set(proxy_log=REFUSAL)
             output = tmp_path / "output"
             async with talker.session(output=output) as live:
@@ -143,6 +144,7 @@ def describe_session() -> None:
             stdout = (output / "stdout.txt").read_text()
             assert stdout.startswith("booting\n")
             assert '{"type": "result", "result": "TWO"}\n' in stdout
+            assert (output / "stderr.txt").read_text() == "diagnostic\n"
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
