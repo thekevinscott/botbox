@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py",
+  "ran_at": 1792975676,
+  "exit_code": 0,
+  "commit": "fe3cb117dc6691b809745168fb19c054d27a1430",
+  "branch": "adocker"
+}
