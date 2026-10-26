@@ -1,0 +1,7 @@
+{
+  "command": "uv run pytest tests/integration/relay",
+  "ran_at": 1793041424,
+  "exit_code": 0,
+  "commit": "1807690ebc925130f06913f4953a90285a2d8510",
+  "branch": "relay-tests"
+}
