@@ -87,7 +87,7 @@ def session(harness: str, output: Path) -> tuple[Turns, list[float], RunResult]:
     box = Botbox(make())
 
     async def talk() -> tuple[Turns, list[float], RunResult]:
-        async with box.session(output=output) as live:
+        async with box.session(output=output, timeout=300) as live:
             arrivals, first = [], []
             async for event in live.stream(
                 "Remember the codeword heron. Use bash to run exactly:"
