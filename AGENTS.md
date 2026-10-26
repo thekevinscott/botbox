@@ -21,9 +21,12 @@ Conventions, supervision rules, and per-language style live under
 
 - **PRs are S, or at most M.** S is under ~100 changed lines, M under ~400,
   counting tests and docs but not lockfiles or generated files. A change that
-  won't fit is several PRs: split it before writing code, land each on `main`
-  in turn, and never stack them. If a PR grows past M while in progress, stop
-  and split it rather than finishing it.
+  won't fit is several PRs: split it before writing code. If a PR grows past M
+  while in progress, stop and split it rather than finishing it.
+- **Every PR targets `main`** (`gh pr create --base main`), never another PR's
+  branch. A branch may start from another open PR's branch when it needs that
+  code. A PR based on another branch can auto-merge into it, landing unreviewed
+  inside that PR and making its e2e receipt stale.
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
 - `just test-e2e` reads `.env` from the checkout root. In a worktree under
   `.worktrees/<name>/`, symlink it first: `ln -s ../../.env .env`.
