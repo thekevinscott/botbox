@@ -19,12 +19,7 @@ reason = "== -> >= is equivalent: read is capped at len(printed). == -> is only 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["co-change"]
-reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/Claim.py"
-rules = ["co-change"]
-reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
+reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
 path = "src/botbox/hold_session.py"

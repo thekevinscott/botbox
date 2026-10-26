@@ -1,9 +1,11 @@
 """The per-run temporary home a real run mounts at the agent's home path."""
 
-import pytest
-from conftest import Probe, leftovers
+from pathlib import Path
 
-from botbox import RunResult
+import pytest
+from conftest import leftovers, run_probes
+
+from botbox import Botbox
 
 PROBES = {
     "home": "echo $HOME",
@@ -14,15 +16,15 @@ PROBES = {
 
 
 @pytest.fixture(scope="module")
-def session(probe: Probe) -> tuple[RunResult, dict[str, str], set[str], set[str]]:
+def session(box: Botbox, output: Path) -> tuple[dict[str, str], set[str], set[str]]:
     before = leftovers()
-    result, report = probe(PROBES)
-    return result, report, before, leftovers()
+    report = run_probes(box, PROBES, output)
+    return report, before, leftovers()
 
 
 @pytest.fixture(scope="module")
-def report(session: tuple[RunResult, dict[str, str], set[str], set[str]]) -> dict[str, str]:
-    return session[1]
+def report(session: tuple[dict[str, str], set[str], set[str]]) -> dict[str, str]:
+    return session[0]
 
 
 def describe_the_home() -> None:
@@ -39,9 +41,9 @@ def describe_the_home() -> None:
         assert report["writable"] == "written"
 
     def it_is_gone_from_the_host_after_the_run(
-        session: tuple[RunResult, dict[str, str], set[str], set[str]],
+        session: tuple[dict[str, str], set[str], set[str]],
     ) -> None:
-        _, _, before, after = session
+        _, before, after = session
         assert {e for e in after if e.startswith("temp ")} == {
             e for e in before if e.startswith("temp ")
         }

@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/network_test.py tests/e2e/mounts_test.py tests/e2e/lockdown_test.py tests/e2e/home_test.py",
+  "ran_at": 1792979090,
+  "exit_code": 0,
+  "commit": "99151ef21901c0a75c002ae0eb4e89f0dc27a8f0",
+  "branch": "output-e2e-probe"
+}

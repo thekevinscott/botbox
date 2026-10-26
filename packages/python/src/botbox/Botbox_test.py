@@ -392,7 +392,7 @@ PROXY = "botbox-proxy-0123456789ab"
 
 @pytest.fixture
 def scratch(tmp_path: Path) -> Path:
-    scratch = tmp_path / TOKEN
+    scratch = tmp_path / f"botbox-{TOKEN}-x"
     scratch.mkdir()
     return scratch
 
@@ -423,9 +423,9 @@ def uuid4() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def claim(scratch: Path, steps: list[str]) -> Iterator[Mock]:
-    with patch("botbox.Botbox.Claim", autospec=True) as m:
-        m.return_value.path = scratch
+def temporary_directory(scratch: Path, steps: list[str]) -> Iterator[Mock]:
+    with patch("botbox.Botbox.TemporaryDirectory", autospec=True) as m:
+        m.return_value.name = str(scratch)
         m.return_value.cleanup.side_effect = lambda: steps.append("remove temp home")
         yield m
 
@@ -599,9 +599,11 @@ def describe_run() -> None:
         )
         docker_build.assert_not_called()
 
-    async def it_claims_a_temp_home_named_after_the_run_token(runner: Mock, claim: Mock) -> None:
+    async def it_names_the_temp_home_after_the_run_token(
+        runner: Mock, temporary_directory: Mock
+    ) -> None:
         await Botbox(runner).run("true")
-        claim.assert_called_once_with(TOKEN)
+        temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
 
     async def it_stages_the_credentials_into_a_fresh_home(runner: Mock, scratch: Path) -> None:
         await Botbox(runner).run("true")
@@ -1005,11 +1007,11 @@ def describe_session() -> None:
         docker_build.assert_not_called()
 
     async def it_stages_a_home_named_after_the_run_token_and_locks_it_down(
-        talker: Mock, claim: Mock, lockdown: Mock, scratch: Path
+        talker: Mock, temporary_directory: Mock, lockdown: Mock, scratch: Path
     ) -> None:
         async with Botbox(talker, allow=["registry.npmjs.org"]).session():
             pass
-        claim.assert_called_once_with(TOKEN)
+        temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
         assert (scratch / "home" / ".credentials").read_text() == "token"
         lockdown.assert_called_once_with(
             ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN
@@ -1426,14 +1428,14 @@ def describe_run_output() -> None:
         docker_run.assert_not_called()
 
     async def it_closes_the_files_when_docker_raises(
-        runner: Mock, file_run: Mock, tmp_path: Path, claim: Mock
+        runner: Mock, file_run: Mock, tmp_path: Path, temporary_directory: Mock
     ) -> None:
         file_run.side_effect = OSError("cannot start")
         with pytest.raises(OSError, match="cannot start"):
             await Botbox(runner).run("true", output=tmp_path)
         assert file_run.call_args.kwargs["stdout"].closed
         assert file_run.call_args.kwargs["stderr"].closed
-        claim.return_value.cleanup.assert_called_once()
+        temporary_directory.return_value.cleanup.assert_called_once()
 
 
 @pytest.fixture

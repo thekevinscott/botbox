@@ -158,7 +158,7 @@ Another account on the same host, without Docker access.
 
 ### What botbox Does
 
-Each user's runs live in `botbox-<uid>/` under the system temp directory. botbox refuses one that another user made or can open. Homes, credentials and lock files live inside it (see [Lifetime](./explanation/#lifetime)).
+Each run's home and staged credentials live in a fresh directory from Python's `tempfile`: a random name, made exclusively, open only to its owner (mode 0700). It is deleted when the run ends (see [Lifetime](./explanation/#lifetime)).
 
 ### What's Left
 

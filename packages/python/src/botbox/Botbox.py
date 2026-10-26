@@ -5,6 +5,7 @@ import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import ExitStack, asynccontextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
@@ -17,7 +18,6 @@ from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
-from botbox.Claim import Claim
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
@@ -146,8 +146,8 @@ class Botbox:
 
         Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
         temp home before the cancel propagates, through any number of further cancels. Both
-        containers are labelled `botbox.run=<token>`, and the temp home is `<token>` in a
-        per-user dir under the system temp dir. Raises `DockerException` if setup fails or the
+        containers are labelled `botbox.run=<token>`, and the temp home is named after the
+        token. Raises `DockerException` if setup fails or the
         container never ran to its exit while the daemon was up. A teardown step that fails, or a
         container removal that takes longer than 30 seconds, is a warning, never the error.
 
@@ -171,12 +171,12 @@ class Botbox:
             volumes.append((str(output / "transcripts"), sessions, "rw"))
         image = await self.build()
         token = uuid4().hex[:12]
-        claim = Claim(token)
+        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         out, err = bytearray(), bytearray()
         jail: Lockdown | None = None
         deadline = asyncio.timeout(limit)
         try:
-            home = claim.path / "home"
+            home = Path(scratch.name) / "home"
             # Owner-only, so an agent under another uid can't leave files the host can't delete.
             home.mkdir(mode=0o700)
             agent.stage_auth(home)
@@ -188,7 +188,7 @@ class Botbox:
                 return await asyncio.to_thread(read_transcript, home, agent.sessions_dir)
 
             try:
-                async with deadline, lockdown(allow, claim.path, token, output) as jail:
+                async with deadline, lockdown(allow, Path(scratch.name), token, output) as jail:
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     exit_code = await self._attach(
                         token, [*flags, image, RELAY, "sh", "-c", command], out, err, output
@@ -215,7 +215,7 @@ class Botbox:
                 )
                 raise Timeout(limit, result) from timed_out
         finally:
-            await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
+            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
         return RunResult(
             out.decode(errors="replace"),
             err.decode(errors="replace"),
@@ -256,17 +256,17 @@ class Botbox:
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         image = await self.build()
         token = uuid4().hex[:12]
-        claim = Claim(token)
+        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         live = None
         exit_code = -1
         deadline = asyncio.timeout(limit)
         try:
             try:
-                home = claim.path / "home"
+                home = Path(scratch.name) / "home"
                 home.mkdir(mode=0o700)
                 agent.stage_auth(home)
                 allow = (*agent.allow, *self.allow)
-                async with deadline, lockdown(allow, claim.path, token) as jail:
+                async with deadline, lockdown(allow, Path(scratch.name), token) as jail:
                     name = f"botbox-agent-{token}"
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir)
                     args = [
@@ -301,7 +301,7 @@ class Botbox:
                             )
                         )
                 finally:
-                    await settle(warned(asyncio.to_thread(claim.cleanup), "remove its temp home"))
+                    await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
