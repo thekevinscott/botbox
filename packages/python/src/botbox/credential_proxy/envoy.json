@@ -34,7 +34,12 @@
                         "domains": ["*"],
                         "routes": [
                           {
-                            "match": {"safe_regex": {"regex": "__PATHS__"}},
+                            "match": {
+                              "safe_regex": {"regex": "__PATHS__"},
+                              "headers": [
+                                {"name": ":method", "string_match": {"safe_regex": {"regex": "__METHODS__"}}}
+                              ]
+                            },
                             "route": {
                               "cluster": "upstream",
                               "host_rewrite_literal": "__UPSTREAM__",

@@ -51,11 +51,24 @@ def describe_envoy_config() -> None:
 
     def it_forwards_only_matching_paths_to_the_upstream() -> None:
         allowed, rest = routes(config())
-        assert allowed["match"] == {"safe_regex": {"regex": "/v1/messages(/count_tokens)?"}}
+        assert allowed["match"]["safe_regex"] == {"regex": "/v1/messages(/count_tokens)?"}
         assert allowed["route"]["cluster"] == cluster(config())["name"]
         assert allowed["route"]["host_rewrite_literal"] == "api.anthropic.com"
         assert rest["match"] == {"prefix": "/"}
         assert rest["direct_response"]["status"] == 403
+
+    def it_forwards_only_post_by_default() -> None:
+        allowed, _ = routes(config())
+        assert allowed["match"]["headers"] == [
+            {"name": ":method", "string_match": {"safe_regex": {"regex": "POST"}}}
+        ]
+
+    def it_forwards_any_of_the_given_methods() -> None:
+        injection = Injection("chatgpt.com", "/x", "Authorization", methods=("GET", "POST"))
+        allowed, _ = routes(config(injection))
+        assert allowed["match"]["headers"] == [
+            {"name": ":method", "string_match": {"safe_regex": {"regex": "GET|POST"}}}
+        ]
 
     def it_never_times_out_a_streaming_response() -> None:
         allowed, _ = routes(config())

@@ -72,7 +72,7 @@ CLAUDE = Injection(
     "api.anthropic.com", "/v1/messages(/count_tokens)?", "Authorization", ("x-api-key",)
 )
 # A third-party echo of the request's headers, so the injected value shows. Dummy values only.
-ECHO = Injection("postman-echo.com", "/headers", "Authorization")
+ECHO = Injection("postman-echo.com", "/headers", "Authorization", methods=("GET",))
 
 
 def request(socket: Path, method: str, path: str) -> str:
@@ -124,6 +124,13 @@ def describe_credential_proxy() -> None:
     def it_refuses_other_paths() -> None:
         async def steps(proxy: CredentialProxy) -> str:
             return await asyncio.to_thread(request, proxy.socket, "GET", "/v1/models")
+
+        body = asyncio.run(through_proxy(CLAUDE, "Bearer not-a-real-token", steps))
+        assert body == "botbox credential proxy: path not allowed\n"
+
+    def it_refuses_other_methods_on_an_allowed_path() -> None:
+        async def steps(proxy: CredentialProxy) -> str:
+            return await asyncio.to_thread(request, proxy.socket, "GET", "/v1/messages")
 
         body = asyncio.run(through_proxy(CLAUDE, "Bearer not-a-real-token", steps))
         assert body == "botbox credential proxy: path not allowed\n"
