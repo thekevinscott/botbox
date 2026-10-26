@@ -16,6 +16,11 @@ Conventions, supervision rules, and per-language style live under
 - `internals/` holds internal-only packages, built and tested to the same
   standards but never published. Private workspaces that only produce build
   artifacts for a published package belong here too.
+- **Think in packages, even internally.** A folder is a package, and its
+  `__init__.py` exports are its whole API. A helper only one module uses lives
+  in that module's package, not beside it. Code outside a package imports only
+  what the package exports. Example: `adocker/volume/` holds `volume`,
+  `remove_volume` and `settle`, and exports only `volume`.
 
 ## Workflow
 
