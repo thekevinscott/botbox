@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
+  "ran_at": 1792977508,
+  "exit_code": 0,
+  "commit": "73fa0d21d965e1d7fd421a8de98c819c8bfe1a37",
+  "branch": "remove-dead-tail"
+}
