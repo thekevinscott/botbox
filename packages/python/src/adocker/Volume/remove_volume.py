@@ -1,6 +1,6 @@
 import asyncio
 
-from adocker.utils.run_docker import run_docker
+from adocker.utils import run_docker
 
 
 async def remove_volume(name: str, seconds: float) -> None:
