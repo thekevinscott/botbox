@@ -30,8 +30,10 @@ def report(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     dockerfile.write_text(UNNAMED)
     box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in PROBES.items())
-    result = asyncio.run(box.run(script))
-    fields = (line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line)
+    output = tmp_path_factory.mktemp("unnamed-output")
+    asyncio.run(box.run(script, output=output))
+    stdout = (output / "stdout.txt").read_text()
+    fields = (line.split("\t", 1) for line in stdout.splitlines() if "\t" in line)
     return {name: value.strip() for name, value in fields}
 
 

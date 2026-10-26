@@ -56,8 +56,9 @@ Omit `output` to keep stdout, stderr and the proxy log in the result as before.
 - A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back. So is a container removal the daemon hasn't finished within 30 seconds, and, without `output`, a proxy log that can't be read, which leaves `proxy` empty.
 
 ```python
+box = Botbox(ClaudeAgent(), timeout=600)
 try:
-    result = await Botbox(ClaudeAgent(), timeout=600).run("claude -p 'fix the failing test'")
+    result = await box.run("claude -p 'fix the failing test'", output="runs/fix")
 except botbox.Timeout as timed_out:
     result = timed_out.result
 ```
