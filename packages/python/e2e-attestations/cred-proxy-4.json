@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/login_injection_test.py tests/e2e/claude_test.py tests/e2e/session_test.py tests/e2e/run_test.py tests/e2e/network_test.py tests/e2e/layer_test.py tests/e2e/daemon_test.py",
-  "ran_at": 1793041290,
+  "ran_at": 1793043489,
   "exit_code": 0,
-  "commit": "f325b078800f19c5684aaf16597b5eb0d960d49a",
+  "commit": "883bb2c4c4e5dac038379071c5db2e02f5761959",
   "branch": "cred-proxy-4"
 }
