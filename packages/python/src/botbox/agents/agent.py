@@ -10,15 +10,15 @@ class Agent(Protocol):
     image: str
     dockerfile: Path
     home: str
-    """Home directory in the container; the per-run temp home is mounted here."""
+    """Home directory in the container; the run's home volume is mounted here."""
     sessions_dir: str
     """Directory, relative to `home`, the CLI writes its `.jsonl` session transcripts under."""
     allow: tuple[str, ...]
     """Hosts the CLI needs the proxy to admit."""
 
     def stage_auth(self, home: Path) -> None:
-        """Stage the agent's login into `home`, the per-run temp home: a copy of the host's, or
-        a placeholder when the credential proxy sends the real one."""
+        """Stage the agent's login into `home`, a host temp directory copied into the run's home:
+        a copy of the host's, or a placeholder when the credential proxy sends the real one."""
         ...
 
     def command(self, prompt: str) -> str:
