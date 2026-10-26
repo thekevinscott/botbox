@@ -160,6 +160,37 @@ def describe_session() -> None:
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
             ]
 
+    def describe_output() -> None:
+        async def it_streams_events_from_the_files_it_writes(
+            talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
+        ) -> None:
+            daemon.set(proxy_log=REFUSAL)
+            output = tmp_path / "output"
+            async with talker.session(output=output) as live:
+                first = await live.message("one")
+                second = await live.message("two")
+            assert first[-1] == {"type": "result", "result": "ONE"}
+            assert second[-1] == {"type": "result", "result": "TWO"}
+            assert live.result == RunResult("", "", 0, {}, "", "botbox-claude:latest")
+            stdout = (output / "stdout.txt").read_text()
+            assert stdout.startswith("booting\n")
+            assert '{"type": "result", "result": "TWO"}\n' in stdout
+            transcript = output / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
+            assert (output / "proxy.log").read_text() == REFUSAL
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_points_at_stderr_when_the_container_never_ran(
+            box: Botbox, daemon: Daemon, tmp_path: Path
+        ) -> None:
+            daemon.agent(SESSION, missing=True)
+            with pytest.raises(DockerException) as raised:
+                async with box.session(output=tmp_path) as live:
+                    assert await live.message("hi") == []
+            assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+            assert "Unable to find image" in (tmp_path / "stderr.txt").read_text()
+
     def describe_the_containers() -> None:
         async def it_attaches_to_the_session_command_named_and_labelled_by_the_run_token(
             talker: Botbox, daemon: Daemon

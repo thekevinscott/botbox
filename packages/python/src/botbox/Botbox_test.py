@@ -1254,6 +1254,47 @@ def describe_session() -> None:
                     pass
             docker_build.assert_not_called()
 
+    def describe_output() -> None:
+        async def it_routes_streams_proxy_and_transcripts_into_the_output(
+            talker: Mock, hold_session: Mock, lockdown: Mock, scratch: Path, tmp_path: Path
+        ) -> None:
+            async with Botbox(talker).session(output=tmp_path):
+                pass
+            assert hold_session.call_args.kwargs == {"output": tmp_path}
+            lockdown.assert_called_once_with(("api.anthropic.com",), scratch, TOKEN, tmp_path)
+            volumes = session_options(hold_session)["volume"]
+            assert volumes[-1] == f"{tmp_path / 'transcripts'}:/home/user/.claude/projects:rw"
+            assert (scratch / "home" / ".claude" / "projects").is_dir()
+
+        async def it_leaves_only_the_exit_code_and_image_in_the_result(
+            talker: Mock, agent_exit: Mock, read_transcript: Mock, tmp_path: Path
+        ) -> None:
+            (tmp_path / "stdout.txt").write_text("old")
+            (tmp_path / "keep").write_text("keep")
+            async with Botbox(talker).session(output=tmp_path) as live:
+                pass
+            assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
+            assert astuple(live.result) == ("", "", 3, {}, "", "an-agent-123:latest")
+            assert (tmp_path / "stdout.txt").read_bytes() == b""
+            assert (tmp_path / "keep").read_text() == "keep"
+            read_transcript.assert_not_called()
+
+        async def it_rejects_a_path_docker_cannot_mount_before_building(
+            talker: Mock, docker_build: Mock, tmp_path: Path
+        ) -> None:
+            with pytest.raises(ValueError, match="contains ':'"):
+                async with Botbox(talker).session(output=tmp_path / "a:b"):
+                    pass
+            docker_build.assert_not_called()
+
+        async def it_holds_an_empty_result_when_the_session_times_out(
+            talker: Mock, tmp_path: Path
+        ) -> None:
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker, timeout=0.01).session(output=tmp_path):
+                    await asyncio.Event().wait()
+            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+
 
 @pytest.fixture
 def file_run(docker_run: Mock, steps: list[str]) -> Mock:
