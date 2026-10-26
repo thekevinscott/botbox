@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
     PROXY_CONF,
     PROXY_DIR,
@@ -311,9 +312,10 @@ def describe_lockdown() -> None:
         ) -> None:
             volume_fails["rm"] = RuntimeError("volume is in use")
             match = f"^botbox could not remove its volume {VOLUME}: volume is in use$"
-            with pytest.warns(RuntimeWarning, match=match):
+            with pytest.warns(RuntimeWarning, match=match) as warned:
                 async with jail(scratch):
                     pass
+            assert warned[0].filename == lockdown_module.__file__
 
     def describe_the_allowlist() -> None:
         async def it_admits_each_host_by_connect_on_443_and_plain_http_on_80(

@@ -119,7 +119,7 @@ async def lockdown(
                 warnings.warn(
                     f"botbox could not remove its volume {volume}: {error}",
                     RuntimeWarning,
-                    stacklevel=2,
+                    stacklevel=1,
                 )
 
             async with run_volume(volume, label=f"botbox.run={token}", on_error=unremoved):
