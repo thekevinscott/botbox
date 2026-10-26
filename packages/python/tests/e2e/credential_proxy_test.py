@@ -93,10 +93,14 @@ async def through_proxy[T](
 ) -> T:
     token = uuid4().hex[:12]
     with tempfile.TemporaryDirectory(prefix=f"botbox-{token}-") as scratch:
+        sockets = Path(scratch) / "sockets"
+        sockets.mkdir()
+        # Envoy runs as uid 101 and creates its socket here.
+        sockets.chmod(0o777)
         async with lockdown((), Path(scratch), token) as jail:
             log = Path(scratch) / "envoy.log"
             async with credential_proxy(
-                injection, secret, proxy=jail.proxy, sockets=jail.sockets, token=token, log=log
+                injection, secret, proxy=jail.proxy, sockets=sockets, token=token, log=log
             ) as proxy:
                 result = await steps(proxy)
             assert not docker_lines("ps", "-a", "--filter", f"name={proxy.name}", "-q")
