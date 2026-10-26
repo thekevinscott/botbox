@@ -2,36 +2,45 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
+from conftest import transcripts
 
 from botbox import Botbox, CodexAgent, RunResult
 
 
 @pytest.fixture(scope="module")
-def result() -> RunResult:
+def result(output: Path) -> RunResult:
     agent = CodexAgent("gpt-5.6-luna", "low")
-    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong")))
+    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong"), output=output))
 
 
 def describe_a_codex_session() -> None:
-    def it_exits_zero(result: RunResult) -> None:
-        assert result.exit_code == 0, result.stderr
+    def it_exits_zero(result: RunResult, output: Path) -> None:
+        assert result.exit_code == 0, (output / "stderr.txt").read_text()
 
-    def it_completes_the_turn(result: RunResult) -> None:
-        events = [json.loads(line) for line in result.stdout.splitlines()]
+    @pytest.mark.usefixtures("result")
+    def it_completes_the_turn(output: Path) -> None:
+        events = [json.loads(line) for line in (output / "stdout.txt").read_text().splitlines()]
         assert events[-1]["type"] == "turn.completed"
 
-    def it_answers(result: RunResult) -> None:
-        assert "pong" in result.stdout
+    @pytest.mark.usefixtures("result")
+    def it_answers(output: Path) -> None:
+        assert "pong" in (output / "stdout.txt").read_text()
 
-    def it_returns_the_transcript(result: RunResult) -> None:
-        assert result.transcript
-        assert all(result.transcript.values())
+    @pytest.mark.usefixtures("result")
+    def it_writes_the_transcript(output: Path) -> None:
+        transcript = transcripts(output)
+        assert transcript
+        assert all(transcript.values())
 
-    def it_reaches_chatgpt_through_the_proxy(result: RunResult) -> None:
-        assert 'Established connection to host "chatgpt.com"' in result.proxy
+    @pytest.mark.usefixtures("result")
+    def it_reaches_chatgpt_through_the_proxy(output: Path) -> None:
+        proxy = (output / "proxy.log").read_text()
+        assert 'Established connection to host "chatgpt.com"' in proxy
 
-    def it_reaches_for_no_refused_host(result: RunResult) -> None:
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
-        assert refused == []
+    @pytest.mark.usefixtures("result")
+    def it_reaches_for_no_refused_host(output: Path) -> None:
+        proxy = (output / "proxy.log").read_text()
+        assert [line for line in proxy.splitlines() if "Proxying refused" in line] == []

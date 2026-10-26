@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 from conftest import API_KEY
@@ -10,14 +11,17 @@ from botbox import Botbox, ClaudeAgent, RunResult
 
 
 @pytest.fixture(scope="module")
-def result() -> RunResult:
+def result(output: Path) -> RunResult:
     agent = ClaudeAgent(model="claude-opus-5-5", api_key=API_KEY)
-    return asyncio.run(Botbox(agent).run(agent.command("say ok")))
+    return asyncio.run(Botbox(agent).run(agent.command("say ok"), output=output))
 
 
 def describe_claude_opus_5_5() -> None:
-    def it_exits_zero(result: RunResult) -> None:
-        assert result.exit_code == 0, result.stdout + result.stderr
+    def it_exits_zero(result: RunResult, output: Path) -> None:
+        streams = (output / "stdout.txt").read_text() + (output / "stderr.txt").read_text()
+        assert result.exit_code == 0, streams
 
-    def it_reports_no_error(result: RunResult) -> None:
-        assert json.loads(result.stdout)["is_error"] is False, result.stdout
+    @pytest.mark.usefixtures("result")
+    def it_reports_no_error(output: Path) -> None:
+        stdout = (output / "stdout.txt").read_text()
+        assert json.loads(stdout)["is_error"] is False, stdout
