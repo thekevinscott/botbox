@@ -23,9 +23,10 @@ class Login:
 class ApiKey:
     """Stands in for `ClaudeApiKey`."""
 
+    placeholder = "placeholder key"
+
     def __init__(self, key: str) -> None:
         self.key = key
-        self.placeholder = f"placeholder for {key}"
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +163,7 @@ def describe_api_key() -> None:
             ".claude/api_key",
             ".claude/settings.json",
         ]
-        assert (home / ".claude" / "api_key").read_text() == "placeholder for sk-test"
+        assert (home / ".claude" / "api_key").read_text() == "placeholder key"
         assert json.loads((home / ".claude" / "settings.json").read_text()) == {
             "apiKeyHelper": "cat /home/user/.claude/api_key"
         }

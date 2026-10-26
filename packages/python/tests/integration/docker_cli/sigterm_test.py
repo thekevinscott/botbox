@@ -18,12 +18,17 @@ from botbox import Botbox, ClaudeAgent
 
 home, moment, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
 
+class CopyingClaude(ClaudeAgent):
+    def __init__(self, **options):
+        super().__init__(**options)
+        self.credential_source = None
+
 async def main():
     if moment == "own_handler":
         task = asyncio.current_task()
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
-        async with Botbox(ClaudeAgent(api_key="sk-test", host_home=home)) as box:
+        async with Botbox(CopyingClaude(api_key="sk-test", host_home=home)) as box:
             if moment == "session":
                 async with box.session(output=output) as live:
                     await live.message("hang")

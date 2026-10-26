@@ -7,7 +7,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token, volume
+from fake_docker_test import (
+    LISTENING,
+    REFUSAL,
+    CopyingClaude,
+    Daemon,
+    homes,
+    option,
+    token,
+    volume,
+)
 
 from botbox import (
     Botbox,
@@ -182,7 +191,7 @@ def describe_run() -> None:
         @pytest.mark.parametrize(
             ("agent", "key"),
             [
-                (lambda home: ClaudeAgent(api_key="sk-test", host_home=home), "sk-test"),
+                (lambda home: CopyingClaude(api_key="sk-test", host_home=home), "sk-test"),
                 (lambda home: CodexAgent(api_key="sk-test", host_home=home), "sk-test"),
                 (
                     lambda home: PiAgent("openrouter", api_key="sk-or-test", host_home=home),

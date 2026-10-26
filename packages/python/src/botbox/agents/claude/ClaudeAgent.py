@@ -84,8 +84,7 @@ class ClaudeAgent:
     def stage_auth(self, home: Path) -> None:
         destination = home / ".claude"
         destination.mkdir()
-        source = self.credential_source
-        if isinstance(source, ClaudeLogin):
+        if self.api_key is None:
             placeholder = self.login.placeholder()
             login = destination / CREDENTIALS
             login.touch(mode=0o600)
@@ -93,6 +92,6 @@ class ClaudeAgent:
             return
         key = destination / API_KEY
         key.touch(mode=0o600)
-        key.write_text(source.placeholder)
+        key.write_text(ClaudeApiKey.placeholder)
         helper = f"cat {self.home}/.claude/{API_KEY}"
         (destination / "settings.json").write_text(json.dumps({"apiKeyHelper": helper}))
