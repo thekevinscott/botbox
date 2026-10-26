@@ -20,9 +20,20 @@ class Login:
         return f"placeholder of {self.path.name}"
 
 
+class ApiKey:
+    """Stands in for `ClaudeApiKey`."""
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+        self.placeholder = f"placeholder for {key}"
+
+
 @pytest.fixture(autouse=True)
-def claude_login() -> Iterator[None]:
-    with patch(f"{__package__}.ClaudeAgent.ClaudeLogin", Login):
+def collaborators() -> Iterator[None]:
+    with (
+        patch(f"{__package__}.ClaudeAgent.ClaudeLogin", Login),
+        patch(f"{__package__}.ClaudeAgent.ClaudeApiKey", ApiKey),
+    ):
         yield
 
 
@@ -65,16 +76,18 @@ def describe_the_container() -> None:
     def it_allows_no_host_with_a_login(agent: ClaudeAgent) -> None:
         assert agent.allow == ()
 
-    def it_allows_only_the_anthropic_api_with_an_api_key() -> None:
-        assert ClaudeAgent(api_key="sk-test").allow == ("api.anthropic.com",)
+    def it_allows_no_host_with_an_api_key() -> None:
+        assert ClaudeAgent(api_key="sk-test").allow == ()
 
     def it_has_the_proxy_send_the_hosts_login(agent: ClaudeAgent, claude_home: Path) -> None:
         source = agent.credential_source
         assert isinstance(source, Login)
         assert source.path == claude_home / ".credentials.json"
 
-    def it_has_the_proxy_send_nothing_with_an_api_key() -> None:
-        assert ClaudeAgent(api_key="sk-test").credential_source is None
+    def it_has_the_proxy_send_the_api_key() -> None:
+        source = ClaudeAgent(api_key="sk-test").credential_source
+        assert isinstance(source, ApiKey)
+        assert source.key == "sk-test"
 
 
 def describe_host_home() -> None:
@@ -140,14 +153,16 @@ def describe_api_key() -> None:
         with pytest.raises(TypeError):
             ClaudeAgent(None, None, "sk-test")  # type: ignore[call-arg]
 
-    def it_stages_the_key_and_a_helper_that_reads_it(keyed: ClaudeAgent, home: Path) -> None:
+    def it_stages_a_placeholder_key_and_a_helper_that_reads_it(
+        keyed: ClaudeAgent, home: Path
+    ) -> None:
         keyed.stage_auth(home)
         assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
             ".claude",
             ".claude/api_key",
             ".claude/settings.json",
         ]
-        assert (home / ".claude" / "api_key").read_text() == "sk-test"
+        assert (home / ".claude" / "api_key").read_text() == "placeholder for sk-test"
         assert json.loads((home / ".claude" / "settings.json").read_text()) == {
             "apiKeyHelper": "cat /home/user/.claude/api_key"
         }
