@@ -42,3 +42,63 @@ reason = "#251 export-only change: the classes replace the free functions. tests
 path = "src/botbox/process/__init__.py"
 rules = ["co-change"]
 reason = "#251 export-only change: owner_only and close_held left with StdinPipe."
+
+[[python.exempt]]
+path = "src/adocker/Image/Image.py"
+rules = ["mutation"]
+lines = ["59"]
+reason = "== -> is is equivalent: PIPE is the small int -1, which CPython caches"
+
+[[python.exempt]]
+path = "src/adocker/Image/Image.py"
+rules = ["mutation"]
+lines = ["93"]
+reason = "return_exceptions True -> False is equivalent: either way the error that ends up raised is the client's own, or the cancel"
+
+[[python.exempt]]
+path = "src/adocker/utils/execute.py"
+rules = ["mutation"]
+lines = ["11"]
+reason = "the chunk size is a tuning value: any positive size drains the same bytes"
+
+[[python.exempt]]
+path = "src/adocker/utils/execute.py"
+rules = ["mutation"]
+lines = ["41"]
+reason = "strict True -> False is equivalent: both sides are fixed pairs"
+
+[[python.exempt]]
+path = "src/adocker/utils/execute.py"
+rules = ["mutation"]
+lines = ["42"]
+reason = "and -> or is equivalent for every caller: a sink always gets a reader, and a reader without a sink needs a caller passing PIPE itself, which none does"
+
+[[python.exempt]]
+path = "src/adocker/Image/run_args.py"
+rules = ["mutation"]
+lines = ["9"]
+reason = "* -> / only lets the internal caller pass flags by position; Image.run passes them all by keyword"
+
+[[python.exempt]]
+path = "src/botbox/hold_session.py"
+rules = ["mutation"]
+lines = ["21"]
+reason = "* -> / only lets the internal caller pass scratch and output by position; Botbox passes them by keyword"
+
+[[python.exempt]]
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["271"]
+reason = "* -> / on the private _attach only widens how its one caller may pass keywords"
+
+[[python.exempt]]
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["342"]
+reason = "== -> <= / is is equivalent: bind_mounts allows only 'ro' and 'rw', 'rw' sorts after 'ro', and the literals are interned"
+
+[[python.exempt]]
+path = "src/botbox/write.py"
+rules = ["mutation"]
+lines = ["30", "43"]
+reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"

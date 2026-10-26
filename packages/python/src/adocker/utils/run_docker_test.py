@@ -100,7 +100,7 @@ def describe_run_docker() -> None:
     async def it_raises_with_only_the_end_of_a_long_stderr(
         output: list[bytes], code: list[int]
     ) -> None:
-        output[:] = [b"", b"a" + b"b" * STDERR_LIMIT]
+        output[:] = [b"", b"aaa" + b"b" * STDERR_LIMIT]
         code[0] = 1
         with pytest.raises(DockerException) as raised:
             await run_docker("rm", "x")

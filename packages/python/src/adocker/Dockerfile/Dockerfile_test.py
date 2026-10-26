@@ -18,6 +18,10 @@ def describe_Dockerfile() -> None:
         assert Dockerfile("/a/b/Dockerfile").context == Path("/a/b")
         assert Dockerfile("/a/b/Dockerfile", context="/c").context == Path("/c")
 
+    async def it_takes_build_contexts_by_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            await Dockerfile("/a/D").build("x:latest", {"b": "/r"})  # type: ignore[call-arg]
+
     async def it_builds_with_buildx_and_returns_the_image(run_docker: AsyncMock) -> None:
         image = await Dockerfile(Path("/a/D"), context=Path("/c")).build(
             "x:latest", contexts={"b": "/r", "e": Path("/s")}

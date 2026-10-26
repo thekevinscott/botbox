@@ -28,6 +28,10 @@ def describe_Container() -> None:
         assert container.stdin is stdin
         assert container.docker_command == ["docker", "run"]
 
+    def it_takes_its_options_by_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            Container("box", Mock())  # type: ignore[call-arg]
+
     async def it_stops_with_a_grace_period(run_docker: AsyncMock) -> None:
         await Container("box").stop(5)
         run_docker.assert_awaited_once_with("stop", "--time", "5", "box")

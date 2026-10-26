@@ -74,19 +74,20 @@ def describe_write() -> None:
     def it_drops_another_that_fails_a_write_and_carries_on(
         tmp_path: Path, failing: dict[Path, str], step: str
     ) -> None:
-        a, b, c = tmp_path / "a", tmp_path / "b", tmp_path / "c"
+        a, b, c = tmp_path / "z", tmp_path / "b", tmp_path / "c"
         with write(a, b, c) as sink:
             sink(b"one ")
             failing[b] = step
-            with pytest.warns(RuntimeWarning, match=f"stopped writing to {b}: no {step}"):
+            with pytest.warns(RuntimeWarning, match=f"stopped writing to {b}: no {step}") as caught:
                 sink(b"two")
+            assert caught[0].filename == __file__
             sink(b" three")
         assert a.read_bytes() == c.read_bytes() == b"one two three"
         assert b.read_bytes().startswith(b"one ")
         assert b"three" not in b.read_bytes()
 
     def it_drops_another_that_fails_to_close(tmp_path: Path, failing: dict[Path, str]) -> None:
-        a, b = tmp_path / "a", tmp_path / "b"
+        a, b = tmp_path / "z", tmp_path / "b"
         failing[b] = "close"
         with (
             pytest.warns(RuntimeWarning, match=f"stopped writing to {b}: no close"),

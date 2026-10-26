@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.Botbox import STDERR_BYTES, Botbox
+from botbox.Botbox import Botbox
 
 
 @dataclass(frozen=True)
@@ -602,12 +602,12 @@ def describe_run() -> None:
         runner: Mock, docker_run: Mock, agent_exit: Mock
     ) -> None:
         async def attached(*_command: str, name: str, stderr: Any, **_: Any) -> Mock:
-            stderr(b"x" * STDERR_BYTES + b"tail")
+            stderr(b"x" * 65536 + b"tail")
             return exited(name, 3)
 
         docker_run.side_effect = attached
         await Botbox(runner).run("true")
-        assert agent_exit.call_args.args[2] == "x" * (STDERR_BYTES - 4) + "tail"
+        assert agent_exit.call_args.args[2] == "x" * 65532 + "tail"
 
     async def it_keeps_the_streams_in_the_temp_home(runner: Mock, scratch: Path) -> None:
         await Botbox(runner).run("true")

@@ -1,3 +1,7 @@
+from dataclasses import FrozenInstanceError
+
+import pytest
+
 from adocker.Mount.Mount import Mount
 
 
@@ -11,3 +15,7 @@ def describe_Mount() -> None:
     def it_compares_by_value() -> None:
         assert Mount("bind", "/a", "/b") == Mount("bind", "/a", "/b")
         assert Mount("bind", "/a", "/b") != Mount("volume", "/a", "/b")
+
+    def it_cannot_be_changed() -> None:
+        with pytest.raises(FrozenInstanceError):
+            Mount("bind", "/a", "/b").read_only = True  # type: ignore[misc]
