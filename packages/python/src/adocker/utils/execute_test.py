@@ -16,9 +16,16 @@ class Process:
 
     def __init__(self, wait: AsyncMock, stdout: object, stderr: object) -> None:
         self.wait = wait
-        self.kill = Mock()
+        self.kill = Mock(side_effect=self.close)
         self.stdout = asyncio.StreamReader() if stdout == PIPE else None
         self.stderr = asyncio.StreamReader() if stderr == PIPE else None
+
+    def close(self, leftover: bytes = b"") -> None:
+        """What a killed client does to its pipes: whatever it last wrote, then EOF."""
+        for reader in (self.stdout, self.stderr):
+            if reader is not None and not reader.at_eof():
+                reader.feed_data(leftover)
+                reader.feed_eof()
 
     def print(self, stdout: bytes = b"", stderr: bytes = b"") -> None:
         for reader, data in ((self.stdout, stdout), (self.stderr, stderr)):
@@ -180,13 +187,11 @@ def describe_execute() -> None:
 
         task = asyncio.create_task(execute([], stdin=None, stdout=full, stderr=err.extend))
         await asyncio.sleep(0)
+        made[0].kill.side_effect = lambda: made[0].close(b"after")
         assert made[0].stdout is not None
         made[0].stdout.feed_data(b"x")
         with pytest.raises(OSError, match="disk full"):
             await task
-        assert made[0].stderr is not None
-        made[0].stderr.feed_data(b"after")
-        await asyncio.sleep(0)
         assert err == b""
 
     async def it_kills_and_waits_out_the_client_when_cancelled_while_it_runs(
@@ -225,7 +230,12 @@ def describe_execute() -> None:
         printed.clear()
         task = asyncio.create_task(execute([], stdin=None, stdout=out.extend, stderr=None))
         await asyncio.sleep(0.01)
-        made[0].kill.side_effect = ProcessLookupError
+
+        def gone() -> None:
+            made[0].close()
+            raise ProcessLookupError
+
+        made[0].kill.side_effect = gone
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -237,3 +247,34 @@ def describe_execute() -> None:
         await execute([], stdin=None, stdout=out.extend, stderr=None)
         made[0].kill.assert_not_called()
         assert exits == [None]
+
+    async def it_discards_what_a_killed_client_left_in_its_pipes(
+        made: list[Process], printed: dict[str, bytes], out: bytearray, err: bytearray
+    ) -> None:
+        printed.clear()
+        task = asyncio.create_task(execute([], stdin=None, stdout=out.extend, stderr=err.extend))
+        await asyncio.sleep(0.01)
+        made[0].kill.side_effect = lambda: made[0].close(b"x" * 3 * CHUNK_BYTES)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert (bytes(out), bytes(err)) == (b"", b"")
+        assert made[0].stdout is not None
+        assert made[0].stdout.at_eof()
+
+    async def it_reaps_the_client_through_another_cancel(
+        made: list[Process], printed: dict[str, bytes], out: bytearray
+    ) -> None:
+        printed.clear()
+        task = asyncio.create_task(execute([], stdin=None, stdout=out.extend, stderr=None))
+        await asyncio.sleep(0.01)
+        made[0].kill.side_effect = None
+        task.cancel()
+        await asyncio.sleep(0.01)
+        task.cancel()
+        await asyncio.sleep(0.01)
+        assert not task.done()
+        made[0].close()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert made[0].wait.await_count == 2

@@ -5,6 +5,8 @@ from typing import IO, Any
 
 from posix_tools import spawn
 
+from adocker.utils.settle import settle
+
 type Stream = int | IO[Any] | None
 type Sink = Callable[[bytes], object]
 
@@ -31,6 +33,16 @@ async def execute(
         while chunk := await reader.read(CHUNK_BYTES):
             sink(chunk)
 
+    async def reap(
+        process: asyncio.subprocess.Process, drains: Sequence[asyncio.Future[None]]
+    ) -> None:
+        # `wait` returns only once the pipes close, and a paused pipe never reads its EOF.
+        await asyncio.gather(*drains, return_exceptions=True)
+        for reader in (process.stdout, process.stderr):
+            while reader is not None and await reader.read(CHUNK_BYTES):
+                pass
+        await process.wait()
+
     sinks = [stream if callable(stream) else None for stream in (stdout, stderr)]
     streams = [asyncio.subprocess.PIPE if callable(s) else s for s in (stdout, stderr)]
     async with spawn("docker", *args, stdin=stdin, stdout=streams[0], stderr=streams[1]) as process:
@@ -50,6 +62,6 @@ async def execute(
             # `docker run` forwards SIGTERM to its container and keeps waiting.
             with suppress(ProcessLookupError):
                 process.kill()
-            await process.wait()
+            await settle(reap(process, drains))
             raise
     return exited.result()
