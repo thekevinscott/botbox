@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-from contextlib import AsyncExitStack
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -63,20 +62,13 @@ FOREIGN_PROBES = {
 
 
 async def run_as_foreign_uid(box: Botbox, scratch: Path) -> str:
-    """The agent container's own flags, relay and home, under a uid and gid the host has no
-    entry for."""
+    """The agent container's own flags, relay and home, under whatever uid and gid `os`
+    reports."""
     image = await box.build()
     token = uuid4().hex[:12]
     script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in FOREIGN_PROBES.items())
-    async with AsyncExitStack() as stack:
-        with (
-            patch.object(os, "getuid", return_value=FOREIGN_UID),
-            patch.object(os, "getgid", return_value=FOREIGN_GID),
-        ):
-            home = await stack.enter_async_context(Home(box.agent, image, token))
-        jail = await stack.enter_async_context(lockdown((), scratch, token))
+    async with Home(box.agent, image, token) as home, lockdown((), scratch, token) as jail:
         flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
-        flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
         stdout, stderr = bytearray(), bytearray()
         container = await Image(image).run(
             RELAY,
@@ -107,7 +99,12 @@ def foreign(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> dict[str, str]:
     scratch = tmp_path_factory.mktemp("scratch")
-    stdout = asyncio.run(run_as_foreign_uid(Botbox(request.param), scratch))
+    box = Botbox(request.param)
+    with (
+        patch.object(os, "getuid", return_value=FOREIGN_UID),
+        patch.object(os, "getgid", return_value=FOREIGN_GID),
+    ):
+        stdout = asyncio.run(run_as_foreign_uid(box, scratch))
     fields = (line.split("\t", 1) for line in stdout.splitlines() if "\t" in line)
     return {name: value.strip() for name, value in fields}
 
