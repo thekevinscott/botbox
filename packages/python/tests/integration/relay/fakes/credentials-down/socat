@@ -1,0 +1,6 @@
+#!/bin/sh
+# A socat that serves everything but the credential socket.
+case "$*" in
+*credentials.sock*) exit 0 ;;
+esac
+exec /usr/bin/socat "$@"

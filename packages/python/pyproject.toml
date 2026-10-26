@@ -25,6 +25,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.10",
     "pytest-asyncio>=1.4.0",
+    "shellcheck-py>=0.11.0.1",
 ]
 
 [tool.hatch.version]
