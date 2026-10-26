@@ -1,8 +1,9 @@
-import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
+from adocker.remove_volume import remove_volume
 from adocker.run_docker import run_docker
+from adocker.settle import settle
 
 REMOVE_SECONDS = 30
 
@@ -22,39 +23,18 @@ async def volume(
     failure is raised, unless the block already raised, whose error it never replaces.
     """
     await run_docker("volume", "create", "--label", label, name)
-    failed = False
     try:
         yield name
     except BaseException:
-        failed = True
-        raise
-    finally:
         try:
-            await _settle(_remove_within(name, remove_seconds))
+            await settle(remove_volume(name, remove_seconds))
         except Exception as error:
             if on_error is not None:
                 on_error(error)
-            elif not failed:
-                raise
-
-
-async def _remove_within(name: str, seconds: float) -> None:
+        raise
     try:
-        async with asyncio.timeout(seconds):
-            await run_docker("volume", "rm", "--force", name)
-    except TimeoutError:
-        raise TimeoutError(f"the daemon did not remove it within {seconds:g}s") from None
-
-
-# Same as botbox.process.settle; adocker imports nothing from botbox.
-async def _settle(coro: Awaitable[None]) -> None:
-    task = asyncio.ensure_future(coro)
-    cancelled = False
-    while not task.done():
-        try:
-            await asyncio.wait({task})
-        except asyncio.CancelledError:
-            cancelled = True
-    if cancelled:
-        raise asyncio.CancelledError from task.exception()
-    task.result()
+        await settle(remove_volume(name, remove_seconds))
+    except Exception as error:
+        if on_error is None:
+            raise
+        on_error(error)
