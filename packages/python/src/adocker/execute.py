@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import IO, Any
 
 from posix_tools import spawn
@@ -7,11 +7,6 @@ from posix_tools import spawn
 from adocker.Capture import Capture
 
 Stream = int | IO[Any] | None
-
-
-def release(captures: Iterable[Capture]) -> None:
-    for capture in captures:
-        capture.release()
 
 
 async def execute(
@@ -35,9 +30,11 @@ async def execute(
             stdout=stdout.write if isinstance(stdout, Capture) else stdout,
             stderr=stderr.write if isinstance(stderr, Capture) else stderr,
         ) as process:
-            release(captures)
+            for capture in captures:
+                capture.release()
             code = await process.wait()
             await asyncio.gather(*(asyncio.shield(capture.eof) for capture in captures))
     finally:
-        release(captures)
+        for capture in captures:
+            capture.release()
     return code
