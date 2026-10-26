@@ -66,6 +66,13 @@ Before the first `Release` run on a fresh scaffold:
    [first-release guide](https://github.com/thekevinscott/putitoutthere/blob/main/.claude/skills/first-release/reference/trusted-publishers.md)
    has the steps.
 
+## Verify, don't assume
+
+- Every claim about behavior (how docker, a CLI, the kernel or this code acts) is checked
+  before it is stated or built on: read the code, run a probe, or cite the docs.
+- If it can't be checked, say it is unverified and don't build on it.
+- This overrides any default to assume and move on.
+
 ## Out of scope
 
 - Don't add unsolicited refactors or hypothetical-future abstractions.
