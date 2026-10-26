@@ -96,6 +96,22 @@ elif command == "rm":
         fail("Error response from daemon: removal of container is already in progress\\n")
     for name in argv[2:]:
         (state / f"{name}.json").unlink(missing_ok=True)
+elif command == "exec":
+    sys.exit(0)
+elif command == "stop":
+    exit_container(argv[-1])
+elif command == "wait":
+    print(json.loads((state / f"{argv[-1]}.json").read_text())["ExitCode"])
+elif option("--name").startswith("botbox-credentials-"):
+    # Serves until stopped or removed. The secret on its stdin is never read.
+    name = option("--name")
+    settle(name, "running")
+    (volume("/run/botbox") / "credentials.sock").touch()
+    try:
+        while json.loads((state / f"{name}.json").read_text())["Status"] == "running":
+            time.sleep(0.05)
+    except FileNotFoundError:
+        pass
 elif option("--name").startswith("botbox-proxy-"):
     name = option("--name")
     if plan.get("proxy_fails"):

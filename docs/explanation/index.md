@@ -79,7 +79,7 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 ### Credential Proxy
 
-Some credentials never enter the box. Today those are Claude Code's login and its `api_key` (see [Claude Code](#claude-code)), and pi's OpenRouter key, from the host or `api_key` (see [pi](#pi)). Codex's login and key, and pi's custom providers, are staged in the home (see [Home and Credentials](#home-and-credentials)).
+Some credentials never enter the box. Today those are Claude Code's and Codex's logins and `api_key`s (see [Claude Code](#claude-code) and [Codex](#codex)), and pi's OpenRouter key, from the host or `api_key` (see [pi](#pi)). pi's custom providers are staged in the home (see [Home and Credentials](#home-and-credentials)).
 
 For an injected login, botbox starts a second sidecar beside tinyproxy: Envoy, from the upstream `envoyproxy/envoy:v1.36.2` image pinned by digest. It runs as uid 101, with no capabilities, `no-new-privileges` and a cap of 64 processes. It sits on Docker's default bridge and connects to its one upstream itself, not through tinyproxy. It joins tinyproxy's PID namespace, so it dies with tinyproxy's init, as the agent does. It serves `credentials.sock` in the run's volume, beside tinyproxy's socket. In the agent container, the relay forwards `127.0.0.1:41894` to that socket, and the harness's base URL points there. The relay refuses to start if the agent runs as uid 101, as it does for tinyproxy's uid.
 
@@ -93,7 +93,7 @@ Envoy's stdout and stderr, including one access-log line per request, go to `cre
 
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. Claude Code and pi on OpenRouter are the exceptions: for Claude's login and `api_key`, and pi's OpenRouter key, the home gets a placeholder, and the [credential proxy](#credential-proxy) sends the real one. An agent opts in to that through `InjectingAgent`'s `credential_source`; one without it has its login copied by `stage_auth`. botbox reads no `.env`.
+Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. Claude Code, Codex and pi on OpenRouter are the exceptions: for Claude's and Codex's login and `api_key`, and pi's OpenRouter key, the home gets a placeholder, and the [credential proxy](#credential-proxy) sends the real one. An agent opts in to that through `InjectingAgent`'s `credential_source`; one without it has its login copied by `stage_auth`. botbox reads no `.env`.
 
 With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
 
@@ -141,10 +141,11 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 ## Codex
 
 - **Image:** `agents/codex/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@openai/codex`.
-- **Command:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins --config analytics.enabled=false <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. Codex's own sandbox is off because the container is the sandbox.
+- **Command:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins --disable apps --config analytics.enabled=false <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. Codex's own sandbox is off because the container is the sandbox.
 - **Session:** none. Codex's only long-running mode, `codex app-server`, needs a per-session handshake.
-- **Credentials:** `auth.json` is copied into `.codex/`. With `api_key`, a fresh `.codex/auth.json` holds the key in API-key mode.
-- **Hosts:** `chatgpt.com` for a copied login, `api.openai.com` with `api_key`.
+- **Credentials:** the host login stays on the host. `.codex/auth.json` in the box holds unsigned placeholder tokens with the host's account id and plan, a far-future expiry and no usable refresh token. `.codex/config.toml` sets a model provider whose `base_url` is the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /backend-api/codex/responses` and `GET /backend-api/codex/models` on their way to `chatgpt.com`. `chatgpt_base_url` points at the proxy too, so Codex's account and settings calls get the proxy's 403 rather than leaving past it, and `--disable apps` stops its direct apps MCP call. With `api_key`, `auth.json` holds a placeholder key, and the proxy sends the real one on `POST /v1/responses` to `api.openai.com`. Its access log goes to `credentials.log`.
+- **Hosts:** none, since the credential proxy carries the traffic.
+- **Expiry:** as in [Login Expiry](#login-expiry): `CredentialsExpired` before the run if the host's access token has expired, and a renewed token sent from the next request on.
 - **Transcript:** `.codex/sessions/**/*.jsonl`.
 
 ## pi

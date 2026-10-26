@@ -27,7 +27,7 @@ async with Botbox(agent) as box:
 
 ## Credentials
 
-By default, the run uses your Codex login from `~/.codex/auth.json`. Pass `api_key` to use an API key instead. The choice also sets which host the proxy admits: `chatgpt.com` for a host login, `api.openai.com` with `api_key`.
+By default, the run uses your Codex login from `~/.codex/auth.json`. Pass `api_key` to use an API key instead. Either way the credential stays on the host: the box gets a placeholder, and a credential proxy adds the real token or key to Codex's requests. If the login has already expired, `run()` raises `CredentialsExpired`; run `codex` on the host to renew it.
 
 With `output`, `transcripts/` there is mounted over `~/.codex/sessions`. The staged credentials sit outside it.
 

@@ -153,8 +153,8 @@ Each run gets a fresh temporary home, mounted at the agent's home path. With `ou
 
 `CodexAgent` likewise, never both:
 
-- Default: `~/.codex/auth.json` is copied into the temporary home.
-- `CodexAgent(api_key=key)`: a fresh `.codex/auth.json` (mode 600) holds the key in API-key mode.
+- Default: the login in `~/.codex/auth.json` stays on the host. The temporary home gets a placeholder `auth.json` and a `config.toml` that points Codex at a credential proxy, which adds the real token to Codex's requests. An expired login raises `CredentialsExpired` before the run starts.
+- `CodexAgent(api_key=key)`: the key stays on the host too. The temporary home gets a placeholder key, and the credential proxy sends the real one to `api.openai.com`.
 
 `PiAgent` likewise, never both:
 
@@ -165,7 +165,7 @@ botbox reads no `.env` and no environment variables. The caller passes the key.
 
 ### Network
 
-The container runs with `--network none`. The only way out is a unix socket to a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code on an API key); add more with `allow`:
+The container runs with `--network none`. The only way out is a unix socket to a CONNECT proxy that denies by default. The agent contributes its own hosts (`api.anthropic.com` for Claude Code on an API key; none for Codex); add more with `allow`:
 
 ```python
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])

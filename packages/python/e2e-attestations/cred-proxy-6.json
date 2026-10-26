@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/codex_test.py tests/e2e/network_test.py -k \"not host_login\"",
+  "ran_at": 1793049387,
+  "exit_code": 0,
+  "commit": "a693a4eb1d91f3881793de470ceb5d32c2eebd43",
+  "branch": "cred-proxy-6"
+}

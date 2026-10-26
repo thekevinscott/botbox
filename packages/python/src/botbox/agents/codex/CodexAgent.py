@@ -1,10 +1,26 @@
 import json
 import shlex
-import shutil
 from pathlib import Path
 from typing import Any
 
+from botbox.agents.codex.CodexApiKey import CodexApiKey
+from botbox.agents.codex.CodexLogin import CodexLogin
+from botbox.credential_proxy import PROXY_URL
+
 AUTH = "auth.json"
+CONFIG = "config.toml"
+# chatgpt_base_url sends Codex's account and settings calls to the proxy, which refuses them,
+# rather than past it.
+PROVIDER_CONFIG = """\
+model_provider = "botbox"
+chatgpt_base_url = {chatgpt_base_url}
+
+[model_providers.botbox]
+name = "botbox"
+base_url = {base_url}
+wire_api = "responses"
+requires_openai_auth = true
+"""
 
 NO_SESSION = (
     "NOT IMPLEMENTED: CodexAgent has no session mode. For a Codex model in a session, use"
@@ -24,6 +40,10 @@ class CodexAgent:
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
     sessions_dir = ".codex/sessions"
+    allow: tuple[str, ...] = ()
+    """Nothing: the credential proxy reaches the API for it."""
+    credential_source: CodexLogin | CodexApiKey
+    """The host's login or the API key, which the proxy sends upstream."""
 
     def __init__(
         self,
@@ -41,13 +61,15 @@ class CodexAgent:
         self.model = model
         self.effort = effort
         self.api_key = api_key
-        self.allow: tuple[str, ...] = ("chatgpt.com",) if api_key is None else ("api.openai.com",)
         self.host_home = Path.home() / ".codex" if host_home is None else host_home
+        self.credential_source = (
+            CodexLogin(self.host_home / AUTH) if api_key is None else CodexApiKey(api_key)
+        )
 
     def command(self, prompt: str) -> str:
         command = (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
-            " --disable plugins --config analytics.enabled=false"
+            " --disable plugins --disable apps --config analytics.enabled=false"
         )
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
@@ -65,11 +87,15 @@ class CodexAgent:
         raise NotImplementedError(NO_SESSION)
 
     def stage_auth(self, home: Path) -> None:
+        """A placeholder login, and a model provider that points Codex at the credential proxy."""
+        placeholder = self.credential_source.placeholder()
         destination = home / ".codex"
         destination.mkdir()
-        if self.api_key is None:
-            shutil.copy(self.host_home / AUTH, destination / AUTH)
-            return
         auth = destination / AUTH
         auth.touch(mode=0o600)
-        auth.write_text(json.dumps({"auth_mode": "apikey", "OPENAI_API_KEY": self.api_key}))
+        auth.write_text(placeholder)
+        config = PROVIDER_CONFIG.format(
+            base_url=json.dumps(self.credential_source.base_url),
+            chatgpt_base_url=json.dumps(f"{PROXY_URL}/backend-api/"),
+        )
+        (destination / CONFIG).write_text(config)

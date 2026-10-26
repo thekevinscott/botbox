@@ -1,6 +1,8 @@
-import json
+import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -8,6 +10,44 @@ from botbox.agents.codex.CodexAgent import CodexAgent
 
 if TYPE_CHECKING:
     from botbox.agents.agent import Agent
+
+MODULE = f"{__package__}.CodexAgent"
+
+
+class Login:
+    """Stands in for `CodexLogin`: a placeholder that names the host file it came from."""
+
+    base_url = "http://proxy/backend-api/codex"
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def placeholder(self) -> str:
+        if not self.path.exists():
+            raise FileNotFoundError(self.path)
+        return f"placeholder of {self.path.name}"
+
+
+class ApiKey:
+    """Stands in for `CodexApiKey`."""
+
+    base_url = "http://proxy/v1"
+
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+    def placeholder(self) -> str:
+        return "placeholder key"
+
+
+@pytest.fixture(autouse=True)
+def collaborators() -> Iterator[None]:
+    with (
+        patch(f"{MODULE}.CodexLogin", Login),
+        patch(f"{MODULE}.CodexApiKey", ApiKey),
+        patch(f"{MODULE}.PROXY_URL", "http://proxy"),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -30,9 +70,12 @@ def home(tmp_path: Path) -> Path:
     return staged
 
 
-def staged(home: Path) -> dict[str, object]:
-    login: dict[str, object] = json.loads((home / ".codex" / "auth.json").read_text())
-    return login
+def staged(home: Path) -> str:
+    return (home / ".codex" / "auth.json").read_text()
+
+
+def config(home: Path) -> dict[str, object]:
+    return tomllib.loads((home / ".codex" / "config.toml").read_text())
 
 
 def describe_the_container() -> None:
@@ -51,15 +94,27 @@ def describe_the_container() -> None:
     def it_writes_sessions_to_the_sessions_directory(agent: CodexAgent) -> None:
         assert agent.sessions_dir == ".codex/sessions"
 
-    def it_allows_only_chatgpt_on_a_chatgpt_login(agent: CodexAgent) -> None:
-        assert agent.allow == ("chatgpt.com",)
+    def it_allows_no_host_on_a_chatgpt_login(agent: CodexAgent) -> None:
+        assert agent.allow == ()
 
-    def it_allows_only_the_openai_api_with_a_key() -> None:
-        assert CodexAgent(api_key="k").allow == ("api.openai.com",)
+    def it_allows_no_host_with_a_key() -> None:
+        assert CodexAgent(api_key="k").allow == ()
 
     def it_satisfies_the_agent_protocol(agent: CodexAgent) -> None:
         typed: Agent = agent
-        assert typed.allow == ("chatgpt.com",)
+        assert typed.allow == ()
+
+
+def describe_credential_source() -> None:
+    def it_is_the_host_login(agent: CodexAgent, codex_home: Path) -> None:
+        source = agent.credential_source
+        assert isinstance(source, Login)
+        assert source.path == codex_home / "auth.json"
+
+    def it_is_the_key_when_given() -> None:
+        source = CodexAgent(api_key="sk-test").credential_source
+        assert isinstance(source, ApiKey)
+        assert source.key == "sk-test"
 
 
 def describe_host_home() -> None:
@@ -75,20 +130,36 @@ def describe_host_home() -> None:
 
 
 def describe_stage_auth() -> None:
-    def it_stages_the_login_where_codex_looks(agent: CodexAgent, home: Path) -> None:
+    def it_stages_the_login_and_config_where_codex_looks(agent: CodexAgent, home: Path) -> None:
         agent.stage_auth(home)
         assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
             ".codex",
             ".codex/auth.json",
+            ".codex/config.toml",
         ]
 
-    def it_copies_rather_than_shares_the_host_login(
-        agent: CodexAgent, codex_home: Path, home: Path
-    ) -> None:
+    def it_stages_a_placeholder_of_the_host_login(agent: CodexAgent, home: Path) -> None:
         agent.stage_auth(home)
-        copy = home / ".codex" / "auth.json"
-        assert copy.read_text() == '{"auth_mode": "chatgpt"}'
-        assert copy.stat().st_ino != (codex_home / "auth.json").stat().st_ino
+        assert staged(home) == "placeholder of auth.json"
+
+    def it_makes_the_login_readable_by_its_owner_only(agent: CodexAgent, home: Path) -> None:
+        agent.stage_auth(home)
+        assert (home / ".codex" / "auth.json").stat().st_mode & 0o777 == 0o600
+
+    def it_points_codex_at_the_proxy(agent: CodexAgent, home: Path) -> None:
+        agent.stage_auth(home)
+        assert config(home) == {
+            "model_provider": "botbox",
+            "chatgpt_base_url": "http://proxy/backend-api/",
+            "model_providers": {
+                "botbox": {
+                    "name": "botbox",
+                    "base_url": "http://proxy/backend-api/codex",
+                    "wire_api": "responses",
+                    "requires_openai_auth": True,
+                }
+            },
+        }
 
     def it_raises_when_the_host_has_no_login(
         agent: CodexAgent, codex_home: Path, home: Path
@@ -96,6 +167,7 @@ def describe_stage_auth() -> None:
         (codex_home / "auth.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"auth\.json"):
             agent.stage_auth(home)
+        assert not (home / ".codex").exists()
 
 
 def describe_api_key() -> None:
@@ -107,13 +179,21 @@ def describe_api_key() -> None:
         with pytest.raises(TypeError):
             CodexAgent(None, None, "sk-test")  # type: ignore[call-arg]
 
-    def it_stages_the_key_in_api_key_mode(keyed: CodexAgent, home: Path) -> None:
+    def it_stages_a_placeholder_key(keyed: CodexAgent, home: Path) -> None:
         keyed.stage_auth(home)
-        assert staged(home) == {"auth_mode": "apikey", "OPENAI_API_KEY": "sk-test"}
+        assert staged(home) == "placeholder key"
 
-    def it_makes_the_key_readable_by_its_owner_only(keyed: CodexAgent, home: Path) -> None:
+    def it_points_codex_at_the_proxys_api(keyed: CodexAgent, home: Path) -> None:
         keyed.stage_auth(home)
-        assert (home / ".codex" / "auth.json").stat().st_mode & 0o777 == 0o600
+        provider = config(home)["model_providers"]
+        assert provider == {
+            "botbox": {
+                "name": "botbox",
+                "base_url": "http://proxy/v1",
+                "wire_api": "responses",
+                "requires_openai_auth": True,
+            }
+        }
 
     def it_keeps_the_key_out_of_the_command(keyed: CodexAgent) -> None:
         assert "sk-test" not in keyed.command("hi")
@@ -126,7 +206,7 @@ def describe_command() -> None:
     def it_runs_codex_exec_with_json_output_and_no_sandbox_of_its_own() -> None:
         assert CodexAgent().command("Fix the tests") == (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
-            " --disable plugins --config analytics.enabled=false 'Fix the tests'"
+            " --disable plugins --disable apps --config analytics.enabled=false 'Fix the tests'"
         )
 
     def it_shell_quotes_the_prompt() -> None:
