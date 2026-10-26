@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py tests/e2e/home_test.py tests/e2e/user_test.py tests/e2e/credential_relay_test.py tests/e2e/run_test.py tests/e2e/network_test.py",
+  "ran_at": 1793042933,
+  "exit_code": 0,
+  "commit": "37040b283cb361dcedc6e4d3be2bacbcb429fe18",
+  "branch": "scratch-home"
+}
