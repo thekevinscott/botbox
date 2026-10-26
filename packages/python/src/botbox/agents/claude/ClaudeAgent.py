@@ -1,4 +1,5 @@
 import json
+import math
 import shlex
 import shutil
 from pathlib import Path
@@ -24,14 +25,28 @@ class ClaudeAgent:
         *,
         api_key: str | None = None,
         host_home: Path | None = None,
+        tool_timeout: float = 0,
     ) -> None:
+        if tool_timeout < 0:
+            raise ValueError(f"tool_timeout is in seconds and must be 0 or more: {tool_timeout!r}")
         self.model = model
         self.effort = effort
         self.api_key = api_key
+        self.tool_timeout = tool_timeout
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
 
+    def _env(self) -> str:
+        if not self.tool_timeout:
+            return ""
+        ms = math.ceil(self.tool_timeout * 1000)
+        # Without the last var, a Bash call that times out is moved to the background, not killed.
+        return (
+            f"BASH_DEFAULT_TIMEOUT_MS={ms} BASH_MAX_TIMEOUT_MS={ms}"
+            " CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 "
+        )
+
     def command(self, prompt: str) -> str:
-        command = (
+        command = self._env() + (
             f"claude -p {shlex.quote(prompt)} --output-format json --dangerously-skip-permissions"
             " --strict-mcp-config"
         )
@@ -42,7 +57,7 @@ class ClaudeAgent:
         return command
 
     def session_command(self) -> str:
-        command = (
+        command = self._env() + (
             "claude -p --input-format stream-json --output-format stream-json --verbose"
             " --dangerously-skip-permissions --strict-mcp-config"
         )
