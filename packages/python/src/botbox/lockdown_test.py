@@ -11,6 +11,7 @@ import pytest
 import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
     CREDENTIALS_ENV,
+    HOME_BYTES_ENV,
     PROXY_CONF,
     PROXY_DIR,
     RELAY_DIR,
@@ -581,3 +582,8 @@ def describe_the_shipped_proxy() -> None:
         assert f"TCP-LISTEN:{RELAY_PORT},bind=127.0.0.1" in script
         assert f":{RELAY_PORT:04X} 00000000:0000 0A" in script
         assert "UNIX-CONNECT:/run/botbox/proxy.sock" in script
+
+    def it_reads_the_staged_home_off_stdin_by_the_size_in_the_env() -> None:
+        script = (RELAY_DIR / "botbox-relay").read_text()
+        assert f'head -c "${HOME_BYTES_ENV}" | tar -xz -m -C "$HOME"' in script
+        assert f"unset {HOME_BYTES_ENV}" in script
