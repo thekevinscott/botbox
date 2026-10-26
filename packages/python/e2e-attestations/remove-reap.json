@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
+  "ran_at": 1792975067,
+  "exit_code": 0,
+  "commit": "3f8eb89153273c5114357041a86add0ce4f885ab",
+  "branch": "remove-reap"
+}

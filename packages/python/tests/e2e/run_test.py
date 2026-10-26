@@ -21,7 +21,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, DockerException, Timeout, reap
+from botbox import Botbox, ClaudeAgent, DockerException, Timeout
 
 HOSTILE = (
     "trap '' TERM INT HUP QUIT; kill -KILL -1 2>/dev/null; kill -KILL 1 2>/dev/null;"
@@ -321,11 +321,8 @@ def describe_run() -> None:
                 while containers(token, "status=running"):
                     assert time.monotonic() - started < GRACE, containers(token, "status=running")
                     await asyncio.sleep(0.1)
-                # Stopped and labelled, for the sweep to remove.
                 assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
                 assert [s for h in runs.homes() for s in (h / "sockets").glob("*")] == []
-                assert await reap() == [token]
-                assert runs.leftovers() == []
                 if holder == OWNER:
                     assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
                     assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
