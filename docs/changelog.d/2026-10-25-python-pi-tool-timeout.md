@@ -1,0 +1,1 @@
+**Added**: `PiAgent(tool_timeout=...)` caps every bash call at that many seconds. A call that runs out is killed and returns "Command timed out" to the model. It loads a pi extension shipped in the image. The default, 0, is no limit. A negative value raises `ValueError`.
