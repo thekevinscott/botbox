@@ -78,8 +78,10 @@ PROBES = {
 
 @pytest.fixture(scope="module")
 def report(output: Path) -> dict[str, str]:
-    # On a key, the agent's host goes through the proxy's allow list; a login is injected instead.
-    return run_probes(Botbox(ClaudeAgent(api_key="unused")), PROBES, output)
+    # The agent's own traffic goes through the credential proxy, so the CONNECT proxy admits only
+    # what `allow` names.
+    box = Botbox(ClaudeAgent(api_key="unused"), allow=["api.anthropic.com"])
+    return run_probes(box, PROBES, output)
 
 
 @pytest.fixture(scope="module")
@@ -88,14 +90,14 @@ def proxy(report: dict[str, str], output: Path) -> str:  # noqa: ARG001
 
 
 def describe_a_request_through_the_proxy() -> None:
-    def it_reaches_the_agents_host(report: dict[str, str]) -> None:
+    def it_reaches_an_allowed_host(report: dict[str, str]) -> None:
         """Any HTTP status: the request got there and back."""
         assert report["proxied anthropic"].isdigit()
 
     def it_is_refused_anywhere_else(report: dict[str, str]) -> None:
         assert report["proxied example"] == "failed"
 
-    def it_gets_a_200_connect_for_the_agents_host(report: dict[str, str]) -> None:
+    def it_gets_a_200_connect_for_an_allowed_host(report: dict[str, str]) -> None:
         assert report["connect anthropic"] == "200"
 
     def it_gets_a_403_connect_anywhere_else(report: dict[str, str]) -> None:
@@ -124,8 +126,8 @@ def describe_a_direct_request() -> None:
 
 
 def describe_the_socket_directory() -> None:
-    def it_holds_only_the_proxys_socket(report: dict[str, str]) -> None:
-        assert report["sockets"] == "proxy.sock"
+    def it_holds_only_the_proxies_sockets(report: dict[str, str]) -> None:
+        assert report["sockets"] == "credentials.sock proxy.sock"
 
     def it_is_read_only_to_the_agent(report: dict[str, str]) -> None:
         assert "Read-only file system" in report["write sockets"]
