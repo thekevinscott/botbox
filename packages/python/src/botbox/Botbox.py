@@ -128,14 +128,13 @@ class Botbox:
 
         With `output`, stdout, stderr and the proxy's output go directly to stdout.txt,
         stderr.txt and proxy.log there, and transcripts/ there is mounted over the agent's
-        `sessions_dir`; those result fields are empty. The three files are
+        `sessions_dir`; the stream fields are empty. The three files are
         truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
         can't mount it.
 
         Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
         a fresh host temp directory with the credentials staged in; without `output`, the proxy
-        logs into the same directory. Without `output`, the proxy log is read into the result
-        once the container exits; it and any transcripts are deleted with the temp home.
+        logs into the same directory, and the log and any transcripts are deleted with it.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 
@@ -158,7 +157,6 @@ class Botbox:
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         out, err = bytearray(), bytearray()
-        jail: Lockdown | None = None
         deadline = asyncio.timeout(limit)
         try:
             home = self._stage_home(Path(scratch.name))
@@ -172,13 +170,8 @@ class Botbox:
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                proxy = "" if jail is None else jail.log
                 result = RunResult(
-                    out.decode(errors="replace"),
-                    err.decode(errors="replace"),
-                    -1,
-                    proxy,
-                    image,
+                    out.decode(errors="replace"), err.decode(errors="replace"), -1, image
                 )
                 raise Timeout(limit, result) from timed_out
         finally:
@@ -187,7 +180,6 @@ class Botbox:
             out.decode(errors="replace"),
             err.decode(errors="replace"),
             exit_code,
-            jail.log,
             image,
         )
 
@@ -268,11 +260,11 @@ class Botbox:
             finally:
                 try:
                     if live is not None and output is not None:
-                        live.result = RunResult("", "", exit_code, "", image)
+                        live.result = RunResult("", "", exit_code, image)
                     elif live is not None:
                         await settle(
                             warned(
-                                session_result(live, jail.log, image, exit_code),
+                                session_result(live, image, exit_code),
                                 "read its session artifacts",
                             )
                         )
@@ -283,7 +275,7 @@ class Botbox:
                 raise
             result = None if live is None else live.result
             if result is None:
-                result = RunResult("", "", -1, "", image)
+                result = RunResult("", "", -1, image)
             raise Timeout(limit, result) from timed_out
 
     async def _attach(

@@ -50,7 +50,7 @@ The agent, sending data out. It has nowhere to send it but the proxy.
 
 ### What botbox Does
 
-The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `result.proxy`.
+The container has no network and no DNS. The proxy denies by default, checks the whole request URL, and admits only ports 443 and 80 on allowed hosts (see [Network](./explanation/#network)). Every request, admitted or refused, is in `proxy.log` in the run's `output`.
 
 ### What's Left
 

@@ -100,20 +100,19 @@ await box.run(
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
-| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, the streams and proxy log come back on the result and the transcripts are deleted. |
+| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, the streams come back on the result and the proxy log and transcripts are deleted. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `proxy`, `image`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `image`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
-| `proxy`      | `str`: the proxy log.                                                           |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
 The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever output and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever output exists, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 
@@ -162,7 +161,7 @@ The container runs with `--network none`. The only way out is a unix socket to a
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `output/proxy.log`, or to `result.proxy` without `output`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
+Every connection, admitted or refused, is logged to `output/proxy.log`. Without `output`, the log is deleted after the run. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 
@@ -264,6 +263,6 @@ MIT. See [LICENSE](./LICENSE).
 ## Internal - Checks
 
 - [ ] Check the build context. A fully cached `docker build` should take ~0.3s.
-- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. `run()` reads them from there into `RunResult`. The directory is never exposed.
+- [x] Transcripts and the proxy log are synced to a host temp directory during the run, so a daemon crash loses nothing. With `output`, they are written there instead. The directory is never exposed.
 - [x] add test for docker daemon dying
 - [x] add test for concurrent builds of one tag

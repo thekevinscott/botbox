@@ -172,7 +172,6 @@ def describe_run() -> None:
         result = await box.run("echo out; echo err >&2; exit 5")
         assert (result.stdout, result.stderr, result.exit_code) == ("out\n", "err\n", 5)
         assert result.image == "botbox-claude:latest"
-        assert "Starting main loop" in result.proxy
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
@@ -183,7 +182,6 @@ def describe_run() -> None:
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 5)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
-        assert result.proxy == ""
         assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
         assert runs.leftovers() == []
 
@@ -254,7 +252,6 @@ def describe_run() -> None:
             assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
-            assert result.proxy == ""
             assert "Starting main loop" in (output / "proxy.log").read_text()
             assert len(runs.tokens) == 1
             assert runs.leftovers() == []

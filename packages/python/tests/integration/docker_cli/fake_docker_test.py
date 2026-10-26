@@ -90,10 +90,6 @@ elif option("--name").startswith("botbox-proxy-"):
     settle(name, "running")
     sys.stdout.buffer.write(plan.get("proxy_log", "").encode("latin-1"))
     sys.stdout.buffer.flush()
-    if plan.get("proxy_log_unreadable"):
-        log = Path(os.readlink("/proc/self/fd/1"))
-        log.unlink()
-        log.mkdir()
     (volume("/run/botbox") / "proxy.sock").touch()
     sys.stdin.buffer.read()
     exit_container(name)

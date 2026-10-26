@@ -56,7 +56,6 @@ def describe_run() -> None:
                 stdout="out\n",
                 stderr="err\n",
                 exit_code=3,
-                proxy=REFUSAL,
                 image="botbox-claude:latest",
             )
 
@@ -64,23 +63,8 @@ def describe_run() -> None:
             box: Botbox, daemon: Daemon, output: Path
         ) -> None:
             daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
-            assert (await box.run("true", output=output)).proxy == ""
+            await box.run("true", output=output)
             assert (output / "proxy.log").read_bytes() == b"GET http://caf\xe9/ HTTP/1.1\n"
-
-        async def it_replaces_proxy_log_bytes_that_are_not_utf8_without_output(
-            box: Botbox, daemon: Daemon
-        ) -> None:
-            daemon.set(proxy_log="GET http://caf\xe9/ HTTP/1.1\n")
-            assert (await box.run("true")).proxy == "GET http://caf\ufffd/ HTTP/1.1\n"
-
-        async def it_returns_the_result_and_warns_when_the_proxy_log_will_not_read(
-            box: Botbox, daemon: Daemon
-        ) -> None:
-            daemon.agent("true", stdout="out\n")
-            daemon.set(proxy_log_unreadable=True)
-            with pytest.warns(RuntimeWarning, match="^botbox could not read its proxy log: "):
-                result = await box.run("true")
-            assert (result.stdout, result.exit_code, result.proxy) == ("out\n", 0, "")
 
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: Botbox, daemon: Daemon, output: Path
@@ -106,7 +90,6 @@ def describe_run() -> None:
             assert (output / "stdout.txt").read_text() == "partial\n"
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
-            assert result.proxy == ""
             assert (output / "proxy.log").read_text() == REFUSAL
             assert homes(temp) == []
 
@@ -287,18 +270,6 @@ def describe_run() -> None:
             assert daemon.runs("botbox-agent-") == []
             assert homes(temp) == []
 
-        async def it_keeps_the_error_and_warns_when_the_proxy_log_will_not_read(
-            box: Botbox, daemon: Daemon
-        ) -> None:
-            daemon.agent("true", missing=True)
-            daemon.set(proxy_log_unreadable=True)
-            with (
-                pytest.warns(RuntimeWarning, match="could not read its proxy log"),
-                pytest.raises(DockerException) as raised,
-            ):
-                await box.run("true")
-            assert raised.value.return_code == 125
-
         async def it_returns_the_result_and_warns_when_teardown_fails(
             box: Botbox, daemon: Daemon, output: Path
         ) -> None:
@@ -368,7 +339,6 @@ def describe_run() -> None:
                 stdout="",
                 stderr="",
                 exit_code=-1,
-                proxy="",
                 image="botbox-claude:latest",
             )
             transcript = output / "transcripts" / "-work" / "abc.jsonl"

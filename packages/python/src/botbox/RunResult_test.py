@@ -7,19 +7,18 @@ from botbox.RunResult import RunResult
 
 @pytest.fixture
 def result() -> RunResult:
-    return RunResult("out", "err", 0, "log", "an-image")
+    return RunResult("out", "err", 0, "an-image")
 
 
 def describe_run_result() -> None:
     def it_holds_what_the_run_left_in_order(result: RunResult) -> None:
-        assert dataclasses.astuple(result) == ("out", "err", 0, "log", "an-image")
+        assert dataclasses.astuple(result) == ("out", "err", 0, "an-image")
 
     def it_names_its_fields(result: RunResult) -> None:
         assert [f.name for f in dataclasses.fields(result)] == [
             "stdout",
             "stderr",
             "exit_code",
-            "proxy",
             "image",
         ]
 
@@ -28,4 +27,4 @@ def describe_run_result() -> None:
             result.exit_code = 1  # type: ignore[misc]
 
     def it_compares_by_value(result: RunResult) -> None:
-        assert result == RunResult("out", "err", 0, "log", "an-image")
+        assert result == RunResult("out", "err", 0, "an-image")
