@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from adocker.settle import settle
+from adocker.volume.settle import settle
 
 
 async def slow(seconds: float, value: str = "done") -> str:

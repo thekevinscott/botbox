@@ -76,8 +76,8 @@ def docker_volume(steps: list[str], volume_fails: dict[str, BaseException]) -> I
         return ""
 
     with (
-        patch("adocker.volume.run_docker", side_effect=docker),
-        patch("adocker.remove_volume.run_docker", side_effect=docker),
+        patch("adocker.volume.volume.run_docker", side_effect=docker),
+        patch("adocker.volume.remove_volume.run_docker", side_effect=docker),
     ):
         yield
 

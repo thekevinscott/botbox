@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from adocker.volume import REMOVE_SECONDS, volume
+from adocker.volume.volume import REMOVE_SECONDS, volume
 
 CREATE = call("volume", "create", "--label", "botbox.run=x", "v")
 REMOVE = call("volume", "rm", "--force", "v")
@@ -13,8 +13,8 @@ REMOVE = call("volume", "rm", "--force", "v")
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
     with (
-        patch("adocker.volume.run_docker", autospec=True) as m,
-        patch("adocker.remove_volume.run_docker", m),
+        patch("adocker.volume.volume.run_docker", autospec=True) as m,
+        patch("adocker.volume.remove_volume.run_docker", m),
     ):
         yield m
 
