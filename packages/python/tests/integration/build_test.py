@@ -1,8 +1,6 @@
 """`Botbox.build()` against a fake `docker` on PATH that records each build."""
 
-import asyncio
 import contextlib
-import fcntl
 import json
 import os
 import sys
@@ -15,11 +13,10 @@ import pytest
 
 import botbox
 from botbox import Botbox, ClaudeAgent, CodexAgent, DockerException, PiAgent
-from botbox.build_lock_path import build_lock_path
 
-# Logs its build, then fails, hangs or succeeds as BUILDX_PLAN says for the tag.
+# Logs its build, then fails or succeeds as BUILDX_PLAN says for the tag.
 FAKE_DOCKER = """
-import json, os, sys, time
+import json, os, sys
 argv = sys.argv[1:]
 option = lambda name: argv[argv.index(name) + 1]
 build = {
@@ -32,8 +29,6 @@ build = {
 with open(os.environ["BUILDX_LOG"], "a") as log:
     log.write(json.dumps(build) + "\\n")
 plan = json.load(open(os.environ["BUILDX_PLAN"])).get(option("--tag"), {})
-if plan.get("hang"):
-    time.sleep(60)
 if "fail" in plan:
     sys.stderr.write(plan["fail"])
     sys.exit(1)
@@ -51,10 +46,6 @@ class Buildx:
 
     def fail(self, tag: str, stderr: str) -> None:
         self.plan[tag] = {"fail": stderr}
-        self.plan_file.write_text(json.dumps(self.plan))
-
-    def hang(self, tag: str) -> None:
-        self.plan[tag] = {"hang": True}
         self.plan_file.write_text(json.dumps(self.plan))
 
     @property
@@ -95,21 +86,6 @@ def buildx(tmp_path: Path) -> Iterator[Buildx]:
     }
     with patch.dict(os.environ, env):
         yield recorder
-
-
-async def started(buildx: Buildx) -> None:
-    async with asyncio.timeout(5):
-        while not buildx.builds:
-            await asyncio.sleep(0.01)
-
-
-def lock_free(tag: str) -> bool:
-    with build_lock_path(tag).open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return False
-        return True
 
 
 LAYER = "FROM botbox-claude:latest\nUSER root\nRUN npm install -g vitest@2.1.3\nUSER user\n"
@@ -218,23 +194,6 @@ def describe_build() -> None:
         await box.build()
         await box.build()
         assert [b["tag"] for b in buildx.builds] == ["botbox-claude:latest"] * 2
-
-    def describe_the_build_lock() -> None:
-        async def it_is_released_when_the_build_fails(buildx: Buildx) -> None:
-            buildx.fail("botbox-claude:latest", "ERROR: failed to solve\n")
-            with pytest.raises(DockerException):
-                await Botbox(ClaudeAgent()).build()
-            assert lock_free("botbox-claude:latest")
-
-        async def it_is_released_when_the_build_is_cancelled(buildx: Buildx) -> None:
-            buildx.hang("botbox-claude:latest")
-            build = asyncio.ensure_future(Botbox(ClaudeAgent()).build())
-            await started(buildx)
-            assert not lock_free("botbox-claude:latest")
-            build.cancel()
-            await asyncio.wait({build}, timeout=5)
-            assert build.cancelled()
-            assert lock_free("botbox-claude:latest")
 
 
 def describe_botbox() -> None:

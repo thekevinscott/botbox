@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.docker.Capture import Capture
+from adocker.Capture import Capture
 
 
 def open_fds() -> set[str]:

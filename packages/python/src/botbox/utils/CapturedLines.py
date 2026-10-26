@@ -1,6 +1,6 @@
 import asyncio
 
-from botbox.docker.Capture import Capture
+from adocker.Capture import Capture
 
 
 class CapturedLines:

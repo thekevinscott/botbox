@@ -10,8 +10,6 @@ import pytest
 
 from botbox.hold_session import hold_session
 
-KILL = object()
-
 
 def open_fds() -> set[str]:
     return {fd.name for fd in Path("/proc/self/fd").iterdir()}
@@ -61,13 +59,6 @@ def client() -> Iterator[Client]:
 
 
 @pytest.fixture(autouse=True)
-def signal() -> Iterator[Mock]:
-    with patch("botbox.hold_session.signal", autospec=True) as m:
-        m.SIGKILL = KILL
-        yield m
-
-
-@pytest.fixture(autouse=True)
 def owner_only() -> Iterator[MagicMock]:
     with patch("botbox.hold_session.owner_only", autospec=True) as m:
         yield m
@@ -93,7 +84,6 @@ def describe_hold_session() -> None:
         async with hold_session(agent, ["--interactive", "img"]) as live:
             await asyncio.sleep(0.01)
             assert client.args == ["run", "--interactive", "img"]
-            assert client.options["signum"] is KILL
             assert live.agent is agent
             assert client.options["stdout"] is live.stdout
             assert client.options["stderr"].into is live.stderr
@@ -256,7 +246,6 @@ def describe_with_output() -> None:
         assert options["stderr"].name == str(tmp_path / "stderr.txt")
         assert options["stdout"].closed
         assert options["stderr"].closed
-        assert options["signum"] is KILL
         assert followed == [(tmp_path / "stdout.txt", None, True)]
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"

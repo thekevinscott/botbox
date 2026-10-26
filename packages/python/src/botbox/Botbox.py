@@ -10,16 +10,16 @@ from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
 
+from adocker.build import build as docker_build
+from adocker.run import run as docker_run
 from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
-from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
-from botbox.docker.build import build as docker_build
-from botbox.docker.run import run as docker_run
 from botbox.hold_session import hold_session
 from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
+from botbox.process import settle
 from botbox.read_transcript import read_transcript
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
@@ -27,7 +27,6 @@ from botbox.Session import Session
 from botbox.session_result import session_result
 from botbox.Timeout import Timeout
 from botbox.warned import warned
-from posix_tools.process import settle
 
 
 class Botbox:
@@ -109,15 +108,12 @@ class Botbox:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
 
         Built on every call; Docker's layer cache keeps an unchanged build fast. Concurrent
-        builds of one tag, from any process, take turns without blocking the loop. Cancelling
-        stops the build in progress. A failed build raises `DockerException`.
+        builds of one tag, from any process, all succeed, and the tag ends on whichever finished
+        last. Cancelling stops the build in progress. A failed build raises `DockerException`.
         """
         steps = build_steps(self.agent, self.dockerfile)
         for step in steps:
-            async with build_lock(step.tag):
-                await docker_build(
-                    step.context, tag=step.tag, file=step.file, contexts=step.contexts
-                )
+            await docker_build(step.context, tag=step.tag, file=step.file, contexts=step.contexts)
         return steps[-1].tag
 
     async def run(

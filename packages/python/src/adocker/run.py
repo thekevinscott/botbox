@@ -1,10 +1,8 @@
-import signal
 from collections.abc import Sequence
 from contextlib import AsyncExitStack
 
-from botbox.docker.Capture import Capture
-from botbox.docker.execute import execute
-from botbox.docker.spawn import Stream
+from adocker.Capture import Capture
+from adocker.execute import Stream, execute
 
 
 async def run(
@@ -19,8 +17,7 @@ async def run(
 
     Files and descriptors pass directly to the client and remain owned by the caller.
     Bytearrays capture output as it arrives, retaining the last `limit` bytes if given.
-    The limit does not apply to files or descriptors. The client forwards or swallows
-    SIGTERM and keeps waiting for its container, so a cancel kills it outright. The container
+    The limit does not apply to files or descriptors. A cancel stops the client; the container
     lives on for the caller to remove.
     """
     async with AsyncExitStack() as stack:
@@ -34,6 +31,4 @@ async def run(
             if isinstance(stderr, bytearray)
             else stderr
         )
-        return await execute(
-            ["run", *args], stdin=stdin, stdout=out, stderr=err, signum=signal.SIGKILL
-        )
+        return await execute(["run", *args], stdin=stdin, stdout=out, stderr=err)

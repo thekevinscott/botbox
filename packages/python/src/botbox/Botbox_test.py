@@ -35,7 +35,7 @@ def layer(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def steps() -> list[str]:
-    """Each lock taken and released, and each build, in order."""
+    """Each build, in order."""
     return []
 
 
@@ -70,20 +70,6 @@ class Timeout(Exception):
 @pytest.fixture(autouse=True)
 def timeout_error() -> Iterator[None]:
     with patch("botbox.Botbox.Timeout", Timeout):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def lock(steps: list[str]) -> Iterator[None]:
-    @asynccontextmanager
-    async def lock(tag: str) -> AsyncIterator[None]:
-        steps.append(f"lock {tag}")
-        try:
-            yield
-        finally:
-            steps.append(f"unlock {tag}")
-
-    with patch("botbox.Botbox.build_lock", lock):
         yield
 
 
@@ -333,24 +319,15 @@ def describe_build() -> None:
             ),
         ]
 
-    async def it_holds_each_tags_lock_only_while_building_it(agent: Mock, steps: list[str]) -> None:
+    async def it_builds_each_step_in_order(agent: Mock, steps: list[str]) -> None:
         await Botbox(agent).build()
-        assert steps == [
-            "lock an-agent:latest",
-            "build an-agent:latest",
-            "unlock an-agent:latest",
-            "lock an-agent-123:latest",
-            "build an-agent-123:latest",
-            "unlock an-agent-123:latest",
-        ]
+        assert steps == ["build an-agent:latest", "build an-agent-123:latest"]
 
-    async def it_stops_at_the_first_failed_step(
-        agent: Mock, docker_build: Mock, steps: list[str]
-    ) -> None:
+    async def it_stops_at_the_first_failed_step(agent: Mock, docker_build: Mock) -> None:
         docker_build.side_effect = RuntimeError("agent failed")
         with pytest.raises(RuntimeError, match="agent failed"):
             await Botbox(agent).build()
-        assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
+        assert docker_build.await_count == 1
 
     async def it_lets_a_failed_build_through(agent: Mock, docker_build: Mock) -> None:
         failed = CommandFailed()
@@ -358,31 +335,6 @@ def describe_build() -> None:
         with pytest.raises(CommandFailed) as raised:
             await Botbox(agent).build()
         assert raised.value is failed
-
-    async def it_releases_the_lock_when_a_build_fails(
-        agent: Mock, docker_build: Mock, steps: list[str]
-    ) -> None:
-        docker_build.side_effect = CommandFailed()
-        with pytest.raises(CommandFailed):
-            await Botbox(agent).build()
-        assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
-
-    async def it_releases_the_lock_when_a_build_is_cancelled(
-        agent: Mock, docker_build: Mock, steps: list[str]
-    ) -> None:
-        started = asyncio.Event()
-
-        async def hang(*_args: object, **_options: object) -> None:
-            started.set()
-            await asyncio.Event().wait()
-
-        docker_build.side_effect = hang
-        build = asyncio.create_task(Botbox(agent).build())
-        await started.wait()
-        build.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await build
-        assert steps == ["lock an-agent:latest", "unlock an-agent:latest"]
 
 
 TOKEN = "0123456789ab"

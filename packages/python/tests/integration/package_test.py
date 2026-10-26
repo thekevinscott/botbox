@@ -5,7 +5,7 @@ import importlib.util
 import inspect
 
 import botbox
-from botbox.docker.DockerException import DockerException
+from adocker.DockerException import DockerException
 from botbox.Timeout import Timeout
 
 

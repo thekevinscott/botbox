@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/credential_proxy_test.py",
+  "ran_at": 1792980202,
+  "exit_code": 0,
+  "commit": "37ba328e821815f5235101daba00e0ef14a5b686",
+  "branch": "cred-proxy-1"
+}
