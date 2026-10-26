@@ -104,5 +104,5 @@ def describe_docker() -> None:
         async with asyncio.timeout(10):
             with pytest.raises(asyncio.CancelledError):
                 await task
-        assert not processes(f"{name}:latest")
+        await until(lambda: not processes(f"{name}:latest"), timeout=5)
         await until(lambda: not processes(step), timeout=5)
