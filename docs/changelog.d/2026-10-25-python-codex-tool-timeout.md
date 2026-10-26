@@ -1,0 +1,1 @@
+**Added**: `CodexAgent(tool_timeout=...)`, in seconds. Codex has no setting that kills a shell command after a time limit, so any value above 0 raises `NotImplementedError` when the agent is created, and a negative one raises `ValueError`. The default, 0, is no limit.

@@ -166,3 +166,19 @@ def describe_session() -> None:
     def it_ends_no_turn() -> None:
         with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
             CodexAgent().turn_ended({"type": "turn/completed"})
+
+
+def describe_tool_timeout() -> None:
+    def it_accepts_no_limit() -> None:
+        CodexAgent(tool_timeout=0)
+
+    def it_raises_on_a_limit_it_cannot_enforce() -> None:
+        with pytest.raises(
+            NotImplementedError,
+            match=r"^NOT IMPLEMENTED: CodexAgent has no tool_timeout\.",
+        ):
+            CodexAgent(tool_timeout=30)
+
+    def it_rejects_a_negative_limit() -> None:
+        with pytest.raises(ValueError, match="tool_timeout is in seconds"):
+            CodexAgent(tool_timeout=-1)
