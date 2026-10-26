@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/run_test.py",
+  "ran_at": 1792986599,
+  "exit_code": 0,
+  "commit": "cbfff190eb1c766d0e026283e269fd691579392e",
+  "branch": "cred-proxy-stop"
+}
