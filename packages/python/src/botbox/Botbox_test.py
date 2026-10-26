@@ -415,7 +415,10 @@ def jail() -> Mock:
         return FakeMount("volume", "botbox-run-0123456789ab", target, read_only=read_only)
 
     return Mock(
-        proxy=proxy, volume=Mock(mount=mount), envs={"HTTPS_PROXY": "http://127.0.0.1:41893"}
+        proxy=proxy,
+        volume=Mock(mount=mount),
+        envs={"HTTPS_PROXY": "http://127.0.0.1:41893"},
+        credentials=None,
     )
 
 
@@ -435,7 +438,7 @@ def container() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def lockdown(jail: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
-    async def lockdown(*_args: object) -> AsyncIterator[Mock]:
+    async def lockdown(*_args: object, **_options: object) -> AsyncIterator[Mock]:
         steps.append("start proxy")
         try:
             yield jail
@@ -537,7 +540,7 @@ def hang_forever(steps: list[str]) -> Any:
     return hang
 
 
-def stuck_lockdown(*_args: object) -> Any:
+def stuck_lockdown(*_args: object, **_options: object) -> Any:
     """A proxy that never comes up."""
 
     @asynccontextmanager
@@ -590,7 +593,7 @@ def describe_run() -> None:
     ) -> None:
         await Botbox(runner, allow=["registry.npmjs.org"]).run("true")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None
+            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None, credential=None
         )
 
     async def it_runs_and_tears_down_in_order(runner: Mock, steps: list[str]) -> None:
@@ -961,7 +964,7 @@ def describe_session() -> None:
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
         assert (scratch / "home" / ".credentials").read_text() == "token"
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None
+            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None, credential=None
         )
 
     async def it_holds_the_session_then_tears_down_in_order(talker: Mock, steps: list[str]) -> None:
@@ -1225,7 +1228,9 @@ def describe_session() -> None:
                 pass
             options = session_options(hold_session)
             assert (options["scratch"], options["output"]) == (scratch, tmp_path)
-            lockdown.assert_called_once_with(("api.anthropic.com",), scratch, TOKEN, tmp_path)
+            lockdown.assert_called_once_with(
+                ("api.anthropic.com",), scratch, TOKEN, tmp_path, credential=None
+            )
             transcripts = FakeMount(
                 "bind", str(tmp_path / "transcripts"), "/home/user/.claude/projects"
             )
@@ -1324,7 +1329,7 @@ def describe_run_output() -> None:
     ) -> None:
         await Botbox(runner).run("true", output=tmp_path / "output")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output"
+            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output", credential=None
         )
 
     @pytest.mark.usefixtures("file_run")
@@ -1386,3 +1391,138 @@ def describe_run_output() -> None:
 def output(tmp_path: Path, file_run: Mock) -> Path:
     file_run.assert_not_called()
     return tmp_path / "output"
+
+
+class Expired(Exception):
+    """Stands in for `CredentialsExpired`."""
+
+
+@pytest.fixture
+def source(steps: list[str]) -> Mock:
+    """A host credential the proxy injects."""
+
+    def read() -> Mock:
+        steps.append("read credential")
+        return Mock(secret="Bearer real")
+
+    return Mock(read=Mock(side_effect=read), env={"ANTHROPIC_BASE_URL": "http://proxy"})
+
+
+@pytest.fixture
+def injector(runner: Mock, source: Mock) -> Mock:
+    """An agent whose credential the proxy injects, with a session mode."""
+    # Set outright: the protocol checks look attributes up statically, past Mock's magic.
+    for name in ("stage_auth", "command", "session_command", "encode", "turn_ended"):
+        setattr(runner, name, getattr(runner, name))
+    runner.dockerfile = Path("/agents/D")
+    runner.allow = ()
+    runner.credential_source = source
+    runner.session_command.return_value = "an-agent --stream"
+    return runner
+
+
+@pytest.fixture
+def credentials(jail: Mock, steps: list[str]) -> Mock:
+    """The jail's credential proxy, following the host's credential inside its block."""
+
+    @asynccontextmanager
+    async def following(*_args: object) -> AsyncIterator[None]:
+        steps.append("follow credential")
+        try:
+            yield
+        finally:
+            steps.append("stop following")
+
+    credentials = Mock(following=Mock(side_effect=following))
+    jail.credentials = credentials
+    return credentials
+
+
+async def run_and_talk(box: Botbox, how: str) -> None:
+    if how == "run":
+        await box.run("true")
+        return
+    async with box.session():
+        pass
+
+
+def agent_env(how: str, docker_run: Mock, hold_session: Mock) -> dict[str, str]:
+    options = docker_run.call_args.kwargs if how == "run" else hold_session.call_args.kwargs
+    env: dict[str, str] = options["env"]
+    return env
+
+
+@pytest.mark.parametrize("how", ["run", "session"])
+def describe_credential_injection() -> None:
+    async def it_reads_the_credential_before_building(
+        injector: Mock, steps: list[str], how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        assert steps.index("read credential") < steps.index("build an-agent:latest")
+        injector.credential_source.read.assert_called_once_with()
+
+    async def it_starts_nothing_when_the_host_login_has_expired(
+        injector: Mock,
+        docker_build: Mock,
+        lockdown: Mock,
+        temporary_directory: Mock,
+        how: str,
+    ) -> None:
+        injector.credential_source.read.side_effect = Expired("expired")
+        with pytest.raises(Expired):
+            await run_and_talk(Botbox(injector), how)
+        docker_build.assert_not_called()
+        temporary_directory.assert_not_called()
+        lockdown.assert_not_called()
+
+    async def it_has_the_proxy_send_the_credential(
+        injector: Mock, lockdown: Mock, scratch: Path, how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        credential = lockdown.call_args.kwargs["credential"]
+        assert credential.secret == "Bearer real"
+        assert lockdown.call_args.args == ((), scratch, TOKEN, None)
+
+    @pytest.mark.usefixtures("credentials")
+    async def it_follows_the_host_credential_while_the_agent_runs(
+        injector: Mock, steps: list[str], how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        agent = "run agent" if how == "run" else "hold session"
+        ordered = [
+            s for s in steps if s in {"start proxy", "follow credential", agent, "stop following"}
+        ]
+        assert ordered == ["start proxy", "follow credential", agent, "stop following"]
+        assert steps.index("stop following") < steps.index("stop proxy")
+
+    async def it_follows_from_the_secret_the_proxy_started_with(
+        injector: Mock, credentials: Mock, how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        credentials.following.assert_called_once_with(injector.credential_source, "Bearer real")
+
+    @pytest.mark.usefixtures("credentials")
+    async def it_points_the_agent_at_the_proxy(
+        injector: Mock, docker_run: Mock, hold_session: Mock, how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        assert agent_env(how, docker_run, hold_session) == {
+            "HOME": "/home/user",
+            "HTTPS_PROXY": "http://127.0.0.1:41893",
+            "ANTHROPIC_BASE_URL": "http://proxy",
+        }
+
+    async def it_points_nowhere_and_follows_nothing_without_a_credential_proxy(
+        injector: Mock, docker_run: Mock, hold_session: Mock, steps: list[str], how: str
+    ) -> None:
+        await run_and_talk(Botbox(injector), how)
+        assert "ANTHROPIC_BASE_URL" not in agent_env(how, docker_run, hold_session)
+        assert "follow credential" not in steps
+
+    async def it_injects_nothing_for_an_agent_with_no_source(
+        injector: Mock, lockdown: Mock, credentials: Mock, how: str
+    ) -> None:
+        injector.credential_source = None
+        await run_and_talk(Botbox(injector), how)
+        assert lockdown.call_args.kwargs == {"credential": None}
+        credentials.following.assert_not_called()

@@ -21,7 +21,7 @@ ENTRYPOINT ["/bin/sh", "-c", "echo wrapped >&2; exec \\"$@\\"", "--"]
 def entrypoint(tmp_path: Path) -> Path:
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text(ENTRYPOINT)
-    box = Botbox(ClaudeAgent(), dockerfile=dockerfile)
+    box = Botbox(ClaudeAgent(api_key="unused"), dockerfile=dockerfile)
     output = tmp_path / "output"
     asyncio.run(box.run(f"id -u; {CONNECT} api.anthropic.com {PROXY}", output=output))
     return output

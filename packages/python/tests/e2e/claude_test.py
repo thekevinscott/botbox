@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -54,9 +55,9 @@ def describe_a_claude_session() -> None:
         assert all(jsonl.values())
 
     @pytest.mark.usefixtures("result")
-    def it_reaches_the_api_through_the_proxy(output: Path) -> None:
-        proxy = (output / "proxy.log").read_text()
-        assert 'Established connection to host "api.anthropic.com"' in proxy
+    def it_reaches_the_api_through_the_credential_proxy(output: Path) -> None:
+        log = (output / "credentials.log").read_text()
+        assert re.search(r" POST /v1/messages\S* 200 ", log), log
 
     @pytest.mark.usefixtures("result")
     def it_reaches_for_no_refused_host(output: Path) -> None:

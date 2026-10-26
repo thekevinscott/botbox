@@ -1,9 +1,29 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from botbox.agents.claude.ClaudeAgent import ClaudeAgent
+
+
+class Login:
+    """Stands in for `ClaudeLogin`: a placeholder that names the host file it came from."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def placeholder(self) -> str:
+        if not self.path.exists():
+            raise FileNotFoundError(self.path)
+        return f"placeholder of {self.path.name}"
+
+
+@pytest.fixture(autouse=True)
+def claude_login() -> Iterator[None]:
+    with patch(f"{__package__}.ClaudeAgent.ClaudeLogin", Login):
+        yield
 
 
 @pytest.fixture
@@ -42,8 +62,19 @@ def describe_the_container() -> None:
     def it_writes_sessions_to_the_projects_directory(agent: ClaudeAgent) -> None:
         assert agent.sessions_dir == ".claude/projects"
 
-    def it_allows_only_the_anthropic_api(agent: ClaudeAgent) -> None:
-        assert agent.allow == ("api.anthropic.com",)
+    def it_allows_no_host_with_a_login(agent: ClaudeAgent) -> None:
+        assert agent.allow == ()
+
+    def it_allows_only_the_anthropic_api_with_an_api_key() -> None:
+        assert ClaudeAgent(api_key="sk-test").allow == ("api.anthropic.com",)
+
+    def it_has_the_proxy_send_the_hosts_login(agent: ClaudeAgent, claude_home: Path) -> None:
+        source = agent.credential_source
+        assert isinstance(source, Login)
+        assert source.path == claude_home / ".credentials.json"
+
+    def it_has_the_proxy_send_nothing_with_an_api_key() -> None:
+        assert ClaudeAgent(api_key="sk-test").credential_source is None
 
 
 def describe_host_home() -> None:
@@ -59,11 +90,16 @@ def describe_host_home() -> None:
 
 
 def describe_stage_auth() -> None:
-    def it_stages_the_credentials_where_claude_looks_for_them(
+    def it_stages_a_placeholder_login_where_claude_looks_for_one(
         agent: ClaudeAgent, home: Path
     ) -> None:
         agent.stage_auth(home)
-        assert (home / ".claude" / ".credentials.json").read_text() == '{"token": "t"}'
+        staged = (home / ".claude" / ".credentials.json").read_text()
+        assert staged == "placeholder of .credentials.json"
+
+    def it_makes_the_placeholder_readable_by_its_owner_only(agent: ClaudeAgent, home: Path) -> None:
+        agent.stage_auth(home)
+        assert (home / ".claude" / ".credentials.json").stat().st_mode & 0o777 == 0o600
 
     def it_stages_nothing_else(agent: ClaudeAgent, home: Path) -> None:
         agent.stage_auth(home)
@@ -72,19 +108,20 @@ def describe_stage_auth() -> None:
             ".claude/.credentials.json",
         ]
 
-    def it_copies_rather_than_shares_the_host_file(
-        agent: ClaudeAgent, claude_home: Path, home: Path
-    ) -> None:
-        agent.stage_auth(home)
-        copy = home / ".claude" / ".credentials.json"
-        assert copy.stat().st_ino != (claude_home / ".credentials.json").stat().st_ino
-
     def it_leaves_the_host_file_untouched_when_the_container_rewrites_it(
         agent: ClaudeAgent, claude_home: Path, home: Path
     ) -> None:
         agent.stage_auth(home)
         (home / ".claude" / ".credentials.json").write_text('{"token": "refreshed"}')
         assert (claude_home / ".credentials.json").read_text() == '{"token": "t"}'
+
+    def it_writes_no_file_when_there_is_no_placeholder(
+        agent: ClaudeAgent, claude_home: Path, home: Path
+    ) -> None:
+        (claude_home / ".credentials.json").unlink()
+        with pytest.raises(FileNotFoundError):
+            agent.stage_auth(home)
+        assert not (home / ".claude" / ".credentials.json").exists()
 
     def it_raises_when_the_host_has_no_credentials(
         agent: ClaudeAgent, claude_home: Path, home: Path
