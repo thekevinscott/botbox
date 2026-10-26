@@ -29,7 +29,10 @@ HOSTILE = (
     " while :; do sleep 1; done"
 )
 
-PRINT = "echo partial; echo err >&2; "
+PRINT = (
+    "mkdir ~/.claude/projects/w; echo '{}' > ~/.claude/projects/w/t.jsonl;"
+    " echo partial; echo err >&2; "
+)
 
 OWNER = f"""
 import asyncio, sys
@@ -330,6 +333,9 @@ def describe_run() -> None:
                 if holder == OWNER:
                     assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
                     assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
+                    assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
+                    transcript = tmp_path / "output" / "transcripts" / "w" / "t.jsonl"
+                    assert transcript.read_text() == "{}\n"
                 if holder == FORKING_OWNER:
                     os.kill(int(child.read_text()), 0)  # Still holding whatever it inherited.
             finally:
