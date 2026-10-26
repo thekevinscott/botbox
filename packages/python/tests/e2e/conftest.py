@@ -68,3 +68,15 @@ def probe(box: Botbox) -> Probe:
         return result, {name: value.strip() for name, value in fields}
 
     return run
+
+
+@pytest.fixture(scope="module")
+def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One run's output directory, shared by the tests of a module."""
+    return tmp_path_factory.mktemp("output")
+
+
+def transcripts(output: Path) -> dict[str, str]:
+    """Each `.jsonl` file under `output/transcripts/`, by its path relative to that dir."""
+    root = output / "transcripts"
+    return {p.relative_to(root).as_posix(): p.read_text() for p in sorted(root.rglob("*.jsonl"))}
