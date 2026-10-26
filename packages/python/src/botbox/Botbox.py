@@ -12,7 +12,6 @@ from uuid import uuid4
 from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
-from botbox.build_lock import build_lock
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
 from botbox.Claim import Claim
@@ -109,15 +108,12 @@ class Botbox:
         """Build the agent's image, then `dockerfile` on top, and return the final tag.
 
         Built on every call; Docker's layer cache keeps an unchanged build fast. Concurrent
-        builds of one tag, from any process, take turns without blocking the loop. Cancelling
-        stops the build in progress. A failed build raises `DockerException`.
+        builds of one tag, from any process, all succeed, and the tag ends on whichever finished
+        last. Cancelling stops the build in progress. A failed build raises `DockerException`.
         """
         steps = build_steps(self.agent, self.dockerfile)
         for step in steps:
-            async with build_lock(step.tag):
-                await docker_build(
-                    step.context, tag=step.tag, file=step.file, contexts=step.contexts
-                )
+            await docker_build(step.context, tag=step.tag, file=step.file, contexts=step.contexts)
         return steps[-1].tag
 
     async def run(

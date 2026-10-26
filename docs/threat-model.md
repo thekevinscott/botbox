@@ -162,11 +162,11 @@ Each user's runs live in `botbox-<uid>/` under the system temp directory. botbox
 
 ### What's Left
 
-A `run()` command, prompt included, is in the `docker run` arguments, so any local user can read it in the process list. Build locks are files in the shared temp directory, so another user can create or hold one and stall or fail your builds.
+A `run()` command, prompt included, is in the `docker run` arguments, so any local user can read it in the process list.
 
 ### Why botbox Doesn't Close It
 
-The prompt could go in through a file in the run directory; that isn't done yet. Build locks are shared on purpose: images are shared across the daemon, so builds by different users have to take turns. Moving the locks to a per-user directory would trade a stall for a failed build.
+The prompt could go in through a file in the run directory; that isn't done yet.
 
 ## Image supply chain
 

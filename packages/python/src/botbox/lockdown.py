@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from botbox.authority import authority
-from botbox.build_lock import build_lock
 from botbox.docker.build import build
 from botbox.docker.run import run
 from botbox.stop_proxy import stop_proxy
@@ -60,8 +59,7 @@ async def lockdown(
     The last 64 KiB of it is the error if it won't start. Without `output` it goes to
     `scratch/proxy.log` instead, read into `Lockdown.log` on exit.
     """
-    async with build_lock(PROXY_IMAGE):
-        await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
+    await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
     name = f"botbox-proxy-{token}"
     url = f"http://127.0.0.1:{RELAY_PORT}"
