@@ -1,8 +1,8 @@
 from collections.abc import Sequence
 
-from botbox.docker.DockerException import DockerException
-from botbox.docker.inspect_container import inspect_container
-from botbox.docker.version import version
+from adocker.DockerException import DockerException
+from adocker.inspect_container import inspect_container
+from adocker.version import version
 
 
 async def agent_exit(container: str, command: Sequence[str], client: int, stderr: str) -> int:
