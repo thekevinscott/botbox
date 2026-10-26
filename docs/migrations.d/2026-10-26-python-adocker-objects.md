@@ -2,7 +2,7 @@
 
 ## Summary
 
-`adocker` exports `Container`, `DockerException`, `Dockerfile`, `Image` and `Volume`. The free functions (`build`, `run`, `remove`, `stop`, `version`, `volume`, `inspect_container`, `inspect_image`) are gone. In botbox, `Session` loses its `stdout` and `stderr` fields, and a run's streams go through its temp directory.
+`adocker` exports `Container`, `DockerException`, `Dockerfile`, `Image`, `Mount` and `Volume`. The free functions (`build`, `run`, `remove`, `stop`, `version`, `volume`, `inspect_container`, `inspect_image`) are gone. In botbox, `Session` loses its `stdout` and `stderr` fields, and a run's streams go through its temp directory.
 
 ## Required changes
 
@@ -24,7 +24,9 @@ await Container("box").remove()
 async with Volume("v", labels={"k": "v"}): ...
 ```
 
-- `Image.run` takes the flags as keywords (`env` and `labels` as mappings, `mounts` as `(source, target, mode)` tuples) and requires `name`. `--interactive` follows from `stdin`.
+- `Image.run` takes the flags as keywords (`env` and `labels` as mappings, `mounts` as `Mount(kind, source, target, read_only=False)` objects, where `kind` is `"bind"` or `"volume"`) and requires `name`. `--interactive` follows from `stdin`.
+- `Volume.mount(target, read_only=False)` returns a `Mount`; its mode string argument is gone. botbox's own `mounts` stay `(source, target, mode)` tuples.
+- Modules moved under one folder per object (`adocker.Image.Image`, `adocker.utils.execute`). Import from `adocker` itself.
 - `stdout` and `stderr` are callables handed each chunk, not bytearrays or files.
 - `Container.wait()` returns the attached client's code when the container came from `Image.run`, and `docker wait`'s otherwise.
 - botbox's `Session(...)` takes `(agent, stdin, client, readline)`. Read a session's streams from `output`.
