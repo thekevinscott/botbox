@@ -188,6 +188,13 @@ def describe_Image() -> None:
             pipe.release.assert_called_once_with()
             pipe.writer.close.assert_called_once_with()
 
+        async def it_raises_a_client_that_fails_to_start_without_a_pipe(
+            execute: AsyncMock,
+        ) -> None:
+            execute.side_effect = FileNotFoundError("docker")
+            with pytest.raises(FileNotFoundError):
+                await Image("img").run(name="box")
+
         async def it_returns_a_client_that_started_and_then_failed(execute: AsyncMock) -> None:
             async def client(_args: list[str], **options: Any) -> int:
                 options["started"].set_result(None)
