@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 
+from posix_tools import tail
+
 from adocker import Container, Image
 from botbox.agents.agent import SessionAgent
 from botbox.process import settle
@@ -31,28 +33,36 @@ async def hold_session(
     remove.
     """
     also = [] if output is None else [output]
+    printed = scratch / "stdout.txt"
     with (
         write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
         write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
-        (scratch / "stdout.txt").open("rb") as printed,
     ):
-        lines = FileLines(printed)
+        async with tail(printed, n=None, follow=True) as followed:
+            lines = FileLines(printed, followed)
 
-        def print_line(chunk: bytes) -> None:
-            out(chunk)
-            lines.grew()
+            def print_line(chunk: bytes) -> None:
+                out(chunk)
+                lines.grew(len(chunk))
 
-        container = await Image(image).run(
-            *command, stdin=asyncio.subprocess.PIPE, stdout=print_line, stderr=err, **options
-        )
-        client = cast("asyncio.Task[int]", container.client)
-        stdin = cast("asyncio.StreamWriter", container.stdin)
-        try:
-            client.add_done_callback(lambda _: lines.end())
-            yield Session(agent, stdin, client, lines.readline), container
-        finally:
             try:
-                client.cancel()
-                await settle(asyncio.gather(client, return_exceptions=True))
+                container = await Image(image).run(
+                    *command,
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=print_line,
+                    stderr=err,
+                    **options,
+                )
+                client = cast("asyncio.Task[int]", container.client)
+                stdin = cast("asyncio.StreamWriter", container.stdin)
+                try:
+                    client.add_done_callback(lambda _: lines.end())
+                    yield Session(agent, stdin, client, lines.readline), container
+                finally:
+                    try:
+                        client.cancel()
+                        await settle(asyncio.gather(client, return_exceptions=True))
+                    finally:
+                        abort_writer(stdin)
             finally:
-                abort_writer(stdin)
+                await lines.close()
