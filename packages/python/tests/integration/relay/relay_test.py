@@ -15,8 +15,7 @@ from relay_harness_test import Proxy, Relay, serving, uncovered_lines
 
 from adocker import Dockerfile, Image, Mount, Volume
 from botbox import HomeFiles
-from botbox.agents.HomeFiles import SIZE_ENV
-from botbox.lockdown import CREDENTIALS_ENV, PROXY_USER, RELAY_DIR
+from botbox.lockdown import CREDENTIALS_ENV, HOME_BYTES_ENV, PROXY_USER, RELAY_DIR
 
 HERE = Path(__file__).parent
 KCOV = os.environ.get("BOTBOX_RELAY_KCOV") == "1"
@@ -156,7 +155,7 @@ def staged() -> tuple[dict[str, str], bytes]:
     home = HomeFiles()
     home.write(".claude/.credentials.json", "placeholder", mode=0o600)
     archive = home.archive()
-    return {SIZE_ENV: str(len(archive))}, archive
+    return {HOME_BYTES_ENV: str(len(archive))}, archive
 
 
 async def test_writes_the_staged_files_into_home(relay: Relay, proxy: Proxy) -> None:

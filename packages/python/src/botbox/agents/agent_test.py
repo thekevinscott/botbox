@@ -1,8 +1,10 @@
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from botbox.agents.agent import Agent, InjectingAgent, SessionAgent
-from botbox.agents.HomeFiles import HomeFiles
+
+if TYPE_CHECKING:
+    from botbox.agents.HomeFiles import HomeFiles
 
 
 def describe_agent() -> None:
@@ -16,7 +18,8 @@ def describe_agent() -> None:
         }
 
     def it_stages_credentials_into_the_homes_files() -> None:
-        assert get_type_hints(Agent.stage_auth) == {"home": HomeFiles, "return": type(None)}
+        hints = get_type_hints(Agent.stage_auth)
+        assert (hints["home"].__name__, hints["return"]) == ("HomeFiles", type(None))
 
     def it_renders_a_command_for_a_prompt() -> None:
         assert get_type_hints(Agent.command) == {"prompt": str, "return": str}
@@ -75,7 +78,7 @@ class OneShot:
     sessions_dir = "sessions"
     allow = ()
 
-    def stage_auth(self, home: HomeFiles) -> None: ...
+    def stage_auth(self, home: "HomeFiles") -> None: ...
 
     def command(self, prompt: str) -> str:
         return prompt

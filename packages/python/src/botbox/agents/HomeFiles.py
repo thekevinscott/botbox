@@ -2,9 +2,6 @@ import gzip
 import io
 import tarfile
 
-# The relay reads this many bytes of its stdin as the files, and hands the rest to the command.
-SIZE_ENV = "BOTBOX_HOME_BYTES"
-
 
 class HomeFiles:
     """Files the agent's home starts with. The relay writes them in when the container starts."""

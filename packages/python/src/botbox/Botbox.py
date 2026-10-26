@@ -14,13 +14,12 @@ from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles, InjectingAgent, SessionAgent
-from botbox.agents.HomeFiles import SIZE_ENV
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.hold_session import hold_session
-from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
+from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
@@ -388,7 +387,7 @@ class Botbox:
             "labels": {"botbox.run": token},
             "env": {
                 "HOME": agent.home,
-                **({SIZE_ENV: str(len(home))} if home else {}),
+                **({HOME_BYTES_ENV: str(len(home))} if home else {}),
                 **jail.envs,
                 **injected,
             },

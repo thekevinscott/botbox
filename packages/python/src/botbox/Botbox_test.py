@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.agents.HomeFiles import SIZE_ENV, HomeFiles
 from botbox.Botbox import Botbox
 
 
@@ -367,16 +366,24 @@ def scratch(tmp_path: Path) -> Path:
     return scratch
 
 
+ARCHIVE = b"the staged home"
+SIZE_ENV = "BOTBOX_HOME_BYTES"
+
+
 def staged() -> bytes:
-    """The archive of `runner`'s staged credentials."""
-    home = HomeFiles()
-    home.write(".credentials", "token")
-    return home.archive()
+    return ARCHIVE
 
 
 def staged_env() -> dict[str, str]:
     """The env that tells the relay how much of its stdin is the staged archive."""
-    return {SIZE_ENV: str(len(staged()))}
+    return {SIZE_ENV: str(len(ARCHIVE))}
+
+
+@pytest.fixture(autouse=True)
+def home_files() -> Iterator[Mock]:
+    with patch("botbox.Botbox.HomeFiles", autospec=True) as m:
+        m.return_value.archive.return_value = ARCHIVE
+        yield m
 
 
 @pytest.fixture(autouse=True)
@@ -587,19 +594,19 @@ def describe_run() -> None:
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
 
     async def it_sends_the_staged_credentials_on_the_agents_stdin_then_closes_it(
-        runner: Mock, docker_run: Mock, send_home: AsyncMock
+        runner: Mock, docker_run: Mock, send_home: AsyncMock, home_files: Mock
     ) -> None:
         await Botbox(runner).run("true")
-        runner.stage_auth.assert_called_once()
+        runner.stage_auth.assert_called_once_with(home_files.return_value)
         assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.PIPE
         stdin = send_home.call_args.args[0]
         send_home.assert_called_once_with(stdin, staged())
         stdin.close.assert_called_once_with()
 
     async def it_gives_the_agent_no_stdin_with_nothing_staged(
-        runner: Mock, docker_run: Mock, send_home: AsyncMock
+        runner: Mock, docker_run: Mock, send_home: AsyncMock, home_files: Mock
     ) -> None:
-        runner.stage_auth.side_effect = None
+        home_files.return_value.archive.return_value = b""
         await Botbox(runner).run("true")
         assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.DEVNULL
         assert SIZE_ENV not in docker_run.call_args.kwargs["env"]

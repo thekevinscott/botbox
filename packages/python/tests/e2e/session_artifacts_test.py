@@ -2,6 +2,7 @@
 
 import asyncio
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,13 +23,22 @@ class ArtifactAgent(ClaudeAgent):
         )
 
 
+@pytest.fixture
+def temp(tmp_path: Path) -> Iterator[Path]:
+    """The system temp dir for the test, so the run's own temp dir is the only one in it."""
+    temp = tmp_path / "tmp"
+    temp.mkdir()
+    with patch.object(tempfile, "tempdir", str(temp)):
+        yield temp
+
+
 def describe_session_artifacts() -> None:
     @pytest.mark.parametrize("outcome", ["normal", "error", "cancel"])
-    async def it_retains_artifacts_and_removes_containers(outcome: str, tmp_path: Path) -> None:
+    async def it_retains_artifacts_and_removes_containers(
+        outcome: str, tmp_path: Path, temp: Path
+    ) -> None:
         box = Botbox(ArtifactAgent())
         output = tmp_path / "output"
-        temp = tmp_path / "tmp"
-        temp.mkdir()
         error = ValueError("caller failed")
         live: Session | None = None
         scratches: list[Path] = []
@@ -44,12 +54,11 @@ def describe_session_artifacts() -> None:
                 if outcome == "cancel":
                     raise asyncio.CancelledError
 
-        with patch.object(tempfile, "tempdir", str(temp)):
-            if outcome == "normal":
+        if outcome == "normal":
+            await run()
+        else:
+            with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
                 await run()
-            else:
-                with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
-                    await run()
         assert live is not None
         assert live.result == RunResult(0 if outcome == "normal" else -1)
         assert (output / "transcripts" / "turn.jsonl").read_text() == "transcript\n"
