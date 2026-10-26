@@ -26,7 +26,8 @@ async def execute(
     A callable stdout or stderr is a sink: the output is piped to it chunk by chunk. Anything
     else passes to the client as is. `started` resolves once the client is spawned. If this is
     cancelled or fails first, a sink raising included, the client is killed and reaped before
-    the error propagates.
+    the error propagates; output it wrote before then still reaches the sinks that haven't
+    raised.
     """
 
     async def drain(reader: asyncio.StreamReader, sink: Sink) -> None:
@@ -53,12 +54,14 @@ async def execute(
             for reader, sink in zip((process.stdout, process.stderr), sinks, strict=True)
             if reader is not None and sink is not None
         ]
+        exited = asyncio.ensure_future(process.wait())
         try:
-            exited = asyncio.ensure_future(process.wait())
-            await asyncio.gather(exited, *drains)
+            # Not gather: cancelling a gather cancels the drains, losing output already piped.
+            done, _ = await asyncio.wait({exited, *drains}, return_when=asyncio.FIRST_EXCEPTION)
+            for task in done:
+                task.result()
         except BaseException:
-            for task in drains:
-                task.cancel()
+            exited.cancel()
             # `docker run` forwards SIGTERM to its container and keeps waiting.
             with suppress(ProcessLookupError):
                 process.kill()

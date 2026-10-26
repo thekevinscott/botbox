@@ -177,7 +177,7 @@ def describe_execute() -> None:
         assert made[0].wait.await_count == 2
         assert [type(error) for error in exits] == [OSError]
 
-    async def it_stops_the_other_drain_when_a_sink_raises(
+    async def it_drains_the_other_stream_to_its_sink_when_a_sink_raises(
         made: list[Process], printed: dict[str, bytes], err: bytearray
     ) -> None:
         printed.clear()
@@ -192,7 +192,7 @@ def describe_execute() -> None:
         made[0].stdout.feed_data(b"x")
         with pytest.raises(OSError, match="disk full"):
             await task
-        assert err == b""
+        assert err == b"after"
 
     async def it_kills_and_waits_out_the_client_when_cancelled_while_it_runs(
         wait: AsyncMock, made: list[Process], exits: list[BaseException | None]
@@ -248,7 +248,7 @@ def describe_execute() -> None:
         made[0].kill.assert_not_called()
         assert exits == [None]
 
-    async def it_discards_what_a_killed_client_left_in_its_pipes(
+    async def it_hands_the_sinks_what_a_killed_client_left_in_its_pipes(
         made: list[Process], printed: dict[str, bytes], out: bytearray, err: bytearray
     ) -> None:
         printed.clear()
@@ -258,9 +258,22 @@ def describe_execute() -> None:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert (bytes(out), bytes(err)) == (b"", b"")
+        assert (bytes(out), bytes(err)) == (b"x" * 3 * CHUNK_BYTES, b"x" * 3 * CHUNK_BYTES)
         assert made[0].stdout is not None
         assert made[0].stdout.at_eof()
+
+    async def it_keeps_output_that_arrived_just_before_a_cancel(
+        made: list[Process], printed: dict[str, bytes], out: bytearray
+    ) -> None:
+        printed.clear()
+        task = asyncio.create_task(execute([], stdin=None, stdout=out.extend, stderr=None))
+        await asyncio.sleep(0.01)
+        assert made[0].stdout is not None
+        made[0].stdout.feed_data(b"partial\n")
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert bytes(out) == b"partial\n"
 
     async def it_reaps_the_client_through_another_cancel(
         made: list[Process], printed: dict[str, bytes], out: bytearray
