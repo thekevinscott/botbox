@@ -42,6 +42,14 @@ with open(os.environ["PIDS"], "w") as f:
 time.sleep(60)
 """
 
+STUBBORN = """
+import os, signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+with open(os.environ["PIDS"], "w") as f:
+    f.write(f"{os.getpid()}")
+time.sleep(60)
+"""
+
 # A plugin-like child in the group, marked so a test can find it however early it is cancelled.
 PLUGIN = """
 import subprocess, sys, time
@@ -175,6 +183,18 @@ def describe_docker() -> None:
         assert code == 3
         assert stdout == b"['run', 'busybox', 'cat'] hello\n"
         assert stderr == b"said this\n"
+
+    async def it_kills_an_attached_run_that_ignores_the_terminate_when_cancelled(
+        install: Install, pids: Path
+    ) -> None:
+        install(STUBBORN)
+        out, err = bytearray(), bytearray()
+        task = asyncio.ensure_future(run([], stdin=None, stdout=out, stderr=err))
+        (client,) = await started(pids)
+        started_at = time.monotonic()
+        await cancel_twice(task)
+        assert await gone(client)
+        assert time.monotonic() - started_at < 1
 
     def describe_stopping() -> None:
         async def it_reaps_a_client_that_floods_stderr_while_stopping(

@@ -12,6 +12,7 @@ from adocker.execute import execute
 class Process:
     def __init__(self, code: int = 0) -> None:
         self.wait = AsyncMock(return_value=code)
+        self.kill = Mock()
 
 
 class Capture:
@@ -113,16 +114,47 @@ def describe_execute() -> None:
         held[0].eof.set_result(None)
         assert await task == 0
 
-    async def it_stops_the_client_when_cancelled_while_it_runs(
+    async def it_kills_and_waits_out_the_client_when_cancelled_while_it_runs(
         process: Process, captures: tuple[Capture, Capture], exits: list[BaseException | None]
     ) -> None:
-        process.wait.side_effect = asyncio.Event().wait
+        running = asyncio.Event()
+
+        async def wait() -> int:
+            if not running.is_set():
+                running.set()
+                await asyncio.Event().wait()
+            assert process.kill.called
+            return -9
+
+        process.wait.side_effect = wait
         task = asyncio.create_task(run(captures, "build"))
+        await running.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        process.kill.assert_called_once_with()
+        assert process.wait.await_count == 2
+        assert [type(error) for error in exits] == [asyncio.CancelledError]
+
+    async def it_kills_the_client_when_waiting_on_it_fails(
+        process: Process, captures: tuple[Capture, Capture]
+    ) -> None:
+        process.wait.side_effect = [OSError("wait failed"), -9]
+        with pytest.raises(OSError, match="wait failed"):
+            await run(captures, "build")
+        process.kill.assert_called_once_with()
+
+    async def it_tolerates_a_client_that_is_already_gone_when_killed(
+        process: Process,
+    ) -> None:
+        process.kill.side_effect = ProcessLookupError
+        held = Capture(101, open=True), Capture(102)
+        task = asyncio.create_task(run(held, "build"))
         await asyncio.sleep(0.01)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert [type(error) for error in exits] == [asyncio.CancelledError]
+        process.kill.assert_called_once_with()
 
     async def it_leaves_the_captures_eofs_alone_when_cancelled_while_draining(
         exits: list[BaseException | None],
@@ -135,6 +167,12 @@ def describe_execute() -> None:
             await task
         assert not held[0].eof.done()
         assert [type(error) for error in exits] == [asyncio.CancelledError]
+
+    async def it_leaves_the_client_alone_when_docker_finishes(
+        process: Process, captures: tuple[Capture, Capture]
+    ) -> None:
+        await run(captures, "version")
+        process.kill.assert_not_called()
 
     async def it_leaves_the_block_cleanly_when_docker_finishes(
         captures: tuple[Capture, Capture], exits: list[BaseException | None]

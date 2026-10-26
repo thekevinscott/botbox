@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from contextlib import suppress
 from typing import IO, Any
 
 from posix_tools import spawn
@@ -18,8 +19,8 @@ async def execute(
 ) -> int:
     """Run `docker` into the supplied streams and return its exit code once its output is in.
 
-    If this is cancelled or fails first, the client's group is stopped and reaped before the
-    error propagates.
+    If this is cancelled or fails first, the client is killed and its group stopped and reaped
+    before the error propagates.
     """
     captures = [stream for stream in (stdout, stderr) if isinstance(stream, Capture)]
     try:
@@ -32,8 +33,15 @@ async def execute(
         ) as process:
             for capture in captures:
                 capture.release()
-            code = await process.wait()
-            await asyncio.gather(*(asyncio.shield(capture.eof) for capture in captures))
+            try:
+                code = await process.wait()
+                await asyncio.gather(*(asyncio.shield(capture.eof) for capture in captures))
+            except BaseException:
+                # `docker run` forwards SIGTERM to its container and keeps waiting.
+                with suppress(ProcessLookupError):
+                    process.kill()
+                await process.wait()
+                raise
     finally:
         for capture in captures:
             capture.release()
