@@ -14,6 +14,7 @@ import pytest_asyncio
 from relay_harness_test import Proxy, Relay, serving, uncovered_lines
 
 from adocker import Dockerfile, Image, Mount, Volume
+from botbox import HomeFiles
 from botbox.lockdown import CREDENTIALS_ENV, PROXY_USER, RELAY_DIR
 
 HERE = Path(__file__).parent
@@ -148,3 +149,31 @@ async def test_execs_the_command_with_its_arguments(relay: Relay, proxy: Proxy) 
     result = await relay.run(proxy, "sh", "-c", 'echo "$0 $1"; exit 7', "a b", "c", user=AGENT)
     assert result.code == 7
     assert result.stdout == "a b c\n"
+
+
+def staged() -> dict[str, str]:
+    home = HomeFiles()
+    home.write(".claude/.credentials.json", "placeholder", mode=0o600)
+    return home.env()
+
+
+async def test_writes_the_staged_files_into_home(relay: Relay, proxy: Proxy) -> None:
+    show = "stat -c '%a %u %n' .claude/.credentials.json; cat .claude/.credentials.json"
+    env = {"HOME": "/tmp", **staged()}
+    result = await relay.run(proxy, "sh", "-c", f"cd && {show}", user=AGENT, env=env)
+    assert result.code == 0, result.stderr
+    assert result.stdout == "600 4242 .claude/.credentials.json\nplaceholder"
+
+
+async def test_keeps_the_staged_files_out_of_the_commands_env(relay: Relay, proxy: Proxy) -> None:
+    env = {"HOME": "/tmp", **staged()}
+    result = await relay.run(proxy, "sh", "-c", "env | grep -c BOTBOX_HOME", user=AGENT, env=env)
+    assert result.stdout == "0\n"
+
+
+async def test_fails_when_home_is_not_writable(relay: Relay, proxy: Proxy) -> None:
+    env = {"HOME": "/usr", **staged()}
+    result = await relay.run(proxy, "echo", "reached", user=AGENT, env=env)
+    assert result.code == 1
+    assert result.stdout == ""
+    assert result.stderr.endswith("botbox-relay: could not write the agent's files into /usr\n")

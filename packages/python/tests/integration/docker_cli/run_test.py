@@ -1,8 +1,11 @@
 """`Botbox.run()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+import base64
 import contextlib
+import io
 import os
+import tarfile
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +15,8 @@ from fake_docker_test import (
     REFUSAL,
     CopyingClaude,
     Daemon,
-    homes,
     option,
+    temp_dirs,
     token,
     volume,
 )
@@ -114,7 +117,7 @@ def describe_run() -> None:
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
     def describe_the_containers() -> None:
         async def it_names_and_labels_both_with_one_run_token(box: Botbox, daemon: Daemon) -> None:
@@ -146,20 +149,29 @@ def describe_run() -> None:
             assert daemon.containers == []
             assert daemon.volumes == []
 
-        async def it_removes_the_temp_home(box: Botbox, daemon: Daemon, temp: Path) -> None:
+        async def it_removes_the_temp_directory(box: Botbox, temp: Path) -> None:
             await box.run("true")
-            assert homes(temp) == []
-            [agent] = daemon.runs("botbox-agent-")
-            home = next(v for v in agent if v.endswith(":/home/user:rw")).split(":")[0]
-            assert Path(home).parent.name.startswith(f"botbox-{token(daemon)}-")
+            assert temp_dirs(temp) == []
 
-        async def it_uses_a_new_temp_home_and_proxy_volume_each_run(
-            box: Botbox, daemon: Daemon
-        ) -> None:
+        async def it_mounts_nothing_over_the_home(box: Botbox, daemon: Daemon) -> None:
+            await box.run("true")
+            [agent] = daemon.runs("botbox-agent-")
+            mounts = [agent[i + 1] for i, arg in enumerate(agent) if arg == "--volume"]
+            assert [m for m in mounts if m.split(":")[1] == "/home/user"] == []
+
+        async def it_passes_the_staged_files_in_the_env(box: Botbox, daemon: Daemon) -> None:
+            await box.run("true")
+            [agent] = daemon.runs("botbox-agent-")
+            envs = [agent[i + 1] for i, arg in enumerate(agent) if arg == "--env"]
+            [staged] = [e for e in envs if e.startswith("BOTBOX_HOME_FILES=")]
+            archive = io.BytesIO(base64.b64decode(staged.split("=", 1)[1]))
+            with tarfile.open(fileobj=archive) as tar:
+                assert tar.getnames() == [".claude/api_key", ".claude/settings.json"]
+
+        async def it_uses_a_new_proxy_volume_each_run(box: Botbox, daemon: Daemon) -> None:
             await box.run("true")
             await box.run("true")
             first, second = daemon.runs("botbox-agent-")
-            assert volume(first, "/home/user") != volume(second, "/home/user")
             assert volume(first, "/run/botbox") != volume(second, "/run/botbox")
 
         async def it_removes_nothing_more_when_the_block_exits(box: Botbox, daemon: Daemon) -> None:
@@ -177,7 +189,7 @@ def describe_run() -> None:
             with pytest.raises(DockerException):
                 await box.run("true")
             assert started_nothing(daemon)
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         @pytest.mark.parametrize("agent_class", [ClaudeAgent, CodexAgent, PiAgent])
         def it_ships_the_relay_into_every_agent_image(
@@ -201,7 +213,7 @@ def describe_run() -> None:
         ) -> None:
             await Botbox(agent(tmp_path / "missing")).run("true")
             assert key not in repr(daemon.calls)
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
     def describe_mounts() -> None:
         async def it_bind_mounts_each_host_path_with_its_mode(
@@ -288,7 +300,7 @@ def describe_run() -> None:
                 await box.run("true", output=output)
             assert (output / "proxy.log").read_text() == "tinyproxy: bad config\n"
             assert daemon.runs("botbox-agent-") == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_returns_the_result_and_warns_when_teardown_fails(
             box: Botbox, daemon: Daemon, output: Path
@@ -314,7 +326,7 @@ def describe_run() -> None:
             assert run.cancelled()
             assert daemon.containers == []
             assert daemon.volumes == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
 
@@ -331,7 +343,7 @@ def describe_run() -> None:
             await asyncio.wait({run}, timeout=10)
             assert run.cancelled()
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
 
@@ -343,7 +355,7 @@ def describe_run() -> None:
                 async with asyncio.timeout(1):
                     await box.run("sleep 600", output=output)
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "stderr.txt").read_text() == "err\n"
 
@@ -360,7 +372,7 @@ def describe_run() -> None:
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_raises_a_sibling_runs_error_unwrapped_in_a_task_group(
             box: Botbox, daemon: Daemon, temp: Path, output: Path
@@ -379,7 +391,7 @@ def describe_run() -> None:
             [error] = raised.value.exceptions
             assert isinstance(error, DockerException)
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
             assert (output / "sleeping" / "stdout.txt").read_text() == "partial\n"
             assert (output / "sleeping" / "stderr.txt").read_text() == "err\n"
             assert "Unable to find image" in (output / "failed" / "stderr.txt").read_text()

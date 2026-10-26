@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 import pytest
-from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token
+from fake_docker_test import LISTENING, REFUSAL, Daemon, option, temp_dirs, token
 
 from botbox import (
     Botbox,
@@ -164,7 +164,7 @@ def describe_session() -> None:
             assert transcript.read_text() == '{"type": "user"}\n'
             assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_raises_with_stderr_when_the_container_never_ran(
             box: Botbox, daemon: Daemon, tmp_path: Path
@@ -188,7 +188,7 @@ def describe_session() -> None:
             assert live.result == RunResult(-1)
             assert '"said": "die"' in (tmp_path / "stdout.txt").read_text()
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_tears_down_when_cancelled_mid_turn(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
@@ -210,7 +210,7 @@ def describe_session() -> None:
             transcript = tmp_path / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_raises_a_timeout_with_the_exit_code_only(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
@@ -221,7 +221,7 @@ def describe_session() -> None:
             assert raised.value.result == RunResult(-1)
             assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
     def describe_the_containers() -> None:
         async def it_attaches_to_the_session_command_named_and_labelled_by_the_run_token(
@@ -247,7 +247,7 @@ def describe_session() -> None:
             assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
             assert daemon.containers == []
             assert daemon.volumes == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
     def describe_failure() -> None:
         async def it_refuses_an_agent_with_no_session_mode(daemon: Daemon) -> None:
@@ -269,7 +269,7 @@ def describe_session() -> None:
             assert live.result is not None
             assert live.result.exit_code == -1
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_tears_down_and_raises_when_the_block_fails(
             talker: Botbox, daemon: Daemon, temp: Path, output: Path
@@ -281,7 +281,7 @@ def describe_session() -> None:
             assert live.result == RunResult(-1)
             assert_left(output, "hi")
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
     def describe_cancelling() -> None:
         async def it_tears_the_session_down_when_cancelled_mid_turn(
@@ -311,7 +311,7 @@ def describe_session() -> None:
             assert_left(output, "hang")
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_finishes_tearing_down_through_a_second_cancel(
             talker: Botbox, daemon: Daemon, temp: Path, output: Path
@@ -335,7 +335,7 @@ def describe_session() -> None:
             assert sessions[0].result == RunResult(-1)
             assert_left(output, "hang")
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_tears_the_session_down_when_a_timeout_fires(
             talker: Botbox, daemon: Daemon, temp: Path, output: Path
@@ -345,7 +345,7 @@ def describe_session() -> None:
                     await live.message("hang")
             assert '"said": "hang"' in stdout(output)
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
         async def it_tears_down_and_raises_what_the_session_left_when_its_timeout_runs_out(
             talker: Botbox, daemon: Daemon, temp: Path, output: Path
@@ -358,7 +358,7 @@ def describe_session() -> None:
             assert raised.value.result == sessions[0].result == RunResult(-1)
             assert_left(output, "hang")
             assert daemon.containers == []
-            assert homes(temp) == []
+            assert temp_dirs(temp) == []
 
 
 def describe_the_agent_user() -> None:

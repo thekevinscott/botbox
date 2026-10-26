@@ -5,6 +5,7 @@ from typing import Any
 
 from botbox.agents.codex.CodexApiKey import CodexApiKey
 from botbox.agents.codex.CodexLogin import CodexLogin
+from botbox.agents.HomeFiles import HomeFiles
 from botbox.credential_proxy import PROXY_URL
 
 AUTH = "auth.json"
@@ -86,16 +87,11 @@ class CodexAgent:
     def turn_ended(self, event: dict[str, Any]) -> bool:
         raise NotImplementedError(NO_SESSION)
 
-    def stage_auth(self, home: Path) -> None:
+    def stage_auth(self, home: HomeFiles) -> None:
         """A placeholder login, and a model provider that points Codex at the credential proxy."""
-        placeholder = self.credential_source.placeholder()
-        destination = home / ".codex"
-        destination.mkdir()
-        auth = destination / AUTH
-        auth.touch(mode=0o600)
-        auth.write_text(placeholder)
+        home.write(f".codex/{AUTH}", self.credential_source.placeholder(), mode=0o600)
         config = PROVIDER_CONFIG.format(
             base_url=json.dumps(self.credential_source.base_url),
             chatgpt_base_url=json.dumps(f"{PROXY_URL}/backend-api/"),
         )
-        (destination / CONFIG).write_text(config)
+        home.write(f".codex/{CONFIG}", config)

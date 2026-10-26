@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from staged_home_test import staged_home
+
 from botbox import ClaudeAgent, InjectingAgent
 from botbox.credential_proxy import envoy_config
 
@@ -12,9 +14,7 @@ KEY = "sk-ant-api03-host-key"
 def describe_a_claude_agent_on_an_api_key() -> None:
     def it_stages_a_home_that_holds_no_real_key(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=KEY, host_home=tmp_path / "missing")
-        home = tmp_path / "home"
-        home.mkdir()
-        agent.stage_auth(home)
+        home = staged_home(agent, tmp_path / "home")
         staged = home / ".claude" / "api_key"
         assert staged.read_text() == "sk-ant-api03-botbox-placeholder"
         assert staged.stat().st_mode & 0o777 == 0o600

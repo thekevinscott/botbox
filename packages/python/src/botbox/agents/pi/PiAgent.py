@@ -1,6 +1,5 @@
 import json
 import shlex
-import shutil
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -8,11 +7,13 @@ from urllib.parse import urlparse
 
 import json5
 
+from botbox.agents.HomeFiles import HomeFiles
 from botbox.agents.pi.OpenRouterKey import OpenRouterKey
 from botbox.agents.with_env import with_env
 
 AUTH = "auth.json"
 MODELS = "models.json"
+AGENT_DIR = ".pi/agent"
 TOOL_TIMEOUT_EXTENSION = "/usr/local/lib/botbox/tool-timeout.ts"
 
 # Each update resends the whole partial message, so a turn's output grows with its square.
@@ -116,18 +117,14 @@ class PiAgent:
     def turn_ended(self, event: dict[str, Any]) -> bool:
         return bool(event.get("type") == "agent_end")
 
-    def stage_auth(self, home: Path) -> None:
-        destination = home / ".pi" / "agent"
-        destination.mkdir(parents=True)
+    def stage_auth(self, home: HomeFiles) -> None:
         if self.credential_source is not None:
-            auth = destination / AUTH
-            auth.touch(mode=0o600)
-            auth.write_text(self.credential_source.placeholder())
+            home.write(f"{AGENT_DIR}/{AUTH}", self.credential_source.placeholder(), mode=0o600)
             host = self.host_home / MODELS
             staged = self.api_key is None and host.is_file()
             models = self.credential_source.models(host if staged else None)
-            (destination / MODELS).write_text(models)
+            home.write(f"{AGENT_DIR}/{MODELS}", models)
             return
         # A custom provider is defined in models.json, so __init__ found one.
-        shutil.copy(self.host_home / AUTH, destination / AUTH)
-        shutil.copy(self.host_home / MODELS, destination / MODELS)
+        home.write(f"{AGENT_DIR}/{AUTH}", (self.host_home / AUTH).read_bytes(), mode=0o600)
+        home.write(f"{AGENT_DIR}/{MODELS}", (self.host_home / MODELS).read_bytes(), mode=0o600)
