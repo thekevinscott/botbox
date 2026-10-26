@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/pi_openrouter_test.py tests/e2e/session_test.py tests/e2e/pi_test.py tests/e2e/pi_tool_timeout_test.py",
-  "ran_at": 1793040807,
+  "ran_at": 1793041243,
   "exit_code": 0,
-  "commit": "029c85dd8c5341a8552ac0021c5be10ca19dc833",
+  "commit": "a474bba4936d8ba7fe51b4d09b93f2919531662f",
   "branch": "pi-inject"
 }
