@@ -225,3 +225,40 @@ def describe_session() -> None:
         assert agent.turn_ended({"type": "assistant"}) is False
         assert agent.turn_ended({"type": "system", "subtype": "init"}) is False
         assert agent.turn_ended({}) is False
+
+
+def describe_tool_timeout() -> None:
+    def it_sets_the_bash_timeout_and_turns_off_backgrounding() -> None:
+        assert ClaudeAgent(tool_timeout=30).env == {
+            "BASH_DEFAULT_TIMEOUT_MS": "30000",
+            "BASH_MAX_TIMEOUT_MS": "30000",
+            "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        }
+
+    def it_sets_them_on_the_print_mode_command() -> None:
+        assert ClaudeAgent(tool_timeout=30).command("hi") == (
+            "BASH_DEFAULT_TIMEOUT_MS=30000 BASH_MAX_TIMEOUT_MS=30000"
+            " CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1"
+            " claude -p hi --output-format json --dangerously-skip-permissions --strict-mcp-config"
+        )
+
+    def it_sets_them_on_the_session_command() -> None:
+        assert (
+            ClaudeAgent(tool_timeout=30)
+            .session_command()
+            .startswith(
+                "BASH_DEFAULT_TIMEOUT_MS=30000 BASH_MAX_TIMEOUT_MS=30000"
+                " CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 claude -p --input-format stream-json "
+            )
+        )
+
+    def it_rounds_a_fraction_of_a_millisecond_up() -> None:
+        assert ClaudeAgent(tool_timeout=0.0001).env["BASH_MAX_TIMEOUT_MS"] == "1"
+
+    def it_sets_nothing_at_0() -> None:
+        assert ClaudeAgent(tool_timeout=0).env == {}
+        assert ClaudeAgent(tool_timeout=0).command("hi").startswith("claude -p ")
+
+    def it_rejects_a_negative_limit() -> None:
+        with pytest.raises(ValueError, match="tool_timeout is in seconds"):
+            ClaudeAgent(tool_timeout=-1)

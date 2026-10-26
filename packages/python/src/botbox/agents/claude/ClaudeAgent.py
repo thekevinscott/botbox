@@ -1,8 +1,12 @@
 import json
+import math
 import shlex
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from botbox.agents.with_env import with_env
 
 CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
@@ -24,10 +28,23 @@ class ClaudeAgent:
         *,
         api_key: str | None = None,
         host_home: Path | None = None,
+        tool_timeout: float = 0,
     ) -> None:
+        if tool_timeout < 0:
+            raise ValueError(f"tool_timeout is in seconds and must be 0 or more: {tool_timeout!r}")
         self.model = model
         self.effort = effort
         self.api_key = api_key
+        self.tool_timeout = tool_timeout
+        self.env: Mapping[str, str] = {}
+        if tool_timeout:
+            ms = str(math.ceil(tool_timeout * 1000))
+            # Without the last var, a timed-out Bash call is moved to the background, not killed.
+            self.env = {
+                "BASH_DEFAULT_TIMEOUT_MS": ms,
+                "BASH_MAX_TIMEOUT_MS": ms,
+                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+            }
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
 
     def command(self, prompt: str) -> str:
@@ -39,7 +56,7 @@ class ClaudeAgent:
             command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
             command += f" --effort {shlex.quote(self.effort)}"
-        return command
+        return with_env(self.env, command)
 
     def session_command(self) -> str:
         command = (
@@ -50,7 +67,7 @@ class ClaudeAgent:
             command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
             command += f" --effort {shlex.quote(self.effort)}"
-        return command
+        return with_env(self.env, command)
 
     def encode(self, message: str) -> str:
         return json.dumps({"type": "user", "message": {"role": "user", "content": message}})

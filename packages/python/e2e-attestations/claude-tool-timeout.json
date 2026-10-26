@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/claude_tool_timeout_test.py",
+  "ran_at": 1793015797,
+  "exit_code": 0,
+  "commit": "18f78d260d5c235352b41922279d038955fc270c",
+  "branch": "claude-tool-timeout"
+}
