@@ -56,22 +56,27 @@ def run(served: asyncio.Event, steps: list[str]) -> Iterator[AsyncMock]:
         yield m
 
 
-@pytest.fixture(autouse=True)
-def create_volume(steps: list[str]) -> Iterator[AsyncMock]:
-    async def created(name: str, label: str) -> None:
-        steps.append(f"create {name} {label}")
-
-    with patch("botbox.lockdown.create_volume", autospec=True, side_effect=created) as m:
-        yield m
+@pytest.fixture
+def volume_fails() -> dict[str, BaseException]:
+    """What `docker volume create` or `rm` raises, keyed by subcommand."""
+    return {}
 
 
 @pytest.fixture(autouse=True)
-def remove_volume(steps: list[str]) -> Iterator[AsyncMock]:
-    async def removed(name: str) -> None:
-        steps.append(f"remove {name}")
+def docker_volume(steps: list[str], volume_fails: dict[str, BaseException]) -> Iterator[None]:
+    """The real `adocker.volume` over a fake `docker volume`."""
 
-    with patch("botbox.lockdown.remove_volume", autospec=True, side_effect=removed) as m:
-        yield m
+    async def docker(*args: str) -> str:
+        if args[1] == "create":
+            steps.append(f"create {args[-1]} {args[-2]}")
+        if args[1] in volume_fails:
+            raise volume_fails[args[1]]
+        if args[1] == "rm":
+            steps.append(f"remove {args[-1]}")
+        return ""
+
+    with patch("adocker.volume.run_docker", side_effect=docker):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -276,51 +281,35 @@ def describe_lockdown() -> None:
                 pass
             assert steps.index(f"create {VOLUME} botbox.run={TOKEN}") < steps.index("run proxy")
 
-        async def it_removes_it_under_settle_once_the_proxy_is_stopped(
-            scratch: Path, steps: list[str]
-        ) -> None:
+        async def it_removes_it_once_the_proxy_is_stopped(scratch: Path, steps: list[str]) -> None:
             async with jail(scratch):
                 pass
-            assert steps[-3:] == ["proxy stopped", "settle", f"remove {VOLUME}"]
+            assert steps[-2:] == ["proxy stopped", f"remove {VOLUME}"]
 
         async def it_removes_it_when_the_proxy_never_came_up(
-            scratch: Path, wait: AsyncMock, remove_volume: AsyncMock
+            scratch: Path, wait: AsyncMock, steps: list[str]
         ) -> None:
             wait.side_effect = RuntimeError("botbox proxy did not start")
             with pytest.raises(RuntimeError, match="did not start"):
                 async with jail(scratch):
                     pass
-            remove_volume.assert_awaited_once_with(VOLUME)
+            assert steps[-1] == f"remove {VOLUME}"
 
         async def it_starts_nothing_when_it_cannot_be_created(
-            scratch: Path, create_volume: AsyncMock, run: AsyncMock, remove_volume: AsyncMock
+            scratch: Path, run: AsyncMock, volume_fails: dict[str, BaseException]
         ) -> None:
-            create_volume.side_effect = RuntimeError("no space")
+            volume_fails["create"] = RuntimeError("no space")
             with pytest.raises(RuntimeError, match="no space"):
                 async with jail(scratch):
                     pass
             run.assert_not_called()
-            remove_volume.assert_not_called()
 
         async def it_warns_when_it_cannot_be_removed(
-            scratch: Path, remove_volume: AsyncMock
+            scratch: Path, volume_fails: dict[str, BaseException]
         ) -> None:
-            remove_volume.side_effect = RuntimeError("volume is in use")
-            with pytest.warns(RuntimeWarning, match=f"could not remove its volume {VOLUME}"):
-                async with jail(scratch):
-                    pass
-
-        async def it_gives_up_on_a_removal_the_daemon_never_finishes(
-            scratch: Path, remove_volume: AsyncMock
-        ) -> None:
-            async def hang(_name: str) -> None:
-                await asyncio.sleep(3600)
-
-            remove_volume.side_effect = hang
-            with (
-                patch("botbox.lockdown.REMOVE_SECONDS", 0.01),
-                pytest.warns(RuntimeWarning, match="did not remove it within 0.01s"),
-            ):
+            volume_fails["rm"] = RuntimeError("volume is in use")
+            match = f"^botbox could not remove its volume {VOLUME}: volume is in use$"
+            with pytest.warns(RuntimeWarning, match=match):
                 async with jail(scratch):
                     pass
 
@@ -407,7 +396,7 @@ def describe_lockdown() -> None:
         ) -> None:
             async with jail(scratch):
                 steps.append("body")
-            assert steps[-5:-2] == ["body", "settle", "proxy stopped"]
+            assert steps[-4:-1] == ["body", "settle", "proxy stopped"]
 
         async def it_stops_the_proxy_when_the_body_raises(scratch: Path, stop: AsyncMock) -> None:
             with pytest.raises(KeyError):

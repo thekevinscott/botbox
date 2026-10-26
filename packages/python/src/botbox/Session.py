@@ -4,9 +4,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
+from adocker.abort_writer import abort_writer
+from adocker.Capture import Capture
 from botbox.agents.agent import SessionAgent
-from botbox.docker.abort_writer import abort_writer
-from botbox.docker.Capture import Capture
 from botbox.RunResult import RunResult
 from botbox.utils.CapturedLines import CapturedLines
 

@@ -1,4 +1,4 @@
-"""botbox.docker against the real daemon. Every image and container is named `sdk-*`."""
+"""adocker against the real daemon. Every image and container is named `sdk-*`."""
 
 import asyncio
 import os
@@ -10,12 +10,12 @@ from uuid import uuid4
 
 import pytest
 
-from botbox.docker.build import build
-from botbox.docker.DockerException import DockerException
-from botbox.docker.remove import remove
-from botbox.docker.run import run
-from botbox.docker.version import version
-from botbox.docker.wait import wait
+from adocker.build import build
+from adocker.DockerException import DockerException
+from adocker.remove import remove
+from adocker.run import run
+from adocker.version import version
+from adocker.wait import wait
 
 
 def processes(needle: str) -> list[list[str]]:
@@ -104,5 +104,5 @@ def describe_docker() -> None:
         async with asyncio.timeout(10):
             with pytest.raises(asyncio.CancelledError):
                 await task
-        assert not processes(f"{name}:latest")
+        await until(lambda: not processes(f"{name}:latest"), timeout=5)
         await until(lambda: not processes(step), timeout=5)

@@ -6,15 +6,13 @@ from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
+from adocker.build import build
+from adocker.run import run
+from adocker.volume import volume as run_volume
 from botbox.authority import authority
-from botbox.docker.build import build
-from botbox.docker.run import run
-from botbox.docker.volume import create_volume, remove_volume
-from botbox.remove_within import REMOVE_SECONDS
+from botbox.process import owner_only, settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
-from botbox.warned import warned
-from posix_tools.process import owner_only, settle
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
@@ -116,16 +114,21 @@ async def lockdown(
     stdin = os.fdopen(write, "wb")
     try:
         with owner_only(stdin), log.open("wb") as sink:
-            await create_volume(volume, f"botbox.run={token}")
-            try:
+
+            def unremoved(error: Exception) -> None:
+                warnings.warn(
+                    f"botbox could not remove its volume {volume}: {error}",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+
+            async with run_volume(volume, label=f"botbox.run={token}", on_error=unremoved):
                 client = asyncio.ensure_future(run(args, stdin=read, stdout=sink, stderr=sink))
                 try:
                     await wait_for_proxy(client, log, PROXY_READY_SECONDS)
                     yield jail
                 finally:
                     await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
-            finally:
-                await settle(warned(remove_volume_within(volume), f"remove its volume {volume}"))
     finally:
         with suppress(OSError):
             stdin.close()
@@ -138,12 +141,3 @@ async def lockdown(
                 warnings.warn(
                     f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
                 )
-
-
-async def remove_volume_within(volume: str) -> None:
-    """Remove `volume`, or give up after `REMOVE_SECONDS` so a hung daemon can't stall teardown."""
-    try:
-        async with asyncio.timeout(REMOVE_SECONDS):
-            await remove_volume(volume)
-    except TimeoutError:
-        raise TimeoutError(f"the daemon did not remove it within {REMOVE_SECONDS:g}s") from None
