@@ -152,8 +152,8 @@ def describe_credential_proxy() -> None:
         assert body == "botbox credential proxy: path not allowed\n"
 
     def it_refuses_other_methods_on_an_allowed_path() -> None:
-        async def steps(proxy: CredentialProxy) -> str:
-            return await asyncio.to_thread(request, proxy.socket, "GET", "/v1/messages")
+        async def steps(jail: Lockdown) -> str:
+            return await request(jail, "GET", "/v1/messages")
 
         body = asyncio.run(through_proxy(CLAUDE, "Bearer not-a-real-token", steps))
         assert body == "botbox credential proxy: path not allowed\n"
