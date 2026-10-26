@@ -10,7 +10,7 @@ async with box.session(
 ) as live: ...
 ```
 
-Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp home. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp home. Then the [`RunResult`](./run-result) is in `live.result`; its `stdout` holds every line the CLI wrote, events included.
+Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp home. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp home. Then the [`RunResult`](./run-result) is in `live.result`. Without `output`, its `stdout` holds every line the CLI wrote, events included.
 
 - `output` is as for [`run()`](./run): the CLI's stdout and stderr go straight to `stdout.txt` and `stderr.txt`, the proxy's output to `proxy.log`, and the transcripts to `transcripts/`. Events are read by following `stdout.txt`. `live.result` then holds only `exit_code` and `image`; read the files for the rest. A Docker error points to `stderr.txt`. Omit `output` to keep the output, transcripts and proxy log in `live.result` as before.
 - `timeout` covers the whole block, every turn, and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `live.result`.
