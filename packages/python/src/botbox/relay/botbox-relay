@@ -1,5 +1,6 @@
 #!/bin/sh
-# Serves the run's proxy socket on loopback, where HTTPS_PROXY points, then runs the command.
+# Serves the run's proxy socket on loopback, where HTTPS_PROXY points, and with BOTBOX_CREDENTIALS
+# the credential proxy's on 41894, then runs the command.
 # Sharing the proxy's uid would let the agent signal it and read its /proc.
 if [ "$(id -u)" = "$(awk '/^Uid:/ {print $2}' /proc/1/status)" ]; then
     echo "botbox-relay: the agent runs as the proxy's uid $(id -u); use another" >&2
@@ -15,8 +16,12 @@ if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
 fi
 # The subshell orphans socat, so the command's shell never waits on it.
 (socat TCP-LISTEN:41893,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/proxy.sock &)
-if [ -S /run/botbox-credentials/credentials.sock ]; then
-    (socat TCP-LISTEN:41894,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox-credentials/credentials.sock &)
+if [ -n "${BOTBOX_CREDENTIALS:-}" ]; then
+    if [ ! -S /run/botbox/credentials.sock ]; then
+        echo "botbox-relay: the run asked for credential injection, but /run/botbox/credentials.sock is missing" >&2
+        exit 1
+    fi
+    (socat TCP-LISTEN:41894,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/credentials.sock &)
 fi
 tries=0
 until grep -q ':A3A5 00000000:0000 0A' /proc/net/tcp; do
@@ -27,7 +32,7 @@ until grep -q ':A3A5 00000000:0000 0A' /proc/net/tcp; do
     fi
     sleep 0.02
 done
-if [ -S /run/botbox-credentials/credentials.sock ]; then
+if [ -n "${BOTBOX_CREDENTIALS:-}" ]; then
     tries=0
     until grep -q ':A3A6 00000000:0000 0A' /proc/net/tcp; do
         tries=$((tries + 1))

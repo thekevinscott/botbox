@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Container, Image, Mount
+from adocker import Container, Image, Volume
+from botbox.credential_proxy.Credential import Credential
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,
     SECRET_DIR,
     SECRET_FILE,
-    Injection,
     envoy_config,
 )
 from botbox.credential_proxy.preloaded import preloaded
@@ -24,7 +24,7 @@ from botbox.write import write
 # envoy's uid in the image. The agent must not run as it.
 USER = "101:101"
 SOCKET_DIR = "/run/botbox"
-SOCKET = "credentials.sock"
+SOCKET = f"{SOCKET_DIR}/credentials.sock"
 # Envoy refuses to start without the secret file, so it is written before envoy execs. Its
 # default 10s log flush would lose the access log's tail when the PID namespace is killed.
 START = (
@@ -36,20 +36,19 @@ READY_SECONDS = 30
 
 
 @asynccontextmanager
-async def credential_proxy(  # noqa: PLR0913
-    injection: Injection, secret: str, *, proxy: Container, sockets: Path, token: str, log: Path
+async def credential_proxy(
+    credential: Credential, *, proxy: Container, volume: Volume, token: str, log: Path
 ) -> AsyncIterator[CredentialProxy]:
-    """Start an Envoy container that adds `secret` to requests for `injection`'s upstream.
+    """Start an Envoy container that adds the credential's secret to requests for its upstream.
 
-    It serves `sockets/credentials.sock` and joins the container `proxy`'s PID namespace, so
-    it dies with that container's init. The secret lives on a tmpfs inside it, reached only
-    through its stdin. Its output goes to `log`. Leaving the block removes it; an owner
-    killed outright leaves it labelled `botbox.run=<token>`.
+    It serves `credentials.sock` in `volume`, beside the socket of the container `proxy`, and
+    joins `proxy`'s PID namespace, so it dies with that container's init. The secret lives on a
+    tmpfs inside it, reached only through its stdin. Its output goes to `log`. Leaving the block
+    removes it; an owner killed outright leaves it labelled `botbox.run=<token>`.
     """
     name = f"botbox-credentials-{token}"
-    socket = sockets / SOCKET
-    config = envoy_config(injection, f"{SOCKET_DIR}/{SOCKET}")
-    stdin = preloaded(sds_secret(secret))
+    config = envoy_config(credential.injection, SOCKET)
+    stdin = preloaded(sds_secret(credential.secret))
     try:
         with write(log) as sink:
             container = Container(name)
@@ -73,12 +72,12 @@ async def credential_proxy(  # noqa: PLR0913
                     cap_drop=["ALL"],
                     security_opt=["no-new-privileges"],
                     tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
-                    mounts=[Mount("bind", str(sockets), SOCKET_DIR)],
+                    mounts=[volume.mount(SOCKET_DIR)],
                     entrypoint="sh",
                 )
                 client = cast("asyncio.Task[int]", container.client)
-                await wait_for_socket(socket, client, log, READY_SECONDS)
-                yield CredentialProxy(container, socket)
+                await wait_for_socket(proxy, SOCKET, client, log, READY_SECONDS)
+                yield CredentialProxy(container, SOCKET)
             finally:
                 await settle(stop_container(container))
     finally:

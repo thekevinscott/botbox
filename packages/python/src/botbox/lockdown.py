@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Container, Dockerfile, Mount, Volume
+from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
-from botbox.credential_proxy import CredentialProxy, Injection, credential_proxy
+from botbox.credential_proxy import Credential, CredentialProxy, credential_proxy
 from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
@@ -28,7 +28,8 @@ RELAY_DIR = Path(__file__).with_name("relay")
 RELAY = "/usr/local/bin/botbox-relay"
 # Off the usual proxy ports, so the relay doesn't take one a caller's workload expects.
 RELAY_PORT = 41893
-CREDENTIAL_SOCKET_DIR = "/run/botbox-credentials"
+# Tells the relay the run asked for injection, so a missing credential socket is an error.
+CREDENTIALS_ENV = "BOTBOX_CREDENTIALS"
 
 
 class Lockdown:
@@ -41,24 +42,21 @@ class Lockdown:
         volume: Volume,
         envs: dict[str, str],
         credentials: CredentialProxy | None = None,
-        credential_mount: Mount | None = None,
     ) -> None:
         self.proxy = proxy
         self.volume = volume
         self.envs = envs
         self.credentials = credentials
-        self.credential_mount = credential_mount
 
 
 @asynccontextmanager
-async def lockdown(  # noqa: PLR0913
+async def lockdown(
     allow: Iterable[str],
     scratch: Path,
     token: str,
     output: Path | None = None,
     *,
-    injection: Injection | None = None,
-    secret: str | None = None,
+    credential: Credential | None = None,
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -74,10 +72,9 @@ async def lockdown(  # noqa: PLR0913
     stopped, labelled `botbox.run=<token>`.
 
     The tinyproxy log goes to `scratch/proxy.log` and to `output/proxy.log` when given.
-    With injection, Envoy's output goes to its own `credentials.log` in `output` or `scratch`.
+    With a `credential`, an Envoy sidecar serves it on `credentials.sock` in the same volume, and
+    its output goes to `credentials.log` in `output`, or `scratch` without one.
     """
-    if (injection is None) != (secret is None):
-        raise ValueError("injection and secret must be supplied together")
     image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
 
     name = f"botbox-proxy-{token}"
@@ -90,6 +87,8 @@ async def lockdown(  # noqa: PLR0913
         "https_proxy": url,
         "NO_PROXY": "localhost,127.0.0.1",
     }
+    if credential is not None:
+        envs[CREDENTIALS_ENV] = "1"
 
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
@@ -126,22 +125,13 @@ async def lockdown(  # noqa: PLR0913
                 await wait_for_proxy(
                     cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
                 )
-                if injection is None or secret is None:
+                if credential is None:
                     yield Lockdown(proxy, socket, envs)
                 else:
-                    sockets = scratch / "credential-sockets"
-                    sockets.mkdir(mode=0o777)
-                    sockets.chmod(0o777)
                     credential_log = (scratch if output is None else output) / "credentials.log"
                     async with credential_proxy(
-                        injection,
-                        secret,
-                        proxy=proxy,
-                        sockets=sockets,
-                        token=token,
-                        log=credential_log,
+                        credential, proxy=proxy, volume=socket, token=token, log=credential_log
                     ) as credentials:
-                        mount = Mount("bind", str(sockets), CREDENTIAL_SOCKET_DIR, True)
-                        yield Lockdown(proxy, socket, envs, credentials, mount)
+                        yield Lockdown(proxy, socket, envs, credentials)
             finally:
                 await settle(stop_proxy(proxy, PROXY_EXIT_SECONDS))

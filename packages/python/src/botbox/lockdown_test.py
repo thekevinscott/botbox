@@ -10,7 +10,7 @@ import pytest
 
 import botbox.lockdown as lockdown_module
 from botbox.lockdown import (
-    CREDENTIAL_SOCKET_DIR,
+    CREDENTIALS_ENV,
     PROXY_CONF,
     PROXY_DIR,
     RELAY_DIR,
@@ -187,19 +187,10 @@ LABELS = {"botbox.run": TOKEN}
 
 
 def describe_lockdown() -> None:
-    async def it_requires_injection_and_secret_together(scratch: Path) -> None:
-        injection: Any = object()  # Passed only to the mocked sidecar.
-        with pytest.raises(ValueError, match="injection and secret"):
-            async with lockdown(ALLOW, scratch, TOKEN, injection=injection):
-                pass
-        with pytest.raises(ValueError, match="injection and secret"):
-            async with lockdown(ALLOW, scratch, TOKEN, secret="Bearer fake"):
-                pass
-
-    async def it_starts_credentials_after_tinyproxy_and_mounts_the_socket(
+    async def it_starts_credentials_in_the_volume_after_tinyproxy(
         scratch: Path, steps: list[str]
     ) -> None:
-        injection: Any = object()  # Passed only to the mocked sidecar.
+        credential: Any = object()  # Passed only to the mocked sidecar.
 
         @asynccontextmanager
         async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
@@ -210,25 +201,39 @@ def describe_lockdown() -> None:
                 steps.append("credentials stopped")
 
         with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
-            async with lockdown(
-                ALLOW, scratch, TOKEN, injection=injection, secret="Bearer fake"
-            ) as net:
+            async with lockdown(ALLOW, scratch, TOKEN, credential=credential) as net:
                 steps.append("body")
                 assert net.credentials is not None
-                assert net.credential_mount is not None
-                assert net.credential_mount.source == str(scratch / "credential-sockets")
-                assert net.credential_mount.target == CREDENTIAL_SOCKET_DIR
-                assert net.credential_mount.read_only
+                assert net.envs[CREDENTIALS_ENV] == "1"
             start.assert_called_once_with(
-                injection,
-                "Bearer fake",
+                credential,
                 proxy=net.proxy,
-                sockets=scratch / "credential-sockets",
+                volume=net.volume,
                 token=TOKEN,
                 log=scratch / "credentials.log",
             )
         assert steps.index("proxy up") < steps.index("credentials up") < steps.index("body")
         assert steps.index("credentials stopped") < steps.index("proxy stopped")
+
+    async def it_logs_credentials_to_the_output_when_given(scratch: Path) -> None:
+        output = scratch / "output"
+        output.mkdir()
+
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            yield Mock()
+
+        with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
+            async with lockdown(ALLOW, scratch, TOKEN, output, credential=Mock()):
+                pass
+        assert start.call_args.kwargs["log"] == output / "credentials.log"
+
+    async def it_starts_no_credentials_without_a_credential(scratch: Path) -> None:
+        with patch("botbox.lockdown.credential_proxy") as start:
+            async with lockdown(ALLOW, scratch, TOKEN) as net:
+                assert net.credentials is None
+                assert CREDENTIALS_ENV not in net.envs
+        start.assert_not_called()
 
     async def it_yields_what_a_locked_down_container_needs(scratch: Path, image: Image) -> None:
         async with jail(scratch) as net:
@@ -543,9 +548,9 @@ def describe_the_shipped_proxy() -> None:
         assert "max-children=" in script
         assert "UNIX-LISTEN:/run/botbox/proxy.sock" in script
 
-    def it_gives_the_socket_directory_to_the_proxy_user_for_the_volume_to_copy() -> None:
+    def it_shares_the_socket_directory_with_the_proxy_group_for_the_volume_to_copy() -> None:
         assert (
-            "install -d -o tinyproxy -g tinyproxy -m 0755 /run/botbox"
+            "install -d -o tinyproxy -g tinyproxy -m 1775 /run/botbox"
             in (PROXY_DIR / "Dockerfile").read_text()
         )
 

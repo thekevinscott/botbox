@@ -1,18 +1,20 @@
-"""wait_for_socket against real unix sockets."""
+"""wait_for_socket probing a real unix socket from inside the proxy's image."""
 
 import asyncio
-import socket as sockets
+import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import cast
+from uuid import uuid4
 
 import pytest
 
+from adocker import Container, Dockerfile
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
+from botbox.lockdown import PROXY_DIR, PROXY_IMAGE
 
-
-@pytest.fixture
-def path(tmp_path: Path) -> Path:
-    return tmp_path / "c.sock"
+SOCKET = "/tmp/c.sock"
+LISTEN = f"socat UNIX-LISTEN:{SOCKET},fork OPEN:/dev/null"
 
 
 @pytest.fixture
@@ -23,62 +25,40 @@ def log(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-async def client() -> AsyncIterator[asyncio.Future[int]]:
-    """A `docker run` client that keeps running."""
-    process = await asyncio.create_subprocess_exec("sleep", "60")
-    task = asyncio.ensure_future(process.wait())
-    yield task
-    process.kill()
-    await task
+async def through() -> AsyncIterator[Container]:
+    """A running container of the proxy's image, which has socat."""
+    image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
+    name = f"botbox-test-{uuid4().hex[:12]}"
+    said = bytearray()
+    container = await image.run(
+        "-c", "echo up; exec sleep 60", name=name, entrypoint="sh", stdout=said.extend
+    )
+    while b"up" not in said:
+        await asyncio.sleep(0.05)
+    yield container
+    subprocess.run(["docker", "rm", "--force", name], capture_output=True, check=False)
+
+
+def client(container: Container) -> asyncio.Future[int]:
+    return cast("asyncio.Future[int]", container.client)
 
 
 def describe_wait_for_socket() -> None:
-    async def it_returns_for_a_listening_socket(
-        path: Path, log: Path, client: asyncio.Future[int]
-    ) -> None:
-        server = await asyncio.start_unix_server(lambda _, w: w.close(), path)
-        async with server:
-            await asyncio.wait_for(wait_for_socket(path, client, log, 5), 1)
+    async def it_returns_for_a_listening_socket(through: Container, log: Path) -> None:
+        await through.exec("sh", "-c", f"{LISTEN} >/dev/null 2>&1 &")
+        await asyncio.wait_for(wait_for_socket(through, SOCKET, client(through), log, 10), 10)
 
-    async def it_does_not_take_a_socket_file_with_no_listener(
-        path: Path, log: Path, client: asyncio.Future[int]
-    ) -> None:
-        bound = sockets.socket(sockets.AF_UNIX)
-        bound.bind(str(path))
-        try:
-            with pytest.raises(RuntimeError, match="did not start:\nenvoy: starting"):
-                await wait_for_socket(path, client, log, 0.3)
-        finally:
-            bound.close()
+    async def it_times_out_on_a_path_that_never_shows_up(through: Container, log: Path) -> None:
+        with pytest.raises(RuntimeError, match="did not start:\nenvoy: starting"):
+            await wait_for_socket(through, SOCKET, client(through), log, 0.3)
 
-    async def it_times_out_on_a_path_that_never_shows_up(
-        path: Path, log: Path, client: asyncio.Future[int]
-    ) -> None:
-        loop = asyncio.get_running_loop()
-        start = loop.time()
-        with pytest.raises(RuntimeError, match="did not start"):
-            await wait_for_socket(path, client, log, 0.3)
-        assert 0.3 <= loop.time() - start < 1
+    async def it_waits_for_a_listener_that_starts_late(through: Container, log: Path) -> None:
+        await through.exec("sh", "-c", f"(sleep 0.5; {LISTEN}) >/dev/null 2>&1 &")
+        await asyncio.wait_for(wait_for_socket(through, SOCKET, client(through), log, 10), 10)
 
-    async def it_waits_for_a_listener_that_starts_late(
-        path: Path, log: Path, client: asyncio.Future[int]
-    ) -> None:
-        bound = sockets.socket(sockets.AF_UNIX)
-        bound.bind(str(path))
-
-        async def listen_later() -> None:
-            await asyncio.sleep(0.3)
-            bound.listen()
-
-        later = asyncio.ensure_future(listen_later())
-        try:
-            await asyncio.wait_for(wait_for_socket(path, client, log, 5), 2)
-            assert later.done()
-        finally:
-            bound.close()
-
-    async def it_stops_waiting_when_the_client_exits(path: Path, log: Path) -> None:
+    async def it_stops_waiting_when_the_client_exits(log: Path) -> None:
         process = await asyncio.create_subprocess_exec("false")
-        client = asyncio.ensure_future(process.wait())
+        exited = asyncio.ensure_future(process.wait())
+        missing = Container(f"botbox-test-missing-{uuid4().hex[:12]}")
         with pytest.raises(RuntimeError, match="did not start"):
-            await asyncio.wait_for(wait_for_socket(path, client, log, 30), 2)
+            await asyncio.wait_for(wait_for_socket(missing, SOCKET, exited, log, 30), 5)

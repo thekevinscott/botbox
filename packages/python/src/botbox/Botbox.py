@@ -340,7 +340,6 @@ class Botbox:
             "mounts": [
                 DockerMount("bind", str(home), agent.home),
                 jail.volume.mount(SOCKET_DIR, read_only=True),
-                *([jail.credential_mount] if jail.credential_mount is not None else []),
                 *(
                     DockerMount("bind", source, target, mode == "ro")
                     for source, target, mode in volumes

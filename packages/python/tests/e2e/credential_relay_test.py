@@ -9,11 +9,12 @@ import pytest
 
 from adocker import Image
 from botbox import Botbox, ClaudeAgent
-from botbox.credential_proxy import Injection
-from botbox.lockdown import RELAY, lockdown
+from botbox.credential_proxy import Credential, Injection
+from botbox.lockdown import CREDENTIALS_ENV, RELAY, lockdown
 
-INJECTION = Injection(
-    "api.anthropic.com", "/v1/messages(/count_tokens)?", "Authorization", ("x-api-key",)
+CREDENTIAL = Credential(
+    Injection("api.anthropic.com", "/v1/messages(/count_tokens)?", "Authorization", ("x-api-key",)),
+    "Bearer not-a-real-token",
 )
 REQUESTS = r"""
 const http = require('node:http');
@@ -56,9 +57,7 @@ def responses(
     async def probe() -> tuple[list[dict[str, object]], int, str, Path]:
         image = await box.build()
         token = uuid4().hex[:12]
-        async with lockdown(
-            (), root, token, output, injection=INJECTION, secret="Bearer not-a-real-token"
-        ) as jail:
+        async with lockdown((), root, token, output, credential=CREDENTIAL) as jail:
             flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
             stdout, stderr = bytearray(), bytearray()
             agent = await Image(image).run(
@@ -118,3 +117,40 @@ def test_envoys_uid_is_refused(
 ) -> None:
     assert responses[1] == 125
     assert "credential proxy's uid 101" in responses[2]
+
+
+@pytest.fixture(scope="module")
+def without_socket(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, str]:
+    """The relay in a run without a credential proxy, told one was asked for."""
+    root = tmp_path_factory.mktemp("credential-relay-missing")
+    home = root / "home"
+    home.mkdir()
+    box = Botbox(ClaudeAgent(api_key="unused"))
+
+    async def probe() -> tuple[int, str]:
+        image = await box.build()
+        token = uuid4().hex[:12]
+        async with lockdown((), root, token) as jail:
+            flags = box._lockdown_flags(token, home, jail, [], None)  # noqa: SLF001
+            flags["env"][CREDENTIALS_ENV] = "1"
+            stderr = bytearray()
+            agent = await Image(image).run(
+                RELAY,
+                "sh",
+                "-c",
+                "echo reached",
+                name=f"botbox-agent-{token}",
+                rm=True,
+                stderr=stderr.extend,
+                **flags,
+            )
+            return await agent.wait(), stderr.decode()
+
+    return asyncio.run(probe())
+
+
+def test_a_missing_credential_socket_fails_closed(without_socket: tuple[int, str]) -> None:
+    code, stderr = without_socket
+    assert code == 1
+    assert "asked for credential injection" in stderr
+    assert "/run/botbox/credentials.sock is missing" in stderr
