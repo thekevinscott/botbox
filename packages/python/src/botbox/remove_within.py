@@ -1,6 +1,6 @@
 import asyncio
 
-from botbox.docker.remove import remove
+from adocker.remove import remove
 
 REMOVE_SECONDS = 30
 

@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from adocker.run import run
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,
@@ -16,8 +17,7 @@ from botbox.credential_proxy.preloaded import preloaded
 from botbox.credential_proxy.sds_secret import sds_secret
 from botbox.credential_proxy.stop_container import stop_container
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
-from botbox.docker.run import run
-from posix_tools.process import settle
+from botbox.process import settle
 
 # envoy's uid in the image. The agent must not run as it.
 USER = "101:101"
