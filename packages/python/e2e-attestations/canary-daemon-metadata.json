@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/canary_daemon_metadata_test.py",
+  "ran_at": 1792986559,
+  "exit_code": 0,
+  "commit": "871fcc2f5d6393423e983cf708502343fd059dcb",
+  "branch": "canary-daemon-metadata"
+}
