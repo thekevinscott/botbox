@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from botbox import ClaudeAgent
+
 CREDENTIALS = '{"claudeAiOauth": {"accessToken": "t"}}'
 REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 LISTENING = "botbox-proxy: listening\n"
@@ -154,6 +156,14 @@ else:
     exit_container(name, agent.get("exit", 0))
     sys.exit(agent.get("exit", 0))
 """
+
+
+class CopyingClaude(ClaudeAgent):
+    """These test the run; the credential sidecar would add docker calls the fake doesn't serve."""
+
+    def __init__(self, **options: Any) -> None:
+        super().__init__(**options)
+        self.credential_source = None  # type: ignore[assignment]
 
 
 class Daemon:

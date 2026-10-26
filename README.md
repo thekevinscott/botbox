@@ -149,7 +149,7 @@ Each run gets a fresh temporary home, mounted at the agent's home path. With `ou
 `ClaudeAgent` authenticates one of two ways, never both:
 
 - Default: the login in `~/.claude/.credentials.json` stays on the host. The temporary home gets a placeholder, and a credential proxy adds the real token to Claude Code's requests. An expired login raises `CredentialsExpired` before the run starts.
-- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
+- `ClaudeAgent(api_key=key)`: the key stays on the host too. `.claude/api_key` (mode 600) in the temporary home holds a placeholder key, with a `settings.json` whose `apiKeyHelper` reads it, and the credential proxy sends the real key.
 
 `CodexAgent` likewise, never both:
 

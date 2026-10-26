@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
 from botbox.agents.claude.ClaudeLogin import ClaudeLogin
 from botbox.agents.with_env import with_env
 
@@ -19,10 +20,10 @@ class ClaudeAgent:
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
     sessions_dir = ".claude/projects"
-    allow: tuple[str, ...]
-    """With a login, nothing: the credential proxy reaches the API for it."""
-    credential_source: ClaudeLogin | None
-    """The host's login, which the proxy sends upstream, or None with an `api_key`."""
+    allow: tuple[str, ...] = ()
+    """Nothing: the credential proxy reaches the API for it."""
+    credential_source: ClaudeLogin | ClaudeApiKey
+    """The host's login or the `api_key`, which the proxy sends upstream."""
 
     def __init__(
         self,
@@ -50,12 +51,7 @@ class ClaudeAgent:
             }
         self.host_home = Path.home() / ".claude" if host_home is None else host_home
         self.login = ClaudeLogin(self.host_home / CREDENTIALS)
-        if api_key is None:
-            self.allow = ()
-            self.credential_source = self.login
-        else:
-            self.allow = ("api.anthropic.com",)
-            self.credential_source = None
+        self.credential_source = self.login if api_key is None else ClaudeApiKey(api_key)
 
     def command(self, prompt: str) -> str:
         command = (
@@ -96,6 +92,6 @@ class ClaudeAgent:
             return
         key = destination / API_KEY
         key.touch(mode=0o600)
-        key.write_text(self.api_key)
+        key.write_text(ClaudeApiKey.placeholder)
         helper = f"cat {self.home}/.claude/{API_KEY}"
         (destination / "settings.json").write_text(json.dumps({"apiKeyHelper": helper}))

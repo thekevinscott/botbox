@@ -1,4 +1,9 @@
-"""Claude Code authenticated by an API key, billed. The key is ANTHROPIC_API_KEY, via conftest."""
+"""Claude Code authenticated by an API key, billed. The key is ANTHROPIC_API_KEY, via conftest.
+
+The box holds a placeholder key and the credential proxy sends the real one. The pong run copies
+its whole home and environment into a mount on the way out, and the tests scan that and the run's
+output for the key.
+"""
 
 import asyncio
 import json
@@ -8,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from conftest import API_KEY, docker_lines, transcripts
+from conftest import API_KEY, docker_lines, leaked, transcripts
 
 from botbox import Botbox, ClaudeAgent, DockerException, RunResult
 
@@ -18,9 +23,23 @@ def agent() -> ClaudeAgent:
     return ClaudeAgent(model="claude-opus-5", effort="low", api_key=API_KEY)
 
 
+KEEP = "/keep"
+
+
 @pytest.fixture(scope="module")
-def result(agent: ClaudeAgent, output: Path) -> RunResult:
-    return asyncio.run(Botbox(agent).run(agent.command("Reply with exactly: pong"), output=output))
+def output(kept: Path) -> Path:
+    return kept / "output"
+
+
+@pytest.fixture(scope="module")
+def result(agent: ClaudeAgent, kept: Path, output: Path) -> RunResult:
+    (kept / "home").mkdir()
+    command = (
+        f"{agent.command('Reply with exactly: pong')}; status=$?;"
+        f' cp -a "$HOME/." {KEEP}/home/; env > {KEEP}/env.txt; exit $status'
+    )
+    box = Botbox(agent)
+    return asyncio.run(box.run(command, mounts=[(kept, KEEP, "rw")], output=output))
 
 
 @pytest.fixture(scope="module")
@@ -76,8 +95,35 @@ def describe_an_api_key_session() -> None:
         assert result.exit_code == 0, (output / "stderr.txt").read_text()
 
     @pytest.mark.usefixtures("result")
-    def it_reports_no_error(output: Path) -> None:
-        assert json.loads((output / "stdout.txt").read_text())["is_error"] is False
+    def it_gets_a_reply(output: Path) -> None:
+        reply = json.loads((output / "stdout.txt").read_text())
+        assert reply["is_error"] is False
+        assert "pong" in reply["result"].lower()
+
+    @pytest.mark.usefixtures("result")
+    def it_leaves_no_key_in_the_home_env_or_output(kept: Path) -> None:
+        assert (kept / "home" / ".claude").is_dir()
+        assert leaked(kept, API_KEY) == []
+
+    @pytest.mark.usefixtures("result")
+    def it_gives_claude_a_placeholder_key(kept: Path) -> None:
+        key = (kept / "home" / ".claude" / "api_key").read_text()
+        assert key == "sk-ant-api03-botbox-placeholder"
+
+    @pytest.mark.usefixtures("result")
+    def it_points_claude_at_the_credential_proxy(kept: Path) -> None:
+        env = (kept / "env.txt").read_text().splitlines()
+        assert "ANTHROPIC_BASE_URL=http://127.0.0.1:41894" in env
+
+    @pytest.mark.usefixtures("result")
+    def it_sends_the_messages_through_the_credential_proxy(output: Path) -> None:
+        lines = (output / "credentials.log").read_text().splitlines()
+        assert any(" POST /v1/messages?beta=true 200 " in line for line in lines), lines
+
+    @pytest.mark.usefixtures("result")
+    def it_has_tinyproxy_refuse_nothing(output: Path) -> None:
+        log = (output / "proxy.log").read_text()
+        assert [line for line in log.splitlines() if "Proxying refused" in line] == []
 
     def it_keeps_the_key_out_of_the_container_config(config: str) -> None:
         leaked = API_KEY in config

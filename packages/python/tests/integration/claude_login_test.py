@@ -61,10 +61,3 @@ def describe_a_claude_agent_on_the_host_login() -> None:
         assert source is not None
         with pytest.raises(CredentialsExpired, match="expired at"):
             source.read()
-
-
-def describe_a_claude_agent_on_an_api_key() -> None:
-    def it_injects_nothing(tmp_path: Path) -> None:
-        agent = ClaudeAgent(api_key="sk-ant-api-key", host_home=tmp_path / "claude")
-        assert agent.credential_source is None
-        assert agent.allow == ("api.anthropic.com",)
