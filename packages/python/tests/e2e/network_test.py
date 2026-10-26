@@ -163,13 +163,13 @@ def describe_allow() -> None:
 
 
 class TokenAgent(ClaudeAgent):
-    """Records its run's token: the temp home's parent is named after it."""
+    """Records its run's token: the temp home's parent, botbox-<token>-*, names it."""
 
     token: str
 
     def stage_auth(self, home: Path) -> None:
         super().stage_auth(home)
-        self.token = home.parent.name
+        self.token = home.parent.name.split("-")[1]
 
 
 @pytest.fixture(scope="module")

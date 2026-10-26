@@ -74,7 +74,7 @@ asyncio.run(main())
 """
 
 GRACE = 5
-HOME = re.compile(r"[0-9a-f]{12}")
+HOME = re.compile(r"botbox-[0-9a-f]{12}-.+")
 
 
 def containers(token: str, *filters: str) -> list[str]:
@@ -99,13 +99,10 @@ class Runs:
 
     def watch(self) -> None:
         while not self.done.wait(0.02):
-            self.tokens |= {p.name for p in self.homes()}
+            self.tokens |= {p.name.split("-")[1] for p in self.homes()}
 
     def homes(self) -> list[Path]:
-        runs = self.temp / f"botbox-{os.getuid()}"
-        if not runs.exists():
-            return []
-        return [p for p in runs.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
+        return [p for p in self.temp.iterdir() if HOME.fullmatch(p.name) and p.is_dir()]
 
     def leftovers(self) -> list[str]:
         return [

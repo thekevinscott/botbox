@@ -55,6 +55,6 @@ def describe_session_artifacts() -> None:
         assert live.result.stderr == "diagnostic\n"
         assert live.result.exit_code == (0 if outcome == "normal" else -1)
         scratch = agent.staged_home.parent
-        token = scratch.name
+        token = scratch.name.split("-")[1]
         assert not scratch.exists()
         assert docker_lines("ps", "-aq", "--filter", f"label=botbox.run={token}") == []
