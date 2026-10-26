@@ -470,16 +470,6 @@ def settle(steps: list[str]) -> Iterator[Mock]:
         yield m
 
 
-@pytest.fixture(autouse=True)
-def read_transcript(steps: list[str]) -> Iterator[Mock]:
-    def read(*_args: object) -> dict[str, str]:
-        steps.append("read transcript")
-        return {".claude/projects/a.jsonl": "{}\n"}
-
-    with patch("botbox.Botbox.read_transcript", autospec=True, side_effect=read) as m:
-        yield m
-
-
 RUN = argparse.ArgumentParser()
 for flag in ("--name", "--label", "--workdir", "--network", "--pid", "--user", "--log-driver"):
     RUN.add_argument(flag)
@@ -532,7 +522,6 @@ def describe_run() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
         assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
@@ -586,18 +575,11 @@ def describe_run() -> None:
             f"remove {AGENT}",
             "settle",
             f"warned: remove its agent container {AGENT}",
-            "read transcript",
             "stop proxy",
             "settle",
             "remove temp home",
             "warned: remove its temp home",
         ]
-
-    async def it_reads_the_transcript_from_the_home(
-        runner: Mock, read_transcript: Mock, scratch: Path
-    ) -> None:
-        await Botbox(runner).run("true")
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/projects")
 
     async def it_reads_the_exit_code_with_the_command_client_and_stderr(
         runner: Mock, docker_run: Mock, agent_exit: Mock
@@ -744,8 +726,8 @@ def describe_run() -> None:
             ]
 
     def describe_timeout() -> None:
-        async def it_keeps_partial_streams_and_transcripts_in_a_legacy_timeout_result(
-            runner: Mock, docker_run: Mock, steps: list[str]
+        async def it_keeps_partial_streams_in_a_legacy_timeout_result(
+            runner: Mock, docker_run: Mock
         ) -> None:
             async def hang(
                 _args: list[str], *, stdout: bytearray, stderr: bytearray, **_options: Any
@@ -760,8 +742,6 @@ def describe_run() -> None:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
             result = raised.value.result
             assert (result.stdout, result.stderr, result.exit_code) == ("partial\n", "err\n", -1)
-            assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
-            assert steps.index("read transcript") < steps.index("remove temp home")
             assert result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_timeout_holding_what_the_run_left(
@@ -773,14 +753,7 @@ def describe_run() -> None:
             assert (output / "stdout.txt").read_bytes() == b"partial\n"
             assert (output / "stderr.txt").read_bytes() == b"err\n"
             assert raised.value.seconds == 0.01
-            assert astuple(raised.value.result) == (
-                "",
-                "",
-                -1,
-                {},
-                "",
-                "an-agent-123:latest",
-            )
+            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
 
         async def it_tears_down_without_reading_the_mounted_transcripts(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -823,14 +796,12 @@ def describe_run() -> None:
             assert result.exit_code == 3
 
         async def it_holds_an_empty_result_when_the_agent_never_started(
-            runner: Mock, lockdown: Mock, read_transcript: Mock, output: Path
+            runner: Mock, lockdown: Mock, output: Path
         ) -> None:
             lockdown.side_effect = stuck_lockdown
-            read_transcript.side_effect = None
-            read_transcript.return_value = {}
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("true", output=output)
-            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
 
         async def it_lets_another_timeout_error_through(
             runner: Mock, docker_run: Mock, output: Path
@@ -891,11 +862,6 @@ def session_options(hold_session: Mock) -> dict[str, Any]:
 
 
 def describe_session() -> None:
-    @pytest.fixture(autouse=True)
-    def session_reader(read_transcript: Mock) -> Iterator[None]:
-        with patch("botbox.session_result.read_transcript", read_transcript):
-            yield
-
     @pytest.fixture
     def talker(runner: Mock) -> Mock:
         # Set outright: the SessionAgent check looks attributes up statically, past Mock's magic.
@@ -914,7 +880,6 @@ def describe_session() -> None:
         assert result.stdout == "out�\n"
         assert result.stderr == "err\n"
         assert result.exit_code == 3
-        assert result.transcript == {".claude/projects/a.jsonl": "{}\n"}
         assert result.proxy == "CONNECT api.anthropic.com:443\n"
         assert result.image == "an-agent-123:latest"
 
@@ -984,7 +949,6 @@ def describe_session() -> None:
             f"warned: remove its agent container {AGENT}",
             "stop proxy",
             "settle",
-            "read transcript",
             "warned: read its session artifacts",
             "settle",
             "remove temp home",
@@ -999,13 +963,6 @@ def describe_session() -> None:
         args = session_args(hold_session)
         agent_exit.assert_awaited_once_with(AGENT, ["docker", "run", *args], 3, "err\n")
         assert hold_session.call_args.args[0] is talker
-
-    async def it_reads_the_transcript_from_the_home(
-        talker: Mock, read_transcript: Mock, scratch: Path
-    ) -> None:
-        async with Botbox(talker).session():
-            pass
-        read_transcript.assert_called_once_with(scratch / "home", ".claude/projects")
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(
@@ -1076,7 +1033,6 @@ def describe_session() -> None:
             assert steps[-1] == "warned: remove its temp home"
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
             assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
@@ -1094,7 +1050,6 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "read transcript",
                 "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
@@ -1102,7 +1057,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
             assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_tears_down_when_cancelled_mid_turn(
@@ -1129,7 +1083,6 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "read transcript",
                 "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
@@ -1137,7 +1090,6 @@ def describe_session() -> None:
             ]
             assert held.result is not None
             assert held.result.exit_code == -1
-            assert held.result.transcript == {".claude/projects/a.jsonl": "{}\n"}
             assert held.result.proxy == "CONNECT api.anthropic.com:443\n"
 
         async def it_raises_a_client_that_failed_to_start(
@@ -1186,7 +1138,6 @@ def describe_session() -> None:
                 "out\ufffd\n",
                 "err\n",
                 -1,
-                {".claude/projects/a.jsonl": "{}\n"},
                 "CONNECT api.anthropic.com:443\n",
                 "an-agent-123:latest",
             )
@@ -1199,7 +1150,6 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "read transcript",
                 "warned: read its session artifacts",
                 "settle",
                 "remove temp home",
@@ -1237,7 +1187,7 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session():
                     pass
-            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
 
         async def it_lets_another_timeout_error_through(talker: Mock) -> None:
             with pytest.raises(TimeoutError, match="docker hung") as raised:
@@ -1267,7 +1217,7 @@ def describe_session() -> None:
             assert (scratch / "home" / ".claude" / "projects").is_dir()
 
         async def it_leaves_only_the_exit_code_and_image_in_the_result(
-            talker: Mock, agent_exit: Mock, read_transcript: Mock, tmp_path: Path
+            talker: Mock, agent_exit: Mock, tmp_path: Path
         ) -> None:
             (tmp_path / "stdout.txt").write_text("old")
             (tmp_path / "keep").write_text("keep")
@@ -1275,10 +1225,9 @@ def describe_session() -> None:
                 pass
             assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
             assert live.result is not None
-            assert astuple(live.result) == ("", "", 3, {}, "", "an-agent-123:latest")
+            assert astuple(live.result) == ("", "", 3, "", "an-agent-123:latest")
             assert (tmp_path / "stdout.txt").read_bytes() == b""
             assert (tmp_path / "keep").read_text() == "keep"
-            read_transcript.assert_not_called()
 
         async def it_rejects_a_path_docker_cannot_mount_before_building(
             talker: Mock, docker_build: Mock, tmp_path: Path
@@ -1294,7 +1243,7 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session(output=tmp_path):
                     await asyncio.Event().wait()
-            assert astuple(raised.value.result) == ("", "", -1, {}, "", "an-agent-123:latest")
+            assert astuple(raised.value.result) == ("", "", -1, "", "an-agent-123:latest")
 
 
 @pytest.fixture
@@ -1329,7 +1278,6 @@ def describe_run_output() -> None:
         }
         result = await Botbox(runner).run("true", output=destination[form])
         assert (result.stdout, result.stderr, result.exit_code) == ("", "", 3)
-        assert result.transcript == {}
         assert result.proxy == ""
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
@@ -1338,7 +1286,7 @@ def describe_run_output() -> None:
         assert agent_exit.call_args.args[3] == f"See {output / 'stderr.txt'}"
 
     async def it_mounts_transcripts_over_the_sessions_dir_after_staging(
-        runner: Mock, file_run: Mock, read_transcript: Mock, scratch: Path, output: Path
+        runner: Mock, file_run: Mock, scratch: Path, output: Path
     ) -> None:
         home = scratch / "home"
 
@@ -1357,7 +1305,6 @@ def describe_run_output() -> None:
         ]
         files = {p.name for p in output.iterdir()}
         assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}
-        read_transcript.assert_not_called()
 
     @pytest.mark.usefixtures("file_run")
     async def it_mounts_over_a_sessions_dir_that_staging_made(runner: Mock, output: Path) -> None:

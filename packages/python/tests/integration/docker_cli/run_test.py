@@ -56,7 +56,6 @@ def describe_run() -> None:
                 stdout="out\n",
                 stderr="err\n",
                 exit_code=3,
-                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
                 proxy=LISTENING + REFUSAL,
                 image="botbox-claude:latest",
             )
@@ -107,7 +106,6 @@ def describe_run() -> None:
             assert result.exit_code == -1
             assert result.stdout == ""
             assert (output / "stdout.txt").read_text() == "partial\n"
-            assert result.transcript == {}
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert result.proxy == ""
@@ -374,7 +372,6 @@ def describe_run() -> None:
                 stdout="",
                 stderr="",
                 exit_code=-1,
-                transcript={},
                 proxy="",
                 image="botbox-claude:latest",
             )

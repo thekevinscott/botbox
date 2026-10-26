@@ -10,7 +10,7 @@ runs/first/
   transcripts/
 ```
 
-`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr`, `transcript` and `proxy` are empty; read the files instead.
+`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr` and `proxy` are empty; read the files instead.
 
 ## Check the exit code
 
@@ -45,7 +45,7 @@ print((output / "proxy.log").read_text())
 
 ## Without `output`
 
-Omit `output` and the streams, transcripts and proxy log come back on the result instead: `stdout` and `stderr` as text, `transcript` as a `dict[str, str]` of path relative to the agent's home → file contents, and `proxy` as text.
+Omit `output` and the streams and proxy log come back on the result instead, as text in `stdout`, `stderr` and `proxy`. The transcripts are deleted with the temporary home.
 
 ## Keep what the run wrote
 
