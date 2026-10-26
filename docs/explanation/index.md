@@ -20,7 +20,7 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
 4. Starts a proxy for this run (see [Network](#network)).
-5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host.
+5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host: into `stdout.txt` and `stderr.txt` in `output` when one is given, or else into memory.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
 7. Stops and removes the proxy, and deletes the temporary directory.
 
@@ -118,6 +118,7 @@ botbox doesn't cover this. Opening the renewal host isn't a fix: renewal likely 
 - **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
 - **Command:** `pi -p <prompt> --mode json --provider <provider>`, plus `--model` when set.
 - **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
+- **Update events:** both commands pipe pi's output through `sed` in the container to drop `message_update` and `tool_execution_update`. Each one resends the whole partial message or tool output so far, so a long turn's output would grow with its square. `message_end` and `tool_execution_end` carry the final versions.
 - **Credentials:** `auth.json`, and `models.json` if present, are copied into `.pi/agent/`. With `api_key`, a fresh `.pi/agent/auth.json` holds the key for `provider` and nothing else.
 - **Hosts:** `openrouter.ai` for `openrouter`. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.
