@@ -19,10 +19,10 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 1. Checks the mounts and `workdir`. A `workdir` outside every mount raises here, before anything is built. Then a missing host path is created as a dir owned by you. Docker would create either one root-owned.
 2. Builds the harness image, then your `dockerfile` on top (see [Images](#images)).
 3. Makes a temporary directory on the host with Python's `tempfile`. The agent's home lives in it, with the harness's credentials staged in (see [Home and Credentials](#home-and-credentials)).
-4. Starts a proxy for this run (see [Network](#network)).
+4. Starts a proxy for this run (see [Network](#network)), and a credential proxy when the harness's login is injected (see [Credential Proxy](#credential-proxy)).
 5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host, into `stdout.txt` and `stderr.txt` in the temporary directory, and copies in `output` when one is given.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Stops and removes the proxy, and deletes the temporary directory.
+7. Stops and removes the proxies, and deletes the temporary directory.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. So does a container that never started: a missing image, say, raises with `return_code` 125. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
 
@@ -40,7 +40,7 @@ Transcripts are different. With `output`, `output/transcripts/` is bind-mounted 
 
 `run()` and `session()` truncate `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
 
-Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
+Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Every container in a run carries the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
 Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `loop.add_signal_handler`, and the block raises `SystemExit(143)` once teardown is done. Python's default SIGTERM exits without unwinding. A SIGTERM handler you set yourself is left alone.
 
@@ -71,15 +71,29 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-A normal end or a cancel removes both containers and the volume. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
+A normal end or a cancel removes the containers and the volume. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The host temporary directory stays too, with whatever credentials were staged in it (a placeholder for an injected login).
 
 botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volume with `docker volume rm botbox-run-<token>`.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
+### Credential Proxy
+
+Some logins never enter the box. Today that is Claude Code's login (see [Claude Code](#claude-code)). Codex's and pi's logins, and every `api_key`, are staged in the home (see [Home and Credentials](#home-and-credentials)).
+
+For an injected login, botbox starts a second sidecar beside tinyproxy: Envoy, from the upstream `envoyproxy/envoy:v1.36.2` image pinned by digest. It runs as uid 101, with no capabilities, `no-new-privileges` and a cap of 64 processes. It sits on Docker's default bridge and connects to its one upstream itself, not through tinyproxy. It joins tinyproxy's PID namespace, so it dies with tinyproxy's init, as the agent does. It serves `credentials.sock` in the run's volume, beside tinyproxy's socket. In the agent container, the relay forwards `127.0.0.1:41894` to that socket, and the harness's base URL points there. The relay refuses to start if the agent runs as uid 101, as it does for tinyproxy's uid.
+
+**Where the credential lives.** In a tmpfs at `/run/credentials` inside the Envoy container, owned by uid 101 with mode 700. botbox writes no file for it on the host. It reaches Envoy on stdin: the container's shell writes it to the tmpfs, then execs Envoy, which won't start without it. A new token goes the same way, through `docker exec` with the token on stdin, written beside the old file and renamed over it. Envoy picks up a renamed file on its next request; it ignores one written in place. The agent container never mounts the tmpfs, and Envoy runs as a uid apart from the agent's. Envoy's config is on its command line, which the agent can see with `ps`. It names the secret's file but holds no secret.
+
+**What it forwards.** Envoy sends a request upstream only if the whole path, without its query, matches the harness's pattern and the method is one it allows (`POST` by default). Anything else gets a 403 from Envoy: `botbox credential proxy: path not allowed`. Allowed requests go over TLS to port 443 of the one upstream host, whose certificate must name that host. Envoy sets the credential header, replacing any value the client sent, and drops the other auth headers the harness lists. For Claude Code, that is `Authorization` on `POST /v1/messages` and `POST /v1/messages/count_tokens` to `api.anthropic.com`, with `x-api-key` dropped.
+
+**What it doesn't stop.** Anything in the box can send requests through the socket. A request on an allowed path goes out with the credential added. So the agent can spend the login's quota on whatever it sends there. It can't read the token, and it can't use it once the run ends.
+
+Envoy's stdout and stderr, including one access-log line per request, go to `credentials.log` in `output`, or in the temporary directory without one. Leaving the run stops the Envoy container and removes it.
+
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in (Claude Code's is not; see [Claude Code](#claude-code)), or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
+Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. Claude Code's login is the exception: the home gets a placeholder, and the [credential proxy](#credential-proxy) sends the real token. An agent opts in to that through `InjectingAgent`'s `credential_source`; one without it has its login copied by `stage_auth`. botbox reads no `.env`.
 
 With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
 
@@ -106,7 +120,7 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 - **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
 - **Command:** `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set.
 - **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
-- **Credentials:** the host login stays on the host. `.claude/.credentials.json` in the box holds placeholder tokens with a far-future expiry, and `ANTHROPIC_BASE_URL` points Claude Code at the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /v1/messages` and `/v1/messages/count_tokens` on their way to `api.anthropic.com`. Its access log goes to `credentials.log`. Claude Code also calls `api.anthropic.com` directly for a few things, past `ANTHROPIC_BASE_URL`. botbox turns off its claude.ai MCP server fetch (`ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its OAuth profile fetch is refused by the proxy, and the run goes on without it. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
+- **Credentials:** the host login stays on the host. `.claude/.credentials.json` in the box holds placeholder tokens with a far-future expiry, and `ANTHROPIC_BASE_URL` points Claude Code at the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /v1/messages` and `/v1/messages/count_tokens` on their way to `api.anthropic.com` (see [Credential Proxy](#credential-proxy)). Its access log goes to `credentials.log`. Claude Code also calls `api.anthropic.com` directly for a few things, past `ANTHROPIC_BASE_URL`. botbox turns off its claude.ai MCP server fetch (`ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its OAuth profile fetch is refused by the proxy, and the run goes on without it. With `api_key`, the key goes in `.claude/api_key`, and a `settings.json` whose `apiKeyHelper` reads it.
 - **Hosts:** none on a login, since the credential proxy carries the traffic. `api.anthropic.com` with `api_key`.
 - **Transcript:** `.claude/projects/**/*.jsonl`.
 
@@ -115,6 +129,14 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 The access token expires, typically within hours, and botbox never renews it. Renewing likely rotates the login, which would sign out the host's own sessions.
 
 Before it starts anything, a run reads the host login and raises `CredentialsExpired` if the token has already expired. While the agent runs, botbox rereads the host's file every 2 seconds and sends a changed token from the next request on. So a renewal that rewrites the host's file reaches a running box. If nothing on the host renews it, a run that outlasts the token fails its turns with a 401.
+
+botbox keeps nothing alive for the login. Claude Code on the host must renew it, as the `CredentialsExpired` message says. A reread that finds the file unreadable or still expired, or a token that can't be sent, is tried again 2 seconds later. An unexpected error stops the following, and the run warns about it when it ends.
+
+### Terms of Service
+
+Anthropic's [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance) says developers "may not collect, store, or intermediate Claude.ai credentials or session tokens". The same page says this does not prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription".
+
+On a login, botbox runs the unmodified Claude Code, on your machine, with your own subscription. But software other than Claude Code handles your session token: botbox reads it from your login file, and Envoy adds it to Claude Code's requests. If Anthropic reads any such handling as intermediating, this falls under it, as would copying the login into the box. botbox can't settle that. `api_key` avoids the question: the same page allows provisioning your own API key, as long as the usage is billed to you.
 
 ## Codex
 
