@@ -1,4 +1,3 @@
-import base64
 import json
 import time
 from collections.abc import Mapping
@@ -6,6 +5,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from botbox.agents.codex.jwt_claims import jwt_claims
+from botbox.agents.codex.unsigned_jwt import unsigned_jwt
 from botbox.credential_proxy import PROXY_URL, Credential, CredentialsExpired, Injection
 
 INJECTION = Injection(
@@ -14,26 +15,6 @@ INJECTION = Injection(
 AUTH_CLAIMS = "https://api.openai.com/auth"
 # 2100-01-01. An access token that never expires is one Codex never tries to refresh.
 NEVER = 4102444800
-
-
-def unsigned_jwt(claims: Mapping[str, Any]) -> str:
-    """A JWT with `claims` and no signature, which Codex parses but nothing upstream accepts."""
-    parts = ({"alg": "none", "typ": "JWT"}, claims)
-    encoded = (base64.urlsafe_b64encode(json.dumps(p).encode()).rstrip(b"=") for p in parts)
-    return ".".join(e.decode() for e in encoded) + ".botbox-placeholder"
-
-
-def jwt_claims(token: str) -> dict[str, Any]:
-    """The claims of a JWT, unverified. Raises ValueError for anything else."""
-    match token.split("."):
-        case [_, payload, _]:
-            pass
-        case _:
-            raise ValueError("not a JWT")
-    claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-    if not isinstance(claims, dict):
-        raise ValueError("not a JWT")
-    return claims
 
 
 class CodexLogin:

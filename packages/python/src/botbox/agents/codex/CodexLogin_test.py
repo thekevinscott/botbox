@@ -8,13 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.agents.codex.CodexLogin import (
-    AUTH_CLAIMS,
-    NEVER,
-    CodexLogin,
-    jwt_claims,
-    unsigned_jwt,
-)
+from botbox.agents.codex.CodexLogin import AUTH_CLAIMS, NEVER, CodexLogin
 
 MODULE = f"{__package__}.CodexLogin"
 NOW = 1_800_000_000
@@ -39,6 +33,11 @@ def collaborators() -> Iterator[None]:
         yield
 
 
+def jwt_claims(token: str) -> Any:
+    payload = token.split(".")[1]
+    return json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+
+
 def jwt(claims: dict[str, Any]) -> str:
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).rstrip(b"=").decode()
     return f"eyJhbGciOiJSUzI1NiJ9.{payload}.real-signature"
@@ -60,26 +59,6 @@ def path(tmp_path: Path) -> Path:
     path = tmp_path / "auth.json"
     path.write_text(json.dumps({"auth_mode": "chatgpt", "tokens": tokens()}))
     return path
-
-
-def describe_jwt_claims() -> None:
-    def it_reads_an_unpadded_payload() -> None:
-        assert jwt_claims(jwt({"a": "bc"})) == {"a": "bc"}
-
-    @pytest.mark.parametrize("token", ["", "a.b", "a.b.c.d", "a.!!.c", f"a.{'W10'}.c"])
-    def it_raises_value_error_for_anything_else(token: str) -> None:
-        with pytest.raises(ValueError):
-            jwt_claims(token)
-
-
-def describe_unsigned_jwt() -> None:
-    def it_carries_the_claims() -> None:
-        assert jwt_claims(unsigned_jwt({"exp": 1})) == {"exp": 1}
-
-    def it_is_unsigned() -> None:
-        header, _, signature = unsigned_jwt({}).split(".")
-        assert jwt_claims(f"x.{header}.x") == {"alg": "none", "typ": "JWT"}
-        assert signature == "botbox-placeholder"
 
 
 def describe_CodexLogin() -> None:
