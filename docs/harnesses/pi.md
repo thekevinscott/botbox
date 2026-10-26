@@ -29,12 +29,14 @@ async with Botbox(agent) as box:
 
 ## Providers
 
-- `openrouter`: OpenRouter. The proxy admits `openrouter.ai`.
+- `openrouter`: OpenRouter, reached through the credential proxy. The CONNECT proxy admits no host for it.
 - Any other name: a provider defined in `~/.pi/agent/models.json`. The proxy admits the host of the selected model's `baseUrl`, or the provider's if the model sets none. With no `model`, it admits every host the provider's models use. If the provider isn't there, or no `baseUrl` has a host, `PiAgent` raises `ValueError`. `models.json` may carry comments and trailing commas, as pi allows. With `api_key` no `models.json` is staged, so only `openrouter` works.
 
 ## Credentials
 
-By default, the run uses your pi login from `~/.pi/agent/auth.json`, and `models.json` beside it if it exists. Pass `api_key` to use a key for `provider` instead.
+On `openrouter`, the key stays on the host. By default it is the `openrouter` key in `~/.pi/agent/auth.json`, read on the host; pass `api_key` to use another. The box gets a placeholder key, and a `models.json` holding only `openrouter`, from the host's `models.json` if it has one, with its `apiKey` and `headers` dropped, each model's `headers` and `baseUrl` dropped, and its `baseUrl` at the credential proxy. The proxy adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` and refuses every other path, so the box can't read the key's metadata or balance. The key must be a literal. One that is a `!command` or an env var name raises `ValueError` when the run starts.
+
+For any other provider, botbox copies `~/.pi/agent/auth.json` into the box, and `models.json` beside it if it exists. That copy holds every provider's key.
 
 With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The staged credentials sit outside it.
 

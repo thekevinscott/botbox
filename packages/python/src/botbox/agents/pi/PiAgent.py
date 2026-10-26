@@ -8,9 +8,8 @@ from urllib.parse import urlparse
 
 import json5
 
+from botbox.agents.pi.OpenRouterKey import OpenRouterKey
 from botbox.agents.with_env import with_env
-
-PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
 
 AUTH = "auth.json"
 MODELS = "models.json"
@@ -37,8 +36,6 @@ def drop_updates(command: str) -> str:
 
 
 def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) -> tuple[str, ...]:
-    if provider in PROVIDER_HOSTS:
-        return PROVIDER_HOSTS[provider]
     if not staged:
         raise ValueError(
             f"provider {provider!r} is not built in, and with api_key no {MODELS} is staged"
@@ -65,6 +62,11 @@ class PiAgent:
     dockerfile = Path(__file__).with_name("Dockerfile")
     home = "/home/user"
     sessions_dir = ".pi/agent/sessions"
+    allow: tuple[str, ...]
+    """On OpenRouter, nothing: the credential proxy reaches it."""
+    credential_source: OpenRouterKey | None
+    """The OpenRouter key, which the proxy sends upstream, or None for a custom provider, whose
+    credentials are copied in."""
 
     def __init__(
         self,
@@ -85,7 +87,14 @@ class PiAgent:
             {"BOTBOX_TOOL_TIMEOUT": f"{tool_timeout:g}"} if tool_timeout else {}
         )
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
-        self.allow = resolve_allow(provider, model, self.host_home / MODELS, staged=api_key is None)
+        if provider == "openrouter":
+            self.allow = ()
+            self.credential_source = OpenRouterKey(self.host_home / AUTH, api_key)
+        else:
+            self.allow = resolve_allow(
+                provider, model, self.host_home / MODELS, staged=api_key is None
+            )
+            self.credential_source = None
 
     def command(self, prompt: str) -> str:
         return drop_updates(self._pi(f"-p {shlex.quote(prompt)} --mode json"))
@@ -110,10 +119,14 @@ class PiAgent:
     def stage_auth(self, home: Path) -> None:
         destination = home / ".pi" / "agent"
         destination.mkdir(parents=True)
-        if self.api_key is not None:
+        if self.credential_source is not None:
             auth = destination / AUTH
             auth.touch(mode=0o600)
-            auth.write_text(json.dumps({self.provider: {"type": "api_key", "key": self.api_key}}))
+            auth.write_text(self.credential_source.placeholder())
+            host = self.host_home / MODELS
+            staged = self.api_key is None and host.is_file()
+            models = self.credential_source.models(host if staged else None)
+            (destination / MODELS).write_text(models)
             return
         shutil.copy(self.host_home / AUTH, destination / AUTH)
         if (self.host_home / MODELS).is_file():

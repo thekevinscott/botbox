@@ -1,10 +1,32 @@
 import json
 import shlex
+from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
 from botbox.agents.pi.PiAgent import PiAgent, drop_updates
+
+
+class Key:
+    """Stands in for `OpenRouterKey`: files that name where they came from."""
+
+    def __init__(self, auth: Path, api_key: str | None = None) -> None:
+        self.auth = auth
+        self.api_key = api_key
+
+    def placeholder(self) -> str:
+        return "placeholder"
+
+    def models(self, host: Path | None) -> str:
+        return f"models from {host}"
+
+
+@pytest.fixture(autouse=True)
+def openrouter_key() -> Iterator[None]:
+    with patch(f"{__package__}.PiAgent.OpenRouterKey", Key):
+        yield
 
 
 @pytest.fixture
@@ -96,8 +118,22 @@ def describe_the_provider() -> None:
         with pytest.raises(TypeError):
             PiAgent()  # type: ignore[call-arg]
 
-    def it_allows_the_host_openrouter_answers_on() -> None:
-        assert PiAgent(provider="openrouter").allow == ("openrouter.ai",)
+    def it_allows_no_host_on_openrouter() -> None:
+        assert PiAgent(provider="openrouter").allow == ()
+
+    def it_has_the_proxy_send_the_hosts_openrouter_key(agent: PiAgent, pi_home: Path) -> None:
+        source = agent.credential_source
+        assert isinstance(source, Key)
+        assert source.auth == pi_home / "auth.json"
+        assert source.api_key is None
+
+    def it_has_the_proxy_send_a_given_openrouter_key(pi_home: Path) -> None:
+        source = PiAgent("openrouter", api_key="sk-or-test", host_home=pi_home).credential_source
+        assert isinstance(source, Key)
+        assert source.api_key == "sk-or-test"
+
+    def it_copies_a_custom_providers_credentials_in(custom_home: Path) -> None:
+        assert PiAgent("ollama", host_home=custom_home).credential_source is None
 
     def it_allows_the_host_of_a_custom_providers_base_url(custom_home: Path) -> None:
         assert PiAgent("ollama", host_home=custom_home).allow == ("models.example",)
@@ -165,40 +201,54 @@ def describe_the_provider() -> None:
 
 
 def describe_stage_auth() -> None:
-    def it_stages_the_key_and_the_provider_catalogue_where_pi_looks(
-        agent: PiAgent, home: Path
+    def it_stages_a_placeholder_key_and_the_proxied_catalogue_on_openrouter(
+        agent: PiAgent, pi_home: Path, home: Path
     ) -> None:
         agent.stage_auth(home)
+        staged = home / ".pi" / "agent"
         assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
             ".pi",
             ".pi/agent",
             ".pi/agent/auth.json",
             ".pi/agent/models.json",
         ]
+        assert (staged / "auth.json").read_text() == "placeholder"
+        assert (staged / "models.json").read_text() == f"models from {pi_home / 'models.json'}"
 
-    def it_copies_rather_than_shares_the_host_files(
-        agent: PiAgent, pi_home: Path, home: Path
-    ) -> None:
+    def it_makes_the_placeholder_readable_by_its_owner_only(agent: PiAgent, home: Path) -> None:
         agent.stage_auth(home)
-        copy = home / ".pi" / "agent" / "auth.json"
-        assert copy.read_text() == '{"key": "k"}'
-        assert copy.stat().st_ino != (pi_home / "auth.json").stat().st_ino
+        assert (home / ".pi" / "agent" / "auth.json").stat().st_mode & 0o777 == 0o600
 
-    def it_raises_when_the_host_has_no_key(agent: PiAgent, pi_home: Path, home: Path) -> None:
-        (pi_home / "auth.json").unlink()
-        with pytest.raises(FileNotFoundError, match=r"auth\.json"):
-            agent.stage_auth(home)
-
-    def it_stages_only_the_key_when_the_host_has_no_provider_catalogue(
+    def it_builds_the_catalogue_from_nothing_when_the_host_has_none(
         agent: PiAgent, pi_home: Path, home: Path
     ) -> None:
         (pi_home / "models.json").unlink()
         agent.stage_auth(home)
+        assert (home / ".pi" / "agent" / "models.json").read_text() == "models from None"
+
+    def it_copies_a_custom_providers_key_and_catalogue(custom_home: Path, home: Path) -> None:
+        PiAgent("ollama", host_home=custom_home).stage_auth(home)
+        staged = home / ".pi" / "agent"
         assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
             ".pi",
             ".pi/agent",
             ".pi/agent/auth.json",
+            ".pi/agent/models.json",
         ]
+        assert (staged / "auth.json").read_text() == "{}"
+        assert (staged / "models.json").read_text() == (custom_home / "models.json").read_text()
+
+    def it_copies_rather_than_shares_the_host_files(custom_home: Path, home: Path) -> None:
+        PiAgent("ollama", host_home=custom_home).stage_auth(home)
+        copy = home / ".pi" / "agent" / "auth.json"
+        assert copy.stat().st_ino != (custom_home / "auth.json").stat().st_ino
+
+    def it_raises_when_the_host_has_no_key_for_a_custom_provider(
+        custom_home: Path, home: Path
+    ) -> None:
+        (custom_home / "auth.json").unlink()
+        with pytest.raises(FileNotFoundError, match=r"auth\.json"):
+            PiAgent("ollama", host_home=custom_home).stage_auth(home)
 
 
 def describe_api_key() -> None:
@@ -210,20 +260,10 @@ def describe_api_key() -> None:
         with pytest.raises(TypeError):
             PiAgent("openrouter", None, "sk-or-test")  # type: ignore[call-arg]
 
-    def it_stages_the_key_for_the_provider_alone(keyed: PiAgent, home: Path) -> None:
+    def it_builds_the_catalogue_without_the_hosts(keyed: PiAgent, home: Path) -> None:
         keyed.stage_auth(home)
-        assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
-            ".pi",
-            ".pi/agent",
-            ".pi/agent/auth.json",
-        ]
-        assert json.loads((home / ".pi" / "agent" / "auth.json").read_text()) == {
-            "openrouter": {"type": "api_key", "key": "sk-or-test"}
-        }
-
-    def it_makes_the_key_readable_by_its_owner_only(keyed: PiAgent, home: Path) -> None:
-        keyed.stage_auth(home)
-        assert (home / ".pi" / "agent" / "auth.json").stat().st_mode & 0o777 == 0o600
+        assert (home / ".pi" / "agent" / "auth.json").read_text() == "placeholder"
+        assert (home / ".pi" / "agent" / "models.json").read_text() == "models from None"
 
     def it_needs_no_host_files(tmp_path: Path, home: Path) -> None:
         PiAgent("openrouter", api_key="sk-or-test", host_home=tmp_path / "missing").stage_auth(home)

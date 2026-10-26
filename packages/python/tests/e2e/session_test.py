@@ -1,7 +1,8 @@
 """`Botbox.session()` against real Docker and real agents, billed.
 
 Claude uses the host's Claude Code login. Pi and a Codex model (through pi, as CodexAgent has
-no session mode) need OPENROUTER_API_KEY, and are skipped without it.
+no session mode) need OPENROUTER_API_KEY, and are skipped without it. The credential proxy sends
+every harness's key.
 """
 
 import asyncio
@@ -180,14 +181,13 @@ def describe_a_session() -> None:
         proxy = (output / "proxy.log").read_text()
         assert refused(proxy) == []
 
-    def it_sends_claudes_turns_through_the_credential_proxy(
+    def it_sends_each_turn_through_the_credential_proxy(
         harness: str, session: tuple[Turns, list[float], RunResult], output: Path
     ) -> None:
-        if harness != "claude":
-            pytest.skip("only Claude's login is injected")
         turns, _, _ = session
+        path = r"/v1/messages\S*" if harness == "claude" else "/api/v1/chat/completions"
         log = (output / "credentials.log").read_text()
-        assert len(re.findall(r" POST /v1/messages\S* 200 ", log)) >= len(turns), log
+        assert len(re.findall(rf" POST {path} 200 ", log)) >= len(turns), log
 
 
 def describe_cancelling_mid_turn() -> None:
