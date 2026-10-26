@@ -13,6 +13,8 @@ RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + && chmod 666 /etc/pass
 
 COPY --from=botbox --chmod=755 botbox-relay /usr/local/bin/botbox-relay
 
+COPY tool-timeout.ts /usr/local/lib/botbox/tool-timeout.ts
+
 USER user
 
 ENV PI_CODING_AGENT_DIR=/home/user/.pi/agent

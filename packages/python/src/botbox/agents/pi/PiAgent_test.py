@@ -69,6 +69,13 @@ def describe_the_container() -> None:
     def it_ships_its_dockerfile_with_the_package(agent: PiAgent) -> None:
         assert agent.dockerfile.read_text().startswith("FROM node:24.20.0-slim\n")
 
+    def it_copies_the_tool_timeout_extension_into_the_image(agent: PiAgent) -> None:
+        assert "tool_call" in agent.dockerfile.with_name("tool-timeout.ts").read_text()
+        assert (
+            "COPY tool-timeout.ts /usr/local/lib/botbox/tool-timeout.ts\n"
+            in agent.dockerfile.read_text()
+        )
+
     def it_lives_in_the_users_home(agent: PiAgent) -> None:
         assert agent.home == "/home/user"
 
