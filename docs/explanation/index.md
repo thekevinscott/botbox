@@ -28,7 +28,7 @@ The client attaches before the container starts, so no output is missed. Neither
 
 ## Output
 
-A run's output has two homes. The first is the run's temporary directory, the one that holds the agent's home. botbox always writes there, and removes it when the run ends. The second is `output`, a host directory you pass. It is optional, and it stays.
+A run's output has two homes. The first is the run's temporary directory. botbox always writes there, and removes it when the run ends. The second is `output`, a host directory you pass. It is optional, and it stays.
 
 The agent's `docker run` client and the proxy's each pipe their stdout and stderr to botbox. botbox reads each pipe in chunks of up to 64 KiB, as they arrive, and writes each chunk to a file in the temporary directory, then to the same file in `output`, flushing both. The agent's go to `stdout.txt` and `stderr.txt`. Both of the proxy's go to `proxy.log`. No stream is held in memory whole.
 
@@ -36,7 +36,7 @@ A failed write to the temporary copy raises, and the run tears down. A failed wr
 
 botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException`, the end of `proxy.log` when the proxy won't start, and `stdout.txt` for session events. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
 
-Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into the temporary home, and they go with it.
+Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into the home volume, and they go with it.
 
 `run()` and `session()` truncate `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
 
@@ -49,9 +49,9 @@ Inside `async with Botbox(...)`, SIGTERM cancels the task in the block through `
 Every agent container runs with:
 
 - `--cap-drop ALL` and `--security-opt no-new-privileges`.
-- `--user` set to your uid and gid, with `HOME` at the harness's home, so the agent can write the temporary home and your mounts as you. botbox refuses to run as root. The harness images strip setuid bits, so nothing in the image can become root.
+- `--user` set to your uid and gid, with `HOME` at the harness's home, so the agent can write its home and your mounts as you. botbox refuses to run as root. The harness images strip setuid bits, so nothing in the image can become root.
 - `--network none` and the proxy's PID namespace, with the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY` and their lowercase forms) pointing at the run's proxy.
-- The temporary home mounted read-write at the harness's home, plus your mounts. The home is owner-only, so only your uid can write it. That keeps an agent from leaving files in it that you can't delete, credentials included.
+- The home volume mounted read-write at the harness's home, plus your mounts. The home is owned by your uid and owner-only, so only your uid can write it.
 
 Your command runs as `botbox-relay sh -c <command>`. The relay is a script in each harness image; it starts a forwarder from the proxy port on the container's loopback to the proxy's socket, then runs your command. If your uid has no passwd entry in the image, the relay first adds one named `user`, so `whoami` and `git` work. The harness images make `/etc/passwd` writable for this.
 
@@ -71,15 +71,15 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-A normal end or a cancel removes both containers and the volume. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
+A normal end or a cancel removes both containers and both volumes. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The home volume keeps the staged credentials. The host temporary directory stays too, with the streams and proxy log.
 
-botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volume with `docker volume rm botbox-run-<token>`.
+botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volumes with `docker volume rm $(docker volume ls --quiet --filter label=botbox.run=<token>)`.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 
 ## Home and Credentials
 
-Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in (Claude Code's is not; see [Claude Code](#claude-code)), or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
+Each run's home is a fresh Docker volume, `botbox-home-<token>`, mounted at the harness's home (`/home/user`). botbox stages the credentials in a host temp directory, creates a container that never starts with the volume mounted, and copies the staged home in with `docker cp --archive`. The copy is owned by the container's user, your uid, and keeps its mode 700; a directory Docker made for a mount would be root's. The staging container and temp directory are removed before the agent starts. The harness's login is copied in (Claude Code's is not; see [Claude Code](#claude-code)), or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
 With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
 

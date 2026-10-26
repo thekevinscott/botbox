@@ -129,14 +129,14 @@ async with asyncio.timeout(600):
     result = await box.run(command)
 ```
 
-- Cancelling a run, or a timeout firing, tears down that run's containers and temp home. Then `CancelledError` (or `TimeoutError`) propagates.
+- Cancelling a run, or a timeout firing, tears down that run's containers, volumes and temp directory. Then `CancelledError` (or `TimeoutError`) propagates.
 - No `RunResult` comes back. Output and transcript from a cancelled run are lost. If you need partial output, don't cancel: let the run finish and bound it inside the agent.
 - Teardown is shielded from a second cancel and takes a moment. Cancellation is not instant.
 - Ctrl-C under `asyncio.run` cancels the main task, so it tears down like any cancel.
 - Don't catch `CancelledError` without re-raising it.
 - SIGTERM inside `async with Botbox(...)` cancels the task that entered the block, then raises `SystemExit(143)` once teardown is done. Outside the block, SIGTERM keeps Python's default and exits without teardown.
 
-Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`. botbox leaves them, and the temp home, for the caller.
+Owner SIGKILL ends the run within seconds and leaves its containers stopped, labelled `botbox.run=<token>`. botbox leaves them, its volumes and its temp directory for the caller.
 
 ## Errors
 

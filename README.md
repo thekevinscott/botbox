@@ -65,7 +65,7 @@ asyncio.run(main())
 ```
 
 
-`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command with its streams and proxy log written to a private temp directory and copied to `output` as they arrive, mounts `output/transcripts/` for the transcripts, deletes the temporary home, stops the proxy, and returns.
+`run()` builds the image, starts a proxy sidecar, copies your credentials into a fresh home volume, runs the command with its streams and proxy log written to a private temp directory and copied to `output` as they arrive, mounts `output/transcripts/` for the transcripts, stops the proxy, removes the home volume, and returns.
 
 The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
@@ -117,7 +117,7 @@ await box.run(
 
 The container is removed once its exit code is read. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started (an image the daemon can't find raises with `return_code` 125) and a daemon that goes away mid-run. What the run left so far stays in `output`. A run that outlasts its `timeout` tears down and raises `botbox.Timeout`. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started (an image the daemon can't find raises with `return_code` 125) and a daemon that goes away mid-run. What the run left so far stays in `output`. A run that outlasts its `timeout` tears down and raises `botbox.Timeout`. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers, volumes and temp directory before the cancel propagates.
 
 ### `build()`
 
@@ -144,21 +144,21 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, the transcripts are deleted with the temporary home.
+Each run gets a fresh home, a Docker volume mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, the transcripts are deleted with the home.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 
-- Default: the login in `~/.claude/.credentials.json` stays on the host. The temporary home gets a placeholder, and a credential proxy adds the real token to Claude Code's requests. An expired login raises `CredentialsExpired` before the run starts.
-- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the temporary home, with a `settings.json` whose `apiKeyHelper` reads it.
+- Default: the login in `~/.claude/.credentials.json` stays on the host. The home gets a placeholder, and a credential proxy adds the real token to Claude Code's requests. An expired login raises `CredentialsExpired` before the run starts.
+- `ClaudeAgent(api_key=key)`: the key is written to `.claude/api_key` (mode 600) in the home, with a `settings.json` whose `apiKeyHelper` reads it.
 
 `CodexAgent` likewise, never both:
 
-- Default: `~/.codex/auth.json` is copied into the temporary home.
+- Default: `~/.codex/auth.json` is copied into the home.
 - `CodexAgent(api_key=key)`: a fresh `.codex/auth.json` (mode 600) holds the key in API-key mode.
 
 `PiAgent` likewise, never both:
 
-- Default: `~/.pi/agent/auth.json` is copied into the temporary home, and `models.json` beside it if it exists.
+- Default: `~/.pi/agent/auth.json` is copied into the home, and `models.json` beside it if it exists.
 - `PiAgent(provider, api_key=key)`: a fresh `.pi/agent/auth.json` (mode 600) holds the key for `provider` and nothing else. No host files are read.
 
 botbox reads no `.env` and no environment variables. The caller passes the key.
