@@ -228,6 +228,18 @@ def describe_lockdown() -> None:
                 pass
         assert start.call_args.kwargs["log"] == output / "credentials.log"
 
+    async def it_takes_the_credential_by_keyword_only(scratch: Path) -> None:
+        @asynccontextmanager
+        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
+            yield Mock()
+
+        with (
+            patch("botbox.lockdown.credential_proxy", side_effect=sidecar),
+            pytest.raises(TypeError),
+        ):
+            async with lockdown(ALLOW, scratch, TOKEN, None, Mock()):  # type: ignore[call-arg]
+                pass
+
     async def it_starts_no_credentials_without_a_credential(scratch: Path) -> None:
         with patch("botbox.lockdown.credential_proxy") as start:
             async with lockdown(ALLOW, scratch, TOKEN) as net:
