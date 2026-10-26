@@ -11,6 +11,11 @@ NO_SESSION = (
     " PiAgent('openrouter', 'openai/<model>')."
 )
 
+NO_TOOL_TIMEOUT = (
+    "NOT IMPLEMENTED: CodexAgent has no tool_timeout. Codex has no setting that kills a shell"
+    " command after a time limit."
+)
+
 
 class CodexAgent:
     """The OpenAI Codex CLI."""
@@ -27,7 +32,12 @@ class CodexAgent:
         *,
         api_key: str | None = None,
         host_home: Path | None = None,
+        tool_timeout: float = 0,
     ) -> None:
+        if tool_timeout < 0:
+            raise ValueError(f"tool_timeout is in seconds and must be 0 or more: {tool_timeout!r}")
+        if tool_timeout:
+            raise NotImplementedError(NO_TOOL_TIMEOUT)
         self.model = model
         self.effort = effort
         self.api_key = api_key
