@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -p no:warnings -q tests/e2e/home_test.py tests/e2e/user_test.py tests/e2e/credential_relay_test.py tests/e2e/session_artifacts_test.py tests/e2e/run_test.py tests/e2e/transcript_test.py tests/e2e/network_test.py tests/e2e/api_key_test.py tests/e2e/login_injection_test.py tests/e2e/pi_openrouter_test.py tests/e2e/codex_test.py tests/e2e/canary_other_run_test.py --deselect tests/e2e/codex_test.py::describe_a_codex_run_on_the_host_login::it_exits_zero --deselect tests/e2e/codex_test.py::describe_a_codex_run_on_the_host_login::it_completes_the_turn --deselect tests/e2e/codex_test.py::describe_a_codex_run_on_the_host_login::it_answers --deselect tests/e2e/codex_test.py::describe_a_codex_run_on_the_host_login::it_reaches_chatgpt_through_the_credential_proxy --deselect tests/e2e/network_test.py::describe_a_request_through_the_proxy::it_reaches_the_agents_host --deselect tests/e2e/network_test.py::describe_a_request_through_the_proxy::it_gets_a_200_connect_for_the_agents_host --deselect tests/e2e/network_test.py::describe_the_socket_directory::it_holds_only_the_proxys_socket --deselect tests/e2e/network_test.py::describe_the_proxy_log::it_records_the_admission",
+  "ran_at": 1793046360,
+  "exit_code": 0,
+  "commit": "21a23c2c9b1bcda8684dbf9df618792b87f07d22",
+  "branch": "home-in-container"
+}
