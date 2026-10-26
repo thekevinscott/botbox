@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from conftest import LINE, docker_lines
+from conftest import docker_lines, run_probes
 
 from botbox import Botbox, ClaudeAgent
 
@@ -74,21 +74,6 @@ PROBES = {
     "sockets": "ls -A /run/botbox",
     "write sockets": "touch /run/botbox/planted 2>&1 || true",
 }
-
-
-def run_probes(box: Botbox, probes: dict[str, str], output: Path) -> dict[str, str]:
-    """Run named shell probes in one container; return each probe's output from stdout.txt."""
-    script = "".join(LINE.format(name=n, command=c) + "\n" for n, c in probes.items())
-    result = asyncio.run(box.run(script, output=output))
-    assert result.exit_code == 0, (output / "stderr.txt").read_text(errors="replace")
-    lines = (output / "stdout.txt").read_text(errors="replace").splitlines()
-    fields = (line.split("\t", 1) for line in lines if "\t" in line)
-    return {name: value.strip() for name, value in fields}
-
-
-@pytest.fixture(scope="module")
-def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return tmp_path_factory.mktemp("probes")
 
 
 @pytest.fixture(scope="module")
