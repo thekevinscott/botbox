@@ -16,15 +16,15 @@ class Session:
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
     collects them. One turn at a time. The CLI's output lands in the `stdout` capture and in
-    `stderr`, and `client` is its attached `docker run`. `result` is set once the session's
-    block is left.
+    `stderr`, or in files with no `stdout` capture, and `client` is its attached `docker run`.
+    `result` is set once the session's block is left.
     """
 
     def __init__(
         self,
         agent: SessionAgent,
         stdin: asyncio.StreamWriter,
-        stdout: Capture,
+        stdout: Capture | None,
         stderr: bytearray,
         client: asyncio.Future[int],
         *,
@@ -35,7 +35,11 @@ class Session:
         self.stdout = stdout
         self.stderr = stderr
         self.client = client
-        self._readline = CapturedLines(stdout, client).readline if _readline is None else _readline
+        if _readline is None:
+            if stdout is None:
+                raise TypeError("Session needs a stdout capture or a _readline")
+            _readline = CapturedLines(stdout, client).readline
+        self._readline = _readline
         self._pending: bytes | None = None
         self.turn = False
         self.result: RunResult | None = None

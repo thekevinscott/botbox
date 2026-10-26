@@ -913,7 +913,7 @@ def held(steps: list[str]) -> Mock:
 @pytest.fixture(autouse=True)
 def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
-    async def hold(*_args: object) -> AsyncIterator[Mock]:
+    async def hold(*_args: object, **_options: object) -> AsyncIterator[Mock]:
         held.agent = _args[0]
         held.client = asyncio.get_running_loop().create_future()
         steps.append("hold session")
@@ -1014,7 +1014,7 @@ def describe_session() -> None:
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
         assert (scratch / "home" / ".credentials").read_text() == "token"
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN
+            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None
         )
 
     async def it_holds_the_session_then_tears_down_in_order(talker: Mock, steps: list[str]) -> None:
