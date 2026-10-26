@@ -1,4 +1,4 @@
-"""`Botbox.build()` against real Docker: turns, cancellation, and the loop while waiting.
+"""`Botbox.build()` against real Docker: concurrent builds of one tag, and cancellation.
 
 Each test builds its own `async83-*` image from a Dockerfile whose slow step no cache holds,
 watches the host's process table for the build's clients, and removes the image after.
@@ -8,7 +8,6 @@ The concurrent builds at the end build the real Claude image, as parallel runs d
 import asyncio
 import subprocess
 import sys
-import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import suppress
@@ -60,19 +59,6 @@ def clients(agent: SlowAgent) -> int:
     return sum(Path(argv[0]).name == "docker-buildx" for argv in processes(agent.image))
 
 
-class Watch:
-    """The most buildx clients of one image seen at once, sampled every 20ms."""
-
-    def __init__(self, agent: SlowAgent) -> None:
-        self.agent = agent
-        self.most = 0
-
-    async def __call__(self) -> None:
-        while True:
-            self.most = max(self.most, clients(self.agent))
-            await asyncio.sleep(0.02)
-
-
 async def until(condition: Callable[[], object], timeout: float = 120) -> None:
     async with asyncio.timeout(timeout):
         while not condition():
@@ -107,46 +93,16 @@ def agent(tmp_path: Path) -> Iterator[SlowAgent]:
 
 
 def describe_build() -> None:
-    async def it_makes_two_concurrent_builds_of_one_tag_take_turns(agent: SlowAgent) -> None:
-        watch = Watch(agent)
-        watcher = asyncio.create_task(watch())
+    async def it_builds_one_tag_twice_at_once(agent: SlowAgent) -> None:
         box = Botbox(agent)
         tags = await asyncio.gather(box.build(), box.build())
-        watcher.cancel()
         assert list(tags) == [agent.image, agent.image]
-        assert watch.most == 1
 
-    async def it_takes_turns_with_a_build_of_one_tag_in_another_process(
-        agent: SlowAgent,
-    ) -> None:
-        watch = Watch(agent)
-        watcher = asyncio.create_task(watch())
+    async def it_builds_one_tag_while_another_process_builds_it(agent: SlowAgent) -> None:
         other = await other_build(agent)
         await until(lambda: clients(agent) == 1)
         assert await Botbox(agent).build() == agent.image
         assert await other.wait() == 0
-        watcher.cancel()
-        assert watch.most == 1
-
-    async def it_keeps_the_loop_running_while_it_waits_for_the_lock(agent: SlowAgent) -> None:
-        other = await other_build(agent)
-        await until(lambda: clients(agent) == 1)
-        ticks = 0
-
-        async def tick() -> None:
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.01)
-                ticks += 1
-
-        ticker = asyncio.create_task(tick())
-        started = time.monotonic()
-        await Botbox(agent).build()
-        waited = time.monotonic() - started
-        ticker.cancel()
-        assert await other.wait() == 0
-        assert waited > 1
-        assert ticks > waited / 0.01 / 2
 
     def describe_cancelled_mid_build() -> None:
         @pytest.fixture

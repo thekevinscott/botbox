@@ -1,0 +1,1 @@
+**Changed**: `build()` no longer takes a file lock in the system temp directory. Concurrent builds of one tag, from any process, run at once and all succeed; the tag ends on whichever finished last. Another local user can no longer stall or fail your builds through a planted lock file.
