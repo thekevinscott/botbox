@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Container, Daemon, DockerException, Dockerfile, Image
+from adocker import Container, DockerException, Dockerfile, Image
 
 Install = Callable[[str], None]
 
@@ -123,13 +123,13 @@ async def cancel_twice(task: asyncio.Task[object]) -> None:
 
 def describe_docker() -> None:
     async def it_runs_docker_in_a_session_of_its_own(install: Install) -> None:
-        install(RECORD)
-        assert (await Daemon().version())["leader"] is True
+        install("import json, os; print(json.dumps([{'leader': os.getsid(0) == os.getpid()}]))")
+        assert (await Container("sdk-box").inspect())["leader"] is True
 
     async def it_raises_what_docker_said_when_it_fails(install: Install) -> None:
         install("import sys; print('Cannot connect to the daemon', file=sys.stderr); sys.exit(1)")
         with pytest.raises(DockerException, match="Cannot connect to the daemon"):
-            await Daemon().version()
+            await Container("sdk-box").inspect()
 
     async def it_builds_with_buildx(install: Install, tmp_path: Path) -> None:
         out = tmp_path / "argv"
@@ -151,10 +151,6 @@ def describe_docker() -> None:
             "b=/r",
             str(tmp_path),
         ]
-
-    async def it_parses_version_json(install: Install) -> None:
-        install('print(\'{"Server": {"Version": "29.1"}}\')')
-        assert await Daemon().version() == {"Server": {"Version": "29.1"}}
 
     async def it_reads_an_images_id(install: Install) -> None:
         install('print(\'[{"Id": "sha256:abc"}]\')')

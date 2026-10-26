@@ -24,9 +24,7 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
 7. Stops and removes the proxy, and deletes the temporary directory.
 
-The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
-
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
+The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, or can't be inspected at all, the run raises `DockerException` with the client's code and stderr. So does a container that never started: a missing image, say, raises with `return_code` 125. A daemon that went away fails the inspect, and its error ("Cannot connect") is in the client's stderr. What already reached `output` stays there. That's why the streams, transcripts and proxy log are written on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 

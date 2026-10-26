@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Container, Daemon, DockerException, Dockerfile, Image
+from adocker import Container, DockerException, Dockerfile, Image
 
 
 def processes(needle: str) -> list[list[str]]:
@@ -49,9 +49,6 @@ def dockerfile(directory: Path, *lines: str) -> Dockerfile:
 
 
 def describe_docker() -> None:
-    async def it_reports_the_server_version() -> None:
-        assert (await Daemon().version())["Server"]["Version"]
-
     async def it_builds_an_image_with_a_named_context(name: str, tmp_path: Path) -> None:
         extra = tmp_path / "extra"
         extra.mkdir()

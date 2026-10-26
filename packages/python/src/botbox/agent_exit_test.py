@@ -38,12 +38,6 @@ def container(inspect: AsyncMock) -> Mock:
     return Mock(docker_command=COMMAND, inspect=inspect)
 
 
-@pytest.fixture(autouse=True)
-def version() -> Iterator[AsyncMock]:
-    with patch("botbox.agent_exit.Daemon", autospec=True) as m:
-        yield m.return_value.version
-
-
 def describe_agent_exit() -> None:
     async def it_reads_the_exit_code_from_the_stopped_container(
         inspect: AsyncMock, container: Mock
@@ -82,31 +76,14 @@ def describe_agent_exit() -> None:
         assert raised.value.return_code == -9
         assert raised.value.stderr == "lost the attach\n"
 
-    async def it_returns_minus_one_when_the_daemon_went_away(
-        inspect: AsyncMock,
-        version: AsyncMock,
-        container: Mock,
-    ) -> None:
-        inspect.side_effect = DockerException(["docker", "container", "inspect"], 1, "")
-        version.side_effect = DockerException(["docker", "version"], 1, "Cannot connect")
-        assert await agent_exit(container, 125, "") == -1
-
-    async def it_returns_minus_one_when_the_daemon_went_away_with_a_killed_client(
-        inspect: AsyncMock,
-        version: AsyncMock,
-        container: Mock,
-    ) -> None:
-        inspect.side_effect = DockerException(["docker", "container", "inspect"], 1, "")
-        version.side_effect = DockerException(["docker", "version"], 1, "Cannot connect")
-        assert await agent_exit(container, -9, "") == -1
-
-    async def it_raises_with_the_client_when_there_is_no_such_container(
-        inspect: AsyncMock, version: AsyncMock, container: Mock
+    @pytest.mark.parametrize("client", [125, -9])
+    async def it_raises_with_the_client_when_the_container_cannot_be_inspected(
+        inspect: AsyncMock, container: Mock, client: int
     ) -> None:
         inspect.side_effect = DockerException(["docker", "container", "inspect"], 1, "No such")
         with pytest.raises(DockerException) as raised:
-            await agent_exit(container, 125, "Unable to find image\n")
+            await agent_exit(container, client, "Cannot connect\n")
         assert raised.value.docker_command == COMMAND
-        assert raised.value.return_code == 125
-        assert raised.value.stderr == "Unable to find image\n"
-        version.assert_awaited_once_with()
+        assert raised.value.return_code == client
+        assert raised.value.stderr == "Cannot connect\n"
+        assert raised.value.__suppress_context__

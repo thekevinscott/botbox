@@ -69,9 +69,7 @@ if command == "buildx":
     sys.exit(0)
 if (state / "down").exists():
     fail("Cannot connect to the Docker daemon\\n")
-if command == "version":
-    print("{}")
-elif command == "volume":
+if command == "volume":
     if argv[1] == "create":
         (state / "volumes" / argv[-1]).mkdir(parents=True)
     else:
@@ -146,6 +144,7 @@ else:
         sys.exit(137)
     if mode == "daemon_gone":
         (state / "down").touch()
+        print("Cannot connect to the Docker daemon", file=sys.stderr, flush=True)
         sys.exit(125)
     if mode == "client_dies":
         os.kill(os.getpid(), signal.SIGKILL)

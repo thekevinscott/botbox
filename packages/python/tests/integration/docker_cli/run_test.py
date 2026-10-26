@@ -85,19 +85,22 @@ def describe_run() -> None:
             name = f"botbox-agent-{token(daemon)}"
             assert ["container", "inspect", "--format", "json", name] in daemon.calls
 
-        async def it_returns_minus_one_with_warnings_when_the_daemon_goes_away(
+        async def it_raises_with_warnings_when_the_daemon_goes_away(
             box: Botbox, daemon: Daemon, temp: Path, output: Path
         ) -> None:
             daemon.agent("true", stdout="partial\n", mode="daemon_gone")
             daemon.set(proxy_log=REFUSAL)
-            with pytest.warns(RuntimeWarning) as warned:
-                result = await box.run("true", output=output)
+            with (
+                pytest.warns(RuntimeWarning) as warned,
+                pytest.raises(DockerException, match="Cannot connect") as raised,
+            ):
+                await box.run("true", output=output)
             assert [str(w.message).split(":")[0] for w in warned] == [
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
                 f"botbox could not remove its volume botbox-run-{token(daemon)}",
             ]
-            assert result == RunResult(-1)
+            assert raised.value.return_code == 125
             assert (output / "stdout.txt").read_text() == "partial\n"
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'

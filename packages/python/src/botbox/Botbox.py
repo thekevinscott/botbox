@@ -140,8 +140,8 @@ class Botbox:
         a fresh host temp directory with the credentials staged in. The temp directory is
         removed when the run ends, so without `output` the streams, transcripts and proxy log
         are not kept; files written to `mounts` are.
-        A non-zero exit is a normal result; so is the daemon going away mid-run, with
-        `exit_code` -1.
+        A non-zero exit is a normal result. A daemon that goes away mid-run raises
+        `DockerException` with the client's stderr.
 
         Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
         temp home before the cancel propagates, through any number of further cancels. Both

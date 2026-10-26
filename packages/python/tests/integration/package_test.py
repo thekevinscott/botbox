@@ -39,7 +39,6 @@ def describe_adocker() -> None:
     def it_exports_only_its_classes() -> None:
         assert adocker.__all__ == [
             "Container",
-            "Daemon",
             "DockerException",
             "Dockerfile",
             "Image",
@@ -52,7 +51,6 @@ def describe_adocker() -> None:
         assert inspect.iscoroutinefunction(adocker.Image.run)
         assert inspect.iscoroutinefunction(adocker.Container.wait)
         assert inspect.iscoroutinefunction(adocker.Container.exec)
-        assert inspect.iscoroutinefunction(adocker.Daemon.version)
         assert inspect.iscoroutinefunction(adocker.Volume.__aenter__)
 
     def it_shares_botboxs_docker_exception() -> None:
