@@ -47,7 +47,6 @@ export default defineConfig({
           { text: 'run()', link: '/api/run' },
           { text: 'RunResult', link: '/api/run-result' },
           { text: 'session()', link: '/api/session' },
-          { text: 'adocker', link: '/api/adocker' },
         ],
       },
       {
