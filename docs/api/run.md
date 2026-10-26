@@ -42,7 +42,7 @@ print((output / "stdout.txt").read_text())
 `stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
 output directory is created or reused, before setup starts; other files in the directory,
 `transcripts/` included, are preserved. Use a separate directory for each concurrent run. The
-files remain after success, failure, timeout or cancellation. If reap, build or credential
+files remain after success, failure, timeout or cancellation. If build or credential
 staging fails, all three are empty. `proxy.log` holds everything the proxy container printed,
 its startup output included; if the proxy won't start, the error also carries the last 64 KiB
 of it. Agent Docker failures put the absolute
@@ -51,7 +51,7 @@ Omit `output` to keep stdout, stderr and the proxy log in the result as before.
 
 - When `timeout` runs out, the run tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout). Its `result` holds the output, transcript and proxy log so far, with `exit_code` -1. With `output`, its `stdout`, `stderr` and `proxy` are empty; read the files instead.
 - Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home, then the cancel propagates. A second cancel doesn't cut the teardown short. No `RunResult` comes back.
-- The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`. The temp home is `<token>/` in `botbox-<uid>/` under the system temp directory. A process killed outright (SIGKILL) leaves them behind, for [`reap()`](./reap) to remove. Each run calls it first.
+- The run waits for the agent's container to stop, reads its exit code, then removes it. Both containers carry the label `botbox.run=<token>`. The temp home is `<token>/` in `botbox-<uid>/` under the system temp directory. A process killed outright (SIGKILL) leaves them behind; remove the containers by label.
 - A Docker failure during setup raises `botbox.DockerException`, with the command in `docker_command`, its `return_code` and its `stderr` as text. So does a Docker client that dies or is killed while the daemon is still up, and a container that never started: an image the daemon can't find raises with `return_code` 125. If the daemon goes away mid-run, `exit_code` is -1.
 - A teardown step that fails after the command ran is a `RuntimeWarning`, and the result still comes back. So is a container removal the daemon hasn't finished within 30 seconds, and, without `output`, a proxy log that can't be read, which leaves `proxy` empty.
 

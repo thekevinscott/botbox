@@ -61,9 +61,7 @@ Sharing the namespace means the agent can see the proxy's processes, but not tou
 
 A normal end or a cancel removes both containers. After SIGKILL of the owner they stay, stopped and labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
 
-So each run takes a lock. Runs live in `botbox-<uid>/` under the system temp directory, owner-only. A run holds an exclusive `flock` on `<token>.lock` there for its whole life, beside its temporary directory `<token>/`. The kernel drops the lock however the owner dies. Each run starts by sweeping: a lock it can take belongs to a dead run, so it removes that run's containers by label, in any state, then its directory, then the lock file. `botbox.reap()` does the same on demand.
-
-The lock is the only test of liveness. A pid or boot id check reads a live owner as dead when it runs in another container or reaches a remote daemon, and pid reuse reads a dead one as alive. The lock file is outside every mount, so the agent can't touch it. It is locked before it gets its name, so a sweep never finds a live run's lock free.
+botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 

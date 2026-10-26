@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 
 import pytest
-from fake_docker_test import Daemon, homes, runs, token
+from fake_docker_test import Daemon, homes
 
-from botbox import Botbox, ClaudeAgent, reap
+from botbox import Botbox, ClaudeAgent
 
 HOLDER = """
 import asyncio, signal, sys
 from pathlib import Path
-from botbox import Botbox, ClaudeAgent, reap
+from botbox import Botbox, ClaudeAgent
 
 home, moment = Path(sys.argv[1]), sys.argv[2]
 
@@ -94,31 +94,3 @@ def describe_sigterm() -> None:
                 await holder.wait()
         assert daemon.containers == []
         assert homes(temp) == []
-
-
-def describe_sigkill() -> None:
-    @pytest.mark.parametrize("moment", ["run", "session"])
-    async def it_leaves_the_run_for_the_next_sweep(
-        box: Botbox,  # noqa: ARG001
-        tmp_path: Path,
-        daemon: Daemon,
-        temp: Path,
-        moment: str,
-    ) -> None:
-        holder = await hold(tmp_path, temp, moment)
-        try:
-            await daemon.hanging()
-            assert await reap() == []
-            assert len(daemon.containers) == 2
-            holder.kill()
-            await holder.wait()
-            [home] = homes(temp)
-            assert (home / "home" / ".claude" / ".credentials.json").exists()
-            assert await reap() == [token(daemon)]
-            await daemon.hung_clients_gone()
-        finally:
-            if holder.returncode is None:
-                holder.kill()
-                await holder.wait()
-        assert daemon.containers == []
-        assert list(runs(temp).iterdir()) == []

@@ -431,16 +431,6 @@ def claim(scratch: Path, steps: list[str]) -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def reap(steps: list[str]) -> Iterator[Mock]:
-    async def reap() -> list[str]:
-        steps.append("reap")
-        return []
-
-    with patch("botbox.Botbox.reap", autospec=True, side_effect=reap) as m:
-        yield m
-
-
-@pytest.fixture(autouse=True)
 def bind_mounts() -> Iterator[Mock]:
     with patch("botbox.Botbox.bind_mounts", autospec=True) as m:
         m.return_value = [("/src", "/home/user/src", "ro")]
@@ -612,17 +602,6 @@ def describe_run() -> None:
     async def it_claims_a_temp_home_named_after_the_run_token(runner: Mock, claim: Mock) -> None:
         await Botbox(runner).run("true")
         claim.assert_called_once_with(TOKEN)
-
-    async def it_reaps_dead_runs_after_checking_the_mounts_and_before_building(
-        runner: Mock, bind_mounts: Mock, steps: list[str]
-    ) -> None:
-        await Botbox(runner).run("true")
-        assert steps[0] == "reap"
-        bind_mounts.side_effect = ValueError("no such path")
-        steps.clear()
-        with pytest.raises(ValueError, match="no such path"):
-            await Botbox(runner).run("true")
-        assert steps == []
 
     async def it_stages_the_credentials_into_a_fresh_home(runner: Mock, scratch: Path) -> None:
         await Botbox(runner).run("true")
@@ -1026,11 +1005,10 @@ def describe_session() -> None:
         docker_build.assert_not_called()
 
     async def it_stages_a_home_named_after_the_run_token_and_locks_it_down(
-        talker: Mock, claim: Mock, lockdown: Mock, scratch: Path, steps: list[str]
+        talker: Mock, claim: Mock, lockdown: Mock, scratch: Path
     ) -> None:
         async with Botbox(talker, allow=["registry.npmjs.org"]).session():
             pass
-        assert steps[0] == "reap"
         claim.assert_called_once_with(TOKEN)
         assert (scratch / "home" / ".credentials").read_text() == "token"
         lockdown.assert_called_once_with(
@@ -1338,8 +1316,8 @@ def file_run(docker_run: Mock, steps: list[str]) -> Mock:
 
 
 @pytest.fixture
-def setup_failures(runner: Mock, reap: Mock, docker_build: Mock, lockdown: Mock) -> dict[str, Mock]:
-    return {"reap": reap, "build": docker_build, "staging": runner.stage_auth, "proxy": lockdown}
+def setup_failures(runner: Mock, docker_build: Mock, lockdown: Mock) -> dict[str, Mock]:
+    return {"build": docker_build, "staging": runner.stage_auth, "proxy": lockdown}
 
 
 def describe_run_output() -> None:
@@ -1417,7 +1395,7 @@ def describe_run_output() -> None:
         assert (tmp_path / "keep").read_text() == "keep"
 
     async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
-        runner: Mock, reap: Mock, docker_build: Mock, tmp_path: Path
+        runner: Mock, docker_build: Mock, tmp_path: Path
     ) -> None:
         output = tmp_path / "a:b"
         output.mkdir()
@@ -1426,10 +1404,9 @@ def describe_run_output() -> None:
             await Botbox(runner).run("true", output=output)
         assert (output / "stdout.txt").read_text() == "previous"
         assert not (output / "transcripts").exists()
-        reap.assert_not_called()
         docker_build.assert_not_called()
 
-    @pytest.mark.parametrize("phase", ["reap", "build", "staging", "proxy"])
+    @pytest.mark.parametrize("phase", ["build", "staging", "proxy"])
     async def it_clears_previous_streams_before_setup_can_fail(
         runner: Mock,
         setup_failures: dict[str, Mock],
