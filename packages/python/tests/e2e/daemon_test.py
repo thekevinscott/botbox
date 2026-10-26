@@ -59,6 +59,8 @@ def pump(source: socket.socket, sink: socket.socket) -> None:
     try:
         while data := source.recv(65536):
             sink.sendall(data)
+        # Pass a half-close on: the credential sidecar's attached stdin ends with one.
+        sink.shutdown(socket.SHUT_WR)
     except OSError:
         pass
 
