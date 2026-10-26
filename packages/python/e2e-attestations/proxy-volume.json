@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest -rs tests/e2e/run_test.py tests/e2e/daemon_test.py tests/e2e/network_test.py tests/e2e/home_test.py",
-  "ran_at": 1792988096,
+  "ran_at": 1792989225,
   "exit_code": 0,
-  "commit": "0a4c880fff6baa517bd934d31e7aa039df5026eb",
+  "commit": "143ce4f44d5b2588b403ab9b6e784f08f18cd089",
   "branch": "proxy-volume"
 }
