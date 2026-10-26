@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/home_test.py tests/e2e/user_test.py tests/e2e/credential_relay_test.py tests/e2e/api_key_test.py tests/e2e/session_test.py tests/e2e/session_artifacts_test.py tests/e2e/login_injection_test.py tests/e2e/pi_openrouter_test.py",
-  "ran_at": 1793049265,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/home_test.py tests/e2e/user_test.py tests/e2e/credential_relay_test.py tests/e2e/api_key_test.py tests/e2e/session_test.py tests/e2e/session_artifacts_test.py tests/e2e/login_injection_test.py tests/e2e/codex_test.py -k 'not describe_a_codex_run_on_the_host_login and not (describe_a_session and not claude)'",
+  "ran_at": 1793050441,
   "exit_code": 0,
-  "commit": "d1c7c200bbc1ef49dda5bf0da03328d70f484496",
+  "commit": "b42f5ef68db8899cc45f84cb2518df53b260a800",
   "branch": "home-in-container"
 }
