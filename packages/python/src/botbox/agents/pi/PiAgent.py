@@ -128,6 +128,6 @@ class PiAgent:
             models = self.credential_source.models(host if staged else None)
             (destination / MODELS).write_text(models)
             return
+        # A custom provider is defined in models.json, so __init__ found one.
         shutil.copy(self.host_home / AUTH, destination / AUTH)
-        if (self.host_home / MODELS).is_file():
-            shutil.copy(self.host_home / MODELS, destination / MODELS)
+        shutil.copy(self.host_home / MODELS, destination / MODELS)

@@ -66,14 +66,15 @@ class OpenRouterKey:
 
 
 def _without_secrets(models: Any) -> Any:
+    """`models`, a list or a dict of model entries, with each entry's `MODEL_SECRETS` dropped."""
+
+    def strip(entry: Any) -> Any:
+        if not isinstance(entry, dict):
+            return entry
+        return {k: v for k, v in entry.items() if k not in MODEL_SECRETS}
+
     if isinstance(models, list):
-        return [_strip(model) for model in models]
+        return [strip(entry) for entry in models]
     if isinstance(models, dict):
-        return {name: _strip(model) for name, model in models.items()}
+        return {name: strip(entry) for name, entry in models.items()}
     return models
-
-
-def _strip(model: Any) -> Any:
-    if not isinstance(model, dict):
-        return model
-    return {k: v for k, v in model.items() if k not in MODEL_SECRETS}
