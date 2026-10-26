@@ -25,6 +25,26 @@ class Image:
         result: dict[str, Any] = details
         return result
 
+    async def create(
+        self,
+        *command: str,
+        name: str,
+        labels: Mapping[str, str] | None = None,
+        user: str | None = None,
+        mounts: Sequence[Mount] = (),
+    ) -> Container:
+        """Create a container `name` to run `command` without starting it, and return it.
+
+        The options are `docker create`'s flags of the same names.
+        """
+        flags = [
+            *(flag for item in (labels or {}).items() for flag in ("--label", "=".join(item))),
+            *(["--user", user] if user is not None else []),
+            *(arg for mount in mounts for arg in mount.flag),
+        ]
+        await run_docker("create", "--name", name, *flags, self.tag, *command)
+        return Container(name)
+
     async def run(  # noqa: PLR0913
         self,
         *command: str,

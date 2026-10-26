@@ -48,6 +48,7 @@ class Volume:
             elif error is None:
                 raise
 
-    def mount(self, target: str, *, read_only: bool = False) -> Mount:
-        """This volume mounted at `target` in a container, for `Image.run`'s `mounts`."""
-        return Mount("volume", self.name, target, read_only)
+    def mount(self, target: str, *, read_only: bool = False, subpath: str | None = None) -> Mount:
+        """This volume, or its directory `subpath`, mounted at `target` in a container, for
+        `Image.run`'s `mounts`."""
+        return Mount("volume", self.name, target, read_only, subpath)

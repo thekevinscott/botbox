@@ -68,6 +68,35 @@ def describe_Image() -> None:
         assert await Image("x:latest").inspect() == {"Id": "sha256:abc"}
         run_docker.assert_awaited_once_with("image", "inspect", "--format", "json", "x:latest")
 
+    def describe_create() -> None:
+        async def it_creates_a_named_container_without_starting_it(run_docker: AsyncMock) -> None:
+            container = await Image("img").create(name="box")
+            run_docker.assert_awaited_once_with("create", "--name", "box", "img")
+            assert container.name == "box"
+            assert container.client is None
+
+        async def it_passes_labels_user_and_mounts(run_docker: AsyncMock) -> None:
+            await Image("img").create(
+                "true",
+                name="box",
+                labels={"a": "1"},
+                user="1:2",
+                mounts=[Mock(flag=("--mount", "type=volume,source=v,target=/s"))],
+            )
+            run_docker.assert_awaited_once_with(
+                "create",
+                "--name",
+                "box",
+                "--label",
+                "a=1",
+                "--user",
+                "1:2",
+                "--mount",
+                "type=volume,source=v,target=/s",
+                "img",
+                "true",
+            )
+
     def describe_run() -> None:
         async def it_returns_the_started_container_with_its_client(
             calls: list[dict[str, Any]], release: asyncio.Event
@@ -111,7 +140,7 @@ def describe_Image() -> None:
                 labels={"a": "1"},
                 user="1:2",
                 env={"K": "v"},
-                mounts=[Mock(volume_flag="vol:/run:ro")],
+                mounts=[Mock(flag=("--volume", "vol:/run:ro"))],
                 tmpfs=["/t"],
                 workdir="/w",
                 network="none",

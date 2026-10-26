@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from adocker.utils import Sink, Stream, run_docker
@@ -51,6 +52,14 @@ class Container:
         )
         result: dict[str, Any] = details
         return result
+
+    async def copy_in(self, source: Path, target: str) -> None:
+        """Copy host path `source` to `target` in it, running or not, keeping modes.
+
+        What it copies is owned by the container's user. A volume mounted at or above `target`
+        receives it, even before the container has started.
+        """
+        await run_docker("cp", "--archive", str(source), f"{self.name}:{target}")
 
     async def exec(
         self,

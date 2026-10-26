@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -44,6 +45,10 @@ def describe_Container() -> None:
         run_docker.return_value = '[{"State": {"Status": "exited"}}]'
         assert await Container("box").inspect() == {"State": {"Status": "exited"}}
         run_docker.assert_awaited_once_with("container", "inspect", "--format", "json", "box")
+
+    async def it_copies_a_host_path_in_keeping_modes(run_docker: AsyncMock) -> None:
+        await Container("box").copy_in(Path("/tmp/home"), "/stage/home")
+        run_docker.assert_awaited_once_with("cp", "--archive", "/tmp/home", "box:/stage/home")
 
     def describe_wait() -> None:
         async def it_reads_the_exit_code_docker_wait_prints(run_docker: AsyncMock) -> None:

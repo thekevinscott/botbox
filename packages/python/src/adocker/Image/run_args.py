@@ -37,7 +37,7 @@ def run_args(  # noqa: PLR0913
         *(("--label", f"{key}={value}") for key, value in labels.items()),
         ("--user", user),
         *(("--env", f"{key}={value}") for key, value in env.items()),
-        *(("--volume", mount.volume_flag) for mount in mounts),
+        *(mount.flag for mount in mounts),
         *(("--tmpfs", mount) for mount in tmpfs),
         ("--workdir", workdir),
         ("--network", network),
