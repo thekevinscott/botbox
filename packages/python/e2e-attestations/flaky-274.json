@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/daemon_test.py",
+  "ran_at": 1793045761,
+  "exit_code": 0,
+  "commit": "aa28eec59551e374b4729040a83ed0f55315131a",
+  "branch": "flaky-274"
+}
