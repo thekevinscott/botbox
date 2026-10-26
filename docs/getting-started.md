@@ -14,23 +14,27 @@ You need Docker, and Claude Code logged in on the host. To use an API key instea
 
 ```python
 import asyncio
+from pathlib import Path
 
 from botbox import Botbox, ClaudeAgent
 
 
 async def main() -> None:
     agent = ClaudeAgent(model="claude-opus-5", effort="high")
+    output = Path("runs/first")
     async with Botbox(agent) as box:
         result = await box.run(
             command=agent.command("Make the failing tests pass please"),
+            output=output, # stdout.txt, stderr.txt, proxy.log and transcripts/ land here.
             mounts=[
                 ("./tests", "/tests", "ro"),
                 ("./work", "/work", "rw"),
             ],
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
-    print(result.stdout)
-    print(result.proxy)
+    print(result.exit_code)
+    print((output / "stdout.txt").read_text())
+    print((output / "proxy.log").read_text())
 
 
 asyncio.run(main())
@@ -40,7 +44,7 @@ The API is asyncio. From sync code, wrap each call in `asyncio.run(...)`.
 
 ## What came back
 
-`result.stdout` is the CLI's output. `result.proxy` is every connection the agent made, admitted or refused.
+`result.exit_code` is the CLI's exit code. In `runs/first/`, `stdout.txt` is the CLI's output, `proxy.log` is every connection the agent made, admitted or refused, and `transcripts/` holds the agent's session files.
 
 ## Next steps
 

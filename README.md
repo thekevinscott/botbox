@@ -15,7 +15,7 @@ An experiment that puts an agent in a box needs five things:
 2. **No capabilities, no privilege escalation.** `--cap-drop ALL`, `no-new-privileges`, no setuid binaries.
 3. **Network only to an allowlist.** No network access beyond the whitelist.
 4. **Mounted directories.** Read-only or read-write.
-5. **Logs available.** The agent's transcript and the proxy's log come back on the result.
+5. **Logs available.** The agent's output, transcripts and the proxy's log are written to a folder you choose.
 
 The Python SDK is the public API.
 
@@ -38,30 +38,34 @@ Requires Docker.
 
 ```python
 import asyncio
+from pathlib import Path
 
 from botbox import Botbox, ClaudeAgent
 
 
 async def main() -> None:
     agent = ClaudeAgent(model="claude-opus-5", effort="high")
+    output = Path("runs/first")
     async with Botbox(agent) as box:
         result = await box.run(
             command=agent.command("Make the failing tests pass please"),
+            output=output, # stdout.txt, stderr.txt, proxy.log and transcripts/ land here.
             mounts=[
                 ("./tests", "/tests", "ro"),
                 ("./work", "/work", "rw"),
             ],
             workdir="/work", # optional; where the command starts. Must be a mounted path.
         )
-    print(result.stdout)
-    print(result.proxy)
+    print(result.exit_code)
+    print((output / "stdout.txt").read_text())
+    print((output / "proxy.log").read_text())
 
 
 asyncio.run(main())
 ```
 
 
-`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command, reads the transcript and proxy log out, deletes the temporary home, stops the proxy, and returns.
+`run()` builds the image, starts a proxy sidecar, stages your credentials into a temporary home directory, runs the command with its output, transcripts and proxy log written to `output`, deletes the temporary home, stops the proxy, and returns.
 
 The API is asyncio. A sync caller wraps each call in `asyncio.run(...)`.
 
@@ -87,6 +91,7 @@ Botbox(agent: Agent, *, dockerfile: str | Path | None = None, allow: Sequence[st
 await box.run(
     command: str,
     *,
+    output: str | Path | None = None,
     mounts: Sequence[tuple[str | Path, str | Path, Literal["ro", "rw"]]] = (),
     workdir: str | Path | None = None,
 ) -> RunResult
@@ -95,6 +100,7 @@ await box.run(
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
+| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, those come back on the result. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
@@ -135,7 +141,7 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. After the command exits, transcript files are read into `result.transcript` and the temporary home is deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, transcript files are read into `result.transcript` after the command exits. The temporary home is then deleted.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 
@@ -157,7 +163,7 @@ The container runs with `--network none`. The only way out is a unix socket to a
 Botbox(ClaudeAgent(), allow=["registry.npmjs.org"])
 ```
 
-Every connection, admitted or refused, is logged to `result.proxy`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
+Every connection, admitted or refused, is logged to `output/proxy.log`, or to `result.proxy` without `output`. The proxy is per run and removed afterwards, including on failure. Tested on Linux only.
 
 ### Commands
 
@@ -214,7 +220,7 @@ Renders the agent's CLI invocation for a prompt: `claude -p <prompt> --output-fo
 
 ```python
 agent = ClaudeAgent(model="claude-opus-5", effort="high")
-await box.run(agent.command("Fix the tests"))
+await box.run(agent.command("Fix the tests"), output="runs/fix")
 ```
 
 ## Sample consumer Dockerfile extension
@@ -246,7 +252,8 @@ box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
 result = await box.run(
     command=agent.command(prompt),
-    mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
+    output=output,
+    mounts=[(source, "/input", "ro"), (target, "/target", "rw")],
     workdir="/target",
 )
 ```

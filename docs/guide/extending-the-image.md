@@ -51,7 +51,8 @@ box = Botbox(agent, dockerfile=Path(__file__).parent / "Dockerfile")
 
 result = await box.run(
     command=agent.command(prompt),
-    mounts=[(source, "/input", "ro"), (output, "/target", "rw")],
+    output=output,
+    mounts=[(source, "/input", "ro"), (target, "/target", "rw")],
     workdir="/target",
 )
 ```

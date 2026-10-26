@@ -1,28 +1,33 @@
 # Reading the result
 
-`run()` returns a `RunResult` with `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, and `image`. Nothing is parsed.
+Pass `run()` an `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`.
+
+```text
+runs/first/
+  stdout.txt
+  stderr.txt
+  proxy.log
+  transcripts/
+```
+
+`run()` returns a `RunResult`. Nothing is parsed. With `output`, its `stdout`, `stderr`, `transcript` and `proxy` are empty; read the files instead.
 
 ## Check the exit code
 
-A non-zero exit is a normal `RunResult`, not an exception. API errors inside the container show up in `exit_code` and `stderr`.
+A non-zero exit is a normal `RunResult`, not an exception. API errors inside the container show up in `exit_code` and `stderr.txt`.
 
 ```python
+from pathlib import Path
+
+output = Path("runs/first")
+result = await box.run(agent.command("Fix the failing test."), output=output)
 if result.exit_code != 0:
-    print(result.stderr)
+    print((output / "stderr.txt").read_text())
 ```
 
 ## Read the transcript
 
-`result.transcript` is a `dict[str, str]`: path relative to the agent's home → file contents.
-
-```python
-for path, contents in result.transcript.items():
-    print(path, len(contents))
-```
-
-With `run(output=...)`, the agent writes its transcripts straight into `output/transcripts/`
-and `result.transcript` is empty. Read them from disk. The agent wrote that folder, so skip
-symlinks: one can point at any host file you can read.
+The agent writes its transcripts straight into `output/transcripts/`. The agent wrote that folder, so skip symlinks: one can point at any host file you can read.
 
 ```python
 for path in sorted((output / "transcripts").rglob("*.jsonl")):
@@ -32,20 +37,27 @@ for path in sorted((output / "transcripts").rglob("*.jsonl")):
 
 ## Read the proxy log
 
-`result.proxy` is a `str`: every connection, admitted or refused.
+`proxy.log` holds every connection, admitted or refused.
 
 ```python
-print(result.proxy)
+print((output / "proxy.log").read_text())
 ```
 
-With `output=`, the log goes to `proxy.log` there instead and `result.proxy` is empty.
+## Without `output`
+
+Omit `output` and the streams, transcripts and proxy log come back on the result instead: `stdout` and `stderr` as text, `transcript` as a `dict[str, str]` of path relative to the agent's home → file contents, and `proxy` as text.
 
 ## Keep what the run wrote
 
 The container is removed once its exit code is read, along with anything written outside the mounts and the agent's home. To keep a file, have the command write it to a mount.
 
 ```python
-await box.run(agent.command("Write a report to /out"), mounts=[(out, "/out", "rw")], workdir="/out")
+await box.run(
+    agent.command("Write a report to /out"),
+    output="runs/report",
+    mounts=[(out, "/out", "rw")],
+    workdir="/out",
+)
 ```
 
 Next: the [`RunResult` page](../api/run-result) for every field, or [how a run works](../explanation/#a-run).
