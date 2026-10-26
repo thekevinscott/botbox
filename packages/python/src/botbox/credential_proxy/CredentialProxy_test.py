@@ -1,4 +1,3 @@
-import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -8,7 +7,13 @@ from unittest.mock import patch
 import pytest
 
 from botbox.credential_proxy.CredentialProxy import ROTATE, CredentialProxy
-from botbox.credential_proxy.envoy_config import SECRET_FILE
+
+
+class DockerException(Exception):
+    def __init__(self, docker_command: list[str], return_code: int, stderr: str) -> None:
+        super().__init__(stderr)
+        self.docker_command = docker_command
+        self.return_code = return_code
 
 
 class Execute:
@@ -27,6 +32,16 @@ class Execute:
         options["stderr"].release()
         await options["stderr"].eof
         return self.code
+
+
+@pytest.fixture(autouse=True)
+def collaborators() -> Iterator[None]:
+    with (
+        patch(f"{__package__}.CredentialProxy.SECRET_FILE", "/secrets/s.json"),
+        patch(f"{__package__}.CredentialProxy.sds_secret", lambda value: f"sds {value}".encode()),
+        patch(f"{__package__}.CredentialProxy.DockerException", DockerException),
+    ):
+        yield
 
 
 @pytest.fixture(autouse=True)
@@ -53,11 +68,10 @@ def describe_CredentialProxy() -> None:
                 "-c",
                 ROTATE,
                 "sh",
-                SECRET_FILE,
+                "/secrets/s.json",
             ]
-            assert 'mv "$1.next" "$1"' in ROTATE
-            (resource,) = json.loads(execute.stdin)["resources"]
-            assert resource["generic_secret"]["secret"]["inline_string"] == "Bearer two"
+            assert ROTATE == 'cat >"$1.next" && mv "$1.next" "$1"'
+            assert execute.stdin == b"sds Bearer two"
 
         async def it_closes_the_pipe(execute: Execute) -> None:
             await CredentialProxy("p", Path("/s")).rotate("v")
@@ -66,7 +80,7 @@ def describe_CredentialProxy() -> None:
 
         async def it_raises_with_what_docker_said(execute: Execute) -> None:
             execute.code, execute.stderr = 1, b"No such container: p"
-            with pytest.raises(Exception, match="No such container: p") as error:
+            with pytest.raises(DockerException, match="No such container: p") as error:
                 await CredentialProxy("p", Path("/s")).rotate("v")
-            assert error.value.return_code == 1  # type: ignore[attr-defined]
-            assert error.value.docker_command[:3] == ["docker", "exec", "--interactive"]  # type: ignore[attr-defined]
+            assert error.value.return_code == 1
+            assert error.value.docker_command[:3] == ["docker", "exec", "--interactive"]
