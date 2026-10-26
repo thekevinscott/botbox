@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest -p no:warnings tests/e2e/docker_test.py tests/e2e/user_test.py tests/e2e/sigterm_test.py tests/e2e/run_test.py tests/e2e/session_test.py tests/e2e/session_artifacts_test.py tests/e2e/teardown_test.py tests/e2e/credential_proxy_test.py tests/e2e/lockdown_test.py tests/e2e/daemon_test.py",
-  "ran_at": 1793023228,
+  "ran_at": 1793024984,
   "exit_code": 0,
-  "commit": "eb8e433f870cc0ef63cf3fa68318518812e46465",
+  "commit": "054d337ed33bb84efaa4ef405a189bbaa8517228",
   "branch": "adocker-objects"
 }
