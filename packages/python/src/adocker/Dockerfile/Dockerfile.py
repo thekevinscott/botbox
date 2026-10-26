@@ -1,8 +1,8 @@
 from collections.abc import Mapping
 from pathlib import Path
 
-from adocker.Image import Image
-from adocker.run_docker import run_docker
+from adocker.Image.Image import Image
+from adocker.utils.run_docker import run_docker
 
 
 class Dockerfile:

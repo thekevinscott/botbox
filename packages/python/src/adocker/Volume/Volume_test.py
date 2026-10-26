@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
-from adocker.Volume import REMOVE_SECONDS, Volume
+from adocker.Volume.Volume import REMOVE_SECONDS, Volume
 
 CREATE = call("volume", "create", "--label", "botbox.run=x", "v")
 REMOVE = call("volume", "rm", "--force", "v")
@@ -13,8 +13,8 @@ REMOVE = call("volume", "rm", "--force", "v")
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
     with (
-        patch("adocker.Volume.run_docker", autospec=True) as m,
-        patch("adocker.remove_volume.run_docker", m),
+        patch("adocker.Volume.Volume.run_docker", autospec=True) as m,
+        patch("adocker.Volume.remove_volume.run_docker", m),
     ):
         yield m
 
@@ -134,5 +134,10 @@ def describe_Volume() -> None:
 
     def it_mounts_by_name_read_write_unless_told() -> None:
         volume = Volume("v", labels={"botbox.run": "x"})
-        assert volume.mount("/run/x") == ("v", "/run/x", "rw")
-        assert volume.mount("/run/x", "ro") == ("v", "/run/x", "ro")
+        with patch("adocker.Volume.Volume.Mount", autospec=True) as mount:
+            assert volume.mount("/run/x") is mount.return_value
+            volume.mount("/run/y", read_only=True)
+        assert mount.call_args_list == [
+            call("volume", "v", "/run/x", False),
+            call("volume", "v", "/run/y", True),
+        ]

@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Container, Image
+from adocker import Container, Image, Mount
 from botbox.credential_proxy import Injection, envoy_config, sds_secret
 from botbox.credential_proxy.envoy_config import IMAGE, SECRET_DIR, SECRET_FILE
 from botbox.credential_proxy.stop_container import stop_container
@@ -91,7 +91,7 @@ def describe_stop_container() -> None:
             user="101:101",
             network="none",
             tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
-            mounts=[(str(sockets), "/run/botbox", "rw")],
+            mounts=[Mount("bind", str(sockets), "/run/botbox")],
         ) as container:
             await asyncio.wait_for(listening(sockets / "credentials.sock"), 60)
             for n in range(3):

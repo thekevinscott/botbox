@@ -42,6 +42,7 @@ def describe_adocker() -> None:
             "DockerException",
             "Dockerfile",
             "Image",
+            "Mount",
             "Volume",
         ]
         assert all(inspect.isclass(getattr(adocker, name)) for name in adocker.__all__)

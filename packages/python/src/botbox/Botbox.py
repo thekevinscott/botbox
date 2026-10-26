@@ -11,6 +11,7 @@ from typing import Any, Self, cast
 from uuid import uuid4
 
 from adocker import Dockerfile, Image
+from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents.agent import Agent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
@@ -334,7 +335,14 @@ class Botbox:
         return {
             "labels": {"botbox.run": token},
             "env": {"HOME": agent.home, **jail.envs},
-            "mounts": [(str(home), agent.home, "rw"), (jail.volume, SOCKET_DIR, "ro"), *volumes],
+            "mounts": [
+                DockerMount("bind", str(home), agent.home),
+                DockerMount("volume", jail.volume, SOCKET_DIR, read_only=True),
+                *(
+                    DockerMount("bind", source, target, mode == "ro")
+                    for source, target, mode in volumes
+                ),
+            ],
             "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
             "network": "none",
             "pid": f"container:{jail.proxy}",

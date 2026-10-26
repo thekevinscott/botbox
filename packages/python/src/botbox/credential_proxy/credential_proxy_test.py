@@ -1,6 +1,7 @@
 import asyncio
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -8,6 +9,21 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from botbox.credential_proxy.credential_proxy import credential_proxy
+
+
+@dataclass(frozen=True)
+class FakeMount:
+    kind: str
+    source: str
+    target: str
+    read_only: bool = False
+
+
+@pytest.fixture(autouse=True)
+def fake_mount() -> Iterator[None]:
+    with patch("botbox.credential_proxy.credential_proxy.Mount", FakeMount):
+        yield
+
 
 MODULE = f"{__package__}.credential_proxy"
 INJECTION = object()
@@ -154,7 +170,7 @@ def describe_credential_proxy() -> None:
             "cap_drop": ["ALL"],
             "security_opt": ["no-new-privileges"],
             "tmpfs": ["/secrets:uid=101,gid=101,mode=0700"],
-            "mounts": [(str(sockets), "/run/botbox", "rw")],
+            "mounts": [FakeMount("bind", str(sockets), "/run/botbox")],
             "entrypoint": "sh",
         }
         assert client.options["stdout"] is client.options["stderr"]

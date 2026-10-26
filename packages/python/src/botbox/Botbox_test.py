@@ -2,7 +2,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
@@ -10,6 +10,21 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 import pytest
 
 from botbox.Botbox import STDERR_BYTES, Botbox
+
+
+@dataclass(frozen=True)
+class FakeMount:
+    kind: str
+    source: str
+    target: str
+    read_only: bool = False
+
+
+@pytest.fixture(autouse=True)
+def fake_mount() -> Iterator[None]:
+    with patch("botbox.Botbox.DockerMount", FakeMount):
+        yield
+
 
 AGENT_STEP = Mock(
     context=Path("/agents"),
@@ -655,9 +670,9 @@ def describe_run() -> None:
         ) -> None:
             await Botbox(runner).run("true")
             assert docker_run.call_args.kwargs["mounts"] == [
-                (str(scratch / "home"), "/home/user", "rw"),
-                ("botbox-run-0123456789ab", "/run/botbox", "ro"),
-                ("/src", "/home/user/src", "ro"),
+                FakeMount("bind", str(scratch / "home"), "/home/user"),
+                FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
+                FakeMount("bind", "/src", "/home/user/src", read_only=True),
             ]
 
         async def it_works_in_the_home_by_default(runner: Mock, docker_run: Mock) -> None:
@@ -1013,9 +1028,9 @@ def describe_session() -> None:
             }
             assert options["workdir"] == "/home/user/src"
             assert options["mounts"] == [
-                (str(scratch / "home"), "/home/user", "rw"),
-                ("botbox-run-0123456789ab", "/run/botbox", "ro"),
-                ("/src", "/home/user/src", "ro"),
+                FakeMount("bind", str(scratch / "home"), "/home/user"),
+                FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
+                FakeMount("bind", "/src", "/home/user/src", read_only=True),
             ]
 
     def describe_failure() -> None:
@@ -1194,7 +1209,9 @@ def describe_session() -> None:
             options = session_options(hold_session)
             assert (options["scratch"], options["output"]) == (scratch, tmp_path)
             lockdown.assert_called_once_with(("api.anthropic.com",), scratch, TOKEN, tmp_path)
-            transcripts = (str(tmp_path / "transcripts"), "/home/user/.claude/projects", "rw")
+            transcripts = FakeMount(
+                "bind", str(tmp_path / "transcripts"), "/home/user/.claude/projects"
+            )
             assert options["mounts"][-1] == transcripts
             assert (scratch / "home" / ".claude" / "projects").is_dir()
 
@@ -1269,10 +1286,10 @@ def describe_run_output() -> None:
         file_run.side_effect = attached
         await Botbox(runner).run("true", output=output)
         assert file_run.call_args.kwargs["mounts"] == [
-            (str(home), "/home/user", "rw"),
-            ("botbox-run-0123456789ab", "/run/botbox", "ro"),
-            ("/src", "/home/user/src", "ro"),
-            (str(output / "transcripts"), "/home/user/.claude/projects", "rw"),
+            FakeMount("bind", str(home), "/home/user"),
+            FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
+            FakeMount("bind", "/src", "/home/user/src", read_only=True),
+            FakeMount("bind", str(output / "transcripts"), "/home/user/.claude/projects"),
         ]
         files = {p.name for p in output.iterdir()}
         assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}

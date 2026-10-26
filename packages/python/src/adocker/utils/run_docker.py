@@ -3,7 +3,7 @@ import os
 from tempfile import TemporaryFile
 
 from adocker.DockerException import DockerException
-from adocker.execute import Stream, execute
+from adocker.utils.execute import Stream, execute
 
 STDERR_LIMIT = 64 * 1024
 

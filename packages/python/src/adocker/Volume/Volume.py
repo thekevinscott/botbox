@@ -1,10 +1,10 @@
 from collections.abc import Callable, Mapping
 from types import TracebackType
 
-from adocker.remove_volume import remove_volume
-from adocker.run_args import Mount
-from adocker.run_docker import run_docker
-from adocker.settle import settle
+from adocker.Mount.Mount import Mount
+from adocker.utils.run_docker import run_docker
+from adocker.utils.settle import settle
+from adocker.Volume.remove_volume import remove_volume
 
 REMOVE_SECONDS = 30
 
@@ -49,6 +49,6 @@ class Volume:
             elif error is None:
                 raise
 
-    def mount(self, target: str, mode: str = "rw") -> Mount:
+    def mount(self, target: str, *, read_only: bool = False) -> Mount:
         """This volume mounted at `target` in a container, for `Image.run`'s `mounts`."""
-        return (self.name, target, mode)
+        return Mount("volume", self.name, target, read_only)

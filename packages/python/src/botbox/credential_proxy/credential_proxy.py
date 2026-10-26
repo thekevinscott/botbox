@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
-from adocker import Image
+from adocker import Image, Mount
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
 from botbox.credential_proxy.envoy_config import (
     IMAGE,
@@ -71,7 +71,7 @@ async def credential_proxy(  # noqa: PLR0913
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges"],
                 tmpfs=[f"{SECRET_DIR}:uid=101,gid=101,mode=0700"],
-                mounts=[(str(sockets), SOCKET_DIR, "rw")],
+                mounts=[Mount("bind", str(sockets), SOCKET_DIR)],
                 entrypoint="sh",
             )
             try:

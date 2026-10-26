@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 
-type Mount = tuple[str, str, str]
+from adocker.Mount.Mount import Mount
 
 
 def run_args(  # noqa: PLR0913
@@ -37,7 +37,7 @@ def run_args(  # noqa: PLR0913
         *(("--label", f"{key}={value}") for key, value in labels.items()),
         ("--user", user),
         *(("--env", f"{key}={value}") for key, value in env.items()),
-        *(("--volume", ":".join(mount)) for mount in mounts),
+        *(("--volume", mount.volume_flag) for mount in mounts),
         *(("--tmpfs", mount) for mount in tmpfs),
         ("--workdir", workdir),
         ("--network", network),

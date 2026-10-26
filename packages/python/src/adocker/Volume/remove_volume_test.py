@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from adocker.remove_volume import remove_volume
+from adocker.Volume.remove_volume import remove_volume
 
 
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("adocker.remove_volume.run_docker", autospec=True) as m:
+    with patch("adocker.Volume.remove_volume.run_docker", autospec=True) as m:
         yield m
 
 

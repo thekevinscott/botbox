@@ -1,6 +1,6 @@
 import os
 
-from adocker.StdinPipe import StdinPipe
+from adocker.Image.StdinPipe import StdinPipe
 
 
 def describe_StdinPipe() -> None:

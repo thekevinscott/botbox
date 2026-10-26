@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from adocker.execute import CHUNK_BYTES, execute
+from adocker.utils.execute import CHUNK_BYTES, execute
 
 PIPE = asyncio.subprocess.PIPE
 
@@ -71,7 +71,7 @@ def spawn(
             raise
         exits.append(None)
 
-    with patch("adocker.execute.spawn", side_effect=spawned) as m:
+    with patch("adocker.utils.execute.spawn", side_effect=spawned) as m:
         yield m
 
 

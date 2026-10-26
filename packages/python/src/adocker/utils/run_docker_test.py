@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from adocker.run_docker import STDERR_LIMIT, run_docker
+from adocker.utils.run_docker import STDERR_LIMIT, run_docker
 
 
 class DockerException(Exception):
@@ -17,7 +17,7 @@ class DockerException(Exception):
 
 @pytest.fixture(autouse=True)
 def docker_exception() -> Iterator[None]:
-    with patch("adocker.run_docker.DockerException", DockerException):
+    with patch("adocker.utils.run_docker.DockerException", DockerException):
         yield
 
 
@@ -47,7 +47,7 @@ def execute(output: list[bytes], code: list[int], files: list[IO[bytes]]) -> Ite
         stderr.write(output[1])
         return code[0]
 
-    with patch("adocker.run_docker.execute", autospec=True, side_effect=write) as m:
+    with patch("adocker.utils.run_docker.execute", autospec=True, side_effect=write) as m:
         yield m
 
 

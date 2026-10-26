@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from adocker.StdinPipe import HELD, StdinPipe, close_held
+from adocker.Image.StdinPipe import HELD, StdinPipe, close_held
 
 
 def open_fds() -> set[str]:

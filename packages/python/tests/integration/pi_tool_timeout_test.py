@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Container, Image
+from adocker import Container, Image, Mount
 from botbox import Botbox, PiAgent
 
 FAKE_MODEL = Path(__file__).with_name("fake_model_test.py")
@@ -35,7 +35,7 @@ async def bash_call(image: str, arguments: dict[str, Any]) -> tuple[dict[str, An
             stderr=err.extend,
             network="none",
             env={"BOTBOX_TOOL_TIMEOUT": "2"},
-            mounts=[(str(FAKE_MODEL), "/fake/model.py", "ro")],
+            mounts=[Mount("bind", str(FAKE_MODEL), "/fake/model.py", read_only=True)],
             entrypoint="python3",
         )
         code = await container.wait()

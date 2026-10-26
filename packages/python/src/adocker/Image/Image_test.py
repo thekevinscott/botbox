@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from adocker.Image import Image, attach
+from adocker.Image.Image import Image, attach
 
 DEVNULL = asyncio.subprocess.DEVNULL
 PIPE = asyncio.subprocess.PIPE
@@ -13,7 +13,7 @@ PIPE = asyncio.subprocess.PIPE
 
 @pytest.fixture
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("adocker.Image.run_docker", autospec=True) as m:
+    with patch("adocker.Image.Image.run_docker", autospec=True) as m:
         yield m
 
 
@@ -36,7 +36,7 @@ def execute(calls: list[dict[str, Any]], release: asyncio.Event) -> Iterator[Asy
         await release.wait()
         return 3
 
-    with patch("adocker.Image.execute", autospec=True, side_effect=client) as m:
+    with patch("adocker.Image.Image.execute", autospec=True, side_effect=client) as m:
         yield m
 
 
@@ -51,7 +51,7 @@ class StdinPipe:
 
 @pytest.fixture(autouse=True)
 def stdin_pipe() -> Iterator[type[StdinPipe]]:
-    with patch("adocker.Image.StdinPipe", StdinPipe):
+    with patch("adocker.Image.Image.StdinPipe", StdinPipe):
         yield StdinPipe
 
 
@@ -111,7 +111,7 @@ def describe_Image() -> None:
                 labels={"a": "1"},
                 user="1:2",
                 env={"K": "v"},
-                mounts=[("vol", "/run", "ro")],
+                mounts=[Mock(volume_flag="vol:/run:ro")],
                 tmpfs=["/t"],
                 workdir="/w",
                 network="none",
@@ -243,7 +243,7 @@ def describe_attach() -> None:
         pipe = StdinPipe()
         started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         with (
-            patch("adocker.Image.execute", AsyncMock(side_effect=OSError("boom"))),
+            patch("adocker.Image.Image.execute", AsyncMock(side_effect=OSError("boom"))),
             pytest.raises(OSError, match="boom"),
         ):
             await attach(["run"], pipe, None, None, started)  # type: ignore[arg-type]
@@ -251,7 +251,7 @@ def describe_attach() -> None:
 
     async def it_passes_a_plain_stdin_through() -> None:
         started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        with patch("adocker.Image.execute", AsyncMock(return_value=0)) as execute:
+        with patch("adocker.Image.Image.execute", AsyncMock(return_value=0)) as execute:
             assert await attach(["run"], 9, None, None, started) == 0
         execute.assert_awaited_once_with(
             ["run"], stdin=9, stdout=DEVNULL, stderr=DEVNULL, started=started

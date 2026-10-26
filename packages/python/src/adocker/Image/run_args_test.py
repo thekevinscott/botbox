@@ -1,6 +1,7 @@
 from typing import Any
+from unittest.mock import Mock
 
-from adocker.run_args import run_args
+from adocker.Image.run_args import run_args
 
 NONE: dict[str, Any] = {
     "name": "box",
@@ -44,7 +45,10 @@ def describe_run_args() -> None:
             "labels": {"a": "1", "b": "2"},
             "user": "1:2",
             "env": {"HOME": "/h", "X": "y=z"},
-            "mounts": [("/src", "/dst", "ro"), ("vol", "/run", "rw")],
+            "mounts": [
+                Mock(volume_flag="/src:/dst:ro"),
+                Mock(volume_flag="vol:/run:rw"),
+            ],
             "tmpfs": ["/t:mode=0700"],
             "workdir": "/w",
             "network": "none",
