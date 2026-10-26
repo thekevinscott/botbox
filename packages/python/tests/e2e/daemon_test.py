@@ -9,7 +9,6 @@ removes what botbox could not.
 
 import asyncio
 import socket
-import subprocess
 import tempfile
 import threading
 import time
@@ -18,7 +17,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
-from conftest import docker_lines, leftovers
+from run_test import Runs
 
 from botbox import Botbox, DockerException
 
@@ -65,12 +64,11 @@ def pump(source: socket.socket, sink: socket.socket) -> None:
         pass
 
 
-def cut_when_running(relay: Relay) -> None:
+def cut_when_running(relay: Relay, runs: Runs) -> None:
     """Cut the relay once the agent container is up and its output is being followed."""
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
-        running = docker_lines("ps", "--filter", "ancestor=botbox-claude:latest", "-q")
-        if running:
+        if runs.running_agents():
             time.sleep(2)
             relay.cut()
             return
@@ -83,15 +81,20 @@ def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def raised(box: Botbox, output: Path) -> Iterator[DockerException]:
-    before = leftovers()
+def raised(
+    box: Botbox, output: Path, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[DockerException]:
+    # Only this run's containers: other runs and tests on the host use the same image and prefix.
+    temp = tmp_path_factory.mktemp("tmp")
     with (
         tempfile.TemporaryDirectory(prefix="relay-") as directory,
         pytest.MonkeyPatch.context() as monkeypatch,
     ):
         relay = Relay(Path(directory) / "docker.sock")
+        monkeypatch.setattr(tempfile, "tempdir", str(temp))
+        runs = Runs(temp)
         monkeypatch.setenv("DOCKER_HOST", f"unix://{relay.path}")
-        threading.Thread(target=cut_when_running, args=(relay,), daemon=True).start()
+        threading.Thread(target=cut_when_running, args=(relay, runs), daemon=True).start()
         try:
             with (
                 pytest.warns(RuntimeWarning, match="^botbox could not remove"),
@@ -102,11 +105,7 @@ def raised(box: Botbox, output: Path) -> Iterator[DockerException]:
         finally:
             relay.cut()
             monkeypatch.delenv("DOCKER_HOST")
-            # Containers first: a network or volume cannot go while the proxy still uses it.
-            for kind in ("container", "network", "volume"):
-                for leftover in leftovers() - before:
-                    if leftover.startswith(f"{kind} "):
-                        subprocess.run(["docker", kind, "rm", "-f", leftover.split()[1]])
+            runs.clean()
 
 
 def describe_the_daemon_dying_mid_run() -> None:
