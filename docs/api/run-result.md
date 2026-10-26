@@ -2,7 +2,7 @@
 
 Nothing parsed.
 
-When [`run(output=...)`](./run) is used, `stdout`, `stderr` and `proxy` are empty strings
+When [`run(output=...)`](./run) or [`session(output=...)`](./session) is used, `stdout`, `stderr` and `proxy` are empty strings
 and `transcript` is empty; read `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/` in
 that directory instead. `exit_code` and `image` are unchanged.
 

@@ -42,6 +42,19 @@ def unreadable_transcript() -> Iterator[Mock]:
         yield read
 
 
+def followers(path: Path) -> list[str]:
+    """Processes still running with `path` on their command line."""
+    found = []
+    for proc in Path("/proc").iterdir():
+        try:
+            cmdline = (proc / "cmdline").read_bytes()
+        except OSError:
+            continue
+        if str(path).encode() in cmdline.split(b"\0"):
+            found.append(cmdline.replace(b"\0", b" ").decode(errors="replace"))
+    return found
+
+
 def describe_session() -> None:
     def describe_a_turn() -> None:
         async def it_streams_the_events_up_to_the_turns_end(talker: Botbox) -> None:
@@ -119,6 +132,89 @@ def describe_session() -> None:
                 f"botbox could not remove its agent container botbox-agent-{token(daemon)}",
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
             ]
+
+    def describe_output() -> None:
+        async def it_streams_events_from_the_files_it_writes(
+            talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
+        ) -> None:
+            daemon.set(proxy_log=REFUSAL)
+            output = tmp_path / "output"
+            async with talker.session(output=output) as live:
+                first = await live.message("one")
+                second = await live.message("two")
+                assert followers(output / "stdout.txt")
+            assert first[-1] == {"type": "result", "result": "ONE"}
+            assert second[-1] == {"type": "result", "result": "TWO"}
+            assert live.result == RunResult("", "", 0, {}, "", "botbox-claude:latest")
+            stdout = (output / "stdout.txt").read_text()
+            assert stdout.startswith("booting\n")
+            assert '{"type": "result", "result": "TWO"}\n' in stdout
+            transcript = output / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
+            assert (output / "proxy.log").read_text() == REFUSAL
+            assert followers(output / "stdout.txt") == []
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_points_at_stderr_when_the_container_never_ran(
+            box: Botbox, daemon: Daemon, tmp_path: Path
+        ) -> None:
+            daemon.agent(SESSION, missing=True)
+            with pytest.raises(DockerException) as raised:
+                async with box.session(output=tmp_path) as live:
+                    assert await live.message("hi") == []
+            assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+            assert "Unable to find image" in (tmp_path / "stderr.txt").read_text()
+
+        async def it_ends_a_turn_the_cli_cuts_short_and_leaves_the_files(
+            talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
+        ) -> None:
+            with pytest.raises(DockerException) as raised:
+                async with talker.session(output=tmp_path) as live:
+                    events = await live.message("die")
+            assert events == [{"type": "assistant", "said": "die"}]
+            assert raised.value.return_code == -9
+            assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
+            assert live.result == RunResult("", "", -1, {}, "", "botbox-claude:latest")
+            assert '"said": "die"' in (tmp_path / "stdout.txt").read_text()
+            assert followers(tmp_path / "stdout.txt") == []
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_tears_down_when_cancelled_mid_turn(
+            talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
+        ) -> None:
+            sessions: list[Session] = []
+
+            async def talk() -> None:
+                async with talker.session(output=tmp_path) as live:
+                    sessions.append(live)
+                    await live.message("hang")
+
+            task = asyncio.ensure_future(talk())
+            await daemon.hanging()
+            task.cancel()
+            await asyncio.wait({task}, timeout=10)
+            assert task.cancelled()
+            assert sessions[0].result == RunResult("", "", -1, {}, "", "botbox-claude:latest")
+            assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
+            transcript = tmp_path / "transcripts" / "-work" / "abc.jsonl"
+            assert transcript.read_text() == '{"type": "user"}\n'
+            assert followers(tmp_path / "stdout.txt") == []
+            assert daemon.containers == []
+            assert homes(temp) == []
+
+        async def it_raises_a_timeout_with_the_exit_code_only(
+            talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
+        ) -> None:
+            with pytest.raises(Timeout) as raised:
+                async with Botbox(talker.agent, timeout=2).session(output=tmp_path) as live:
+                    await live.message("hang")
+            assert raised.value.result == RunResult("", "", -1, {}, "", "botbox-claude:latest")
+            assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
+            assert followers(tmp_path / "stdout.txt") == []
+            assert daemon.containers == []
+            assert homes(temp) == []
 
     def describe_the_containers() -> None:
         async def it_attaches_to_the_session_command_named_and_labelled_by_the_run_token(
