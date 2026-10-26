@@ -69,19 +69,34 @@ def describe_Container() -> None:
 
     def describe_exec() -> None:
         async def it_runs_the_command_with_no_stdin_by_default(run_docker: AsyncMock) -> None:
-            run_docker.return_value = "out"
-            assert await Container("box").exec("sh", "-c", "x") == "out"
-            run_docker.assert_awaited_once_with(
-                "exec", "box", "sh", "-c", "x", stdin=asyncio.subprocess.DEVNULL
-            )
+            await Container("box").exec("sh", "-c", "x")
+            args, options = run_docker.call_args.args, run_docker.call_args.kwargs
+            assert args == ("exec", "box", "sh", "-c", "x")
+            assert options["stdin"] == asyncio.subprocess.DEVNULL
+
+        async def it_drops_stdout_without_a_sink(run_docker: AsyncMock) -> None:
+            await Container("box").exec("cat")
+            drop = run_docker.call_args.kwargs["stdout"]
+            assert drop(b"x" * 10) is None
+            assert run_docker.call_args.kwargs["stderr"] is None
+
+        async def it_hands_output_to_the_sinks(run_docker: AsyncMock) -> None:
+            out, err = Mock(), Mock()
+            await Container("box").exec("cat", stdout=out, stderr=err)
+            assert run_docker.call_args.kwargs["stdout"] is out
+            assert run_docker.call_args.kwargs["stderr"] is err
 
         async def it_runs_interactively_on_a_given_stdin(run_docker: AsyncMock) -> None:
             await Container("box").exec("cat", stdin=9)
-            run_docker.assert_awaited_once_with("exec", "--interactive", "box", "cat", stdin=9)
+            args, options = run_docker.call_args.args, run_docker.call_args.kwargs
+            assert args == ("exec", "--interactive", "box", "cat")
+            assert options["stdin"] == 9
 
         async def it_runs_without_interactive_on_no_stdin(run_docker: AsyncMock) -> None:
             await Container("box").exec("cat", stdin=None)
-            run_docker.assert_awaited_once_with("exec", "box", "cat", stdin=None)
+            args, options = run_docker.call_args.args, run_docker.call_args.kwargs
+            assert args == ("exec", "box", "cat")
+            assert options["stdin"] is None
 
         async def it_raises_what_docker_raised(run_docker: AsyncMock) -> None:
             run_docker.side_effect = RuntimeError("exited 1")

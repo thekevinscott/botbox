@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Iterator
-from typing import IO
+from typing import IO, Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -114,3 +114,18 @@ def describe_run_docker() -> None:
     async def it_decodes_stdout_leniently(output: list[bytes]) -> None:
         output[:] = [b"built\xff", b""]
         assert await run_docker("build") == "built\N{REPLACEMENT CHARACTER}"
+
+    async def it_hands_output_to_sinks_instead(execute: AsyncMock, code: list[int]) -> None:
+        async def sinks(_args: object, *, stdout: Any, stderr: Any, **_options: object) -> int:
+            stdout(b"out")
+            stderr(b"err")
+            return code[0]
+
+        execute.side_effect = sinks
+        out, err = bytearray(), bytearray()
+        assert await run_docker("logs", stdout=out.extend, stderr=err.extend) == ""
+        assert (bytes(out), bytes(err)) == (b"out", b"err")
+        code[0] = 1
+        with pytest.raises(DockerException) as raised:
+            await run_docker("logs", stdout=out.extend, stderr=err.extend)
+        assert raised.value.stderr == ""

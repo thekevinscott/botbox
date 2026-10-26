@@ -28,6 +28,7 @@ async with Volume("v", labels={"k": "v"}): ...
 - `Volume.mount(target, read_only=False)` returns a `Mount`; its mode string argument is gone. botbox's own `mounts` stay `(source, target, mode)` tuples.
 - Modules moved under one folder per object (`adocker.Image.Image`, `adocker.utils.execute`). Import from `adocker` itself.
 - `stdout` and `stderr` are callables handed each chunk, not bytearrays or files.
+- `Container.exec()` returns None and hands its output to `stdout`/`stderr` sinks; without a `stdout` sink the output is dropped. It no longer returns stdout as a string.
 - `Container.wait()` returns the attached client's code when the container came from `Image.run`, and `docker wait`'s otherwise.
 - botbox's `Session(...)` takes `(agent, stdin, client, readline)`. Read a session's streams from `output`.
 
