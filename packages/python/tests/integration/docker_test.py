@@ -15,6 +15,7 @@ import pytest
 
 from adocker.build import build
 from adocker.DockerException import DockerException
+from adocker.inspect_image import inspect_image
 from adocker.remove import remove
 from adocker.run import run
 from adocker.run_docker import run_docker
@@ -158,6 +159,10 @@ def describe_docker() -> None:
     async def it_parses_version_json(install: Install) -> None:
         install('print(\'{"Server": {"Version": "29.1"}}\')')
         assert await version() == {"Server": {"Version": "29.1"}}
+
+    async def it_reads_an_images_id(install: Install) -> None:
+        install('print(\'[{"Id": "sha256:abc"}]\')')
+        assert (await inspect_image("sdk-x:latest"))["Id"] == "sha256:abc"
 
     async def it_reads_the_exit_code_wait_prints(install: Install) -> None:
         install("print(3)")
