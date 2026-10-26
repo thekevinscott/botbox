@@ -5,7 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from adocker.abort_writer import abort_writer
+from botbox.utils.abort_writer import abort_writer
 
 
 @pytest.fixture

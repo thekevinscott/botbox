@@ -1,10 +1,8 @@
-from collections.abc import Sequence
-
-from adocker import DockerException, inspect_container, version
+from adocker import Container, Daemon, DockerException
 
 
-async def agent_exit(container: str, command: Sequence[str], client: int, stderr: str) -> int:
-    """The exit code of `container`, once `command`, its attached client, exited with `client`.
+async def agent_exit(container: Container, client: int, stderr: str) -> int:
+    """The exit code of `container`, once its attached client exited with `client`.
 
     The container's own record decides, so a command that exits 125 is told apart from a client
     that failed. -1 if the daemon went away. Raises DockerException, with the client's code and
@@ -12,14 +10,14 @@ async def agent_exit(container: str, command: Sequence[str], client: int, stderr
     was up: output read through a killed client may be cut short.
     """
     try:
-        state = (await inspect_container(container))["State"]
+        state = (await container.inspect())["State"]
     except DockerException:
         try:
-            await version()
+            await Daemon().version()
         except DockerException:
             return -1
         state = {}
     if client < 0 or state.get("Status") != "exited":
-        raise DockerException(command, client, stderr)
+        raise DockerException(container.docker_command, client, stderr)
     code: int = state["ExitCode"]
     return code

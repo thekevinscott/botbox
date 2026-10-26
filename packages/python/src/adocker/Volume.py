@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from types import TracebackType
 
 from adocker.remove_volume import remove_volume
@@ -10,7 +10,7 @@ REMOVE_SECONDS = 30
 
 
 class Volume:
-    """A named volume with `label`, created on entering and removed on leaving.
+    """A named volume with `labels`, created on entering and removed on leaving.
 
     The removal runs to the end through any number of cancels, and gives up with TimeoutError
     after `remove_seconds`. A removal that fails goes to `on_error` if given. Without it, the
@@ -21,17 +21,18 @@ class Volume:
         self,
         name: str,
         *,
-        label: str,
+        labels: Mapping[str, str] | None = None,
         remove_seconds: float = REMOVE_SECONDS,
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         self.name = name
-        self.label = label
+        self.labels = dict(labels or {})
         self.remove_seconds = remove_seconds
         self.on_error = on_error
 
     async def __aenter__(self) -> "Volume":
-        await run_docker("volume", "create", "--label", self.label, self.name)
+        flags = [flag for item in self.labels.items() for flag in ("--label", "=".join(item))]
+        await run_docker("volume", "create", *flags, self.name)
         return self
 
     async def __aexit__(

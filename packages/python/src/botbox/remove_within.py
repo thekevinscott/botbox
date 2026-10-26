@@ -1,6 +1,6 @@
 import asyncio
 
-from adocker import remove
+from adocker import Container
 
 REMOVE_SECONDS = 30
 
@@ -12,6 +12,6 @@ async def remove_within(container: str, seconds: float = REMOVE_SECONDS) -> None
     """
     try:
         async with asyncio.timeout(seconds):
-            await remove(container)
+            await Container(container).remove()
     except TimeoutError:
         raise TimeoutError(f"the daemon did not remove it within {seconds:g}s") from None
