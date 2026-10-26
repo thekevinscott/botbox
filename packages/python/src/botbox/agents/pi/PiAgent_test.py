@@ -1,5 +1,9 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -228,53 +232,118 @@ def describe_api_key() -> None:
         assert "sk-or-test" not in repr(keyed)
 
 
+FAKE_PI = """\
+import json, sys
+print(json.dumps({"type": "argv", "argv": sys.argv[1:]}), flush=True)
+for line in sys.stdin:
+    print('{"type":"message_update","message":{}}', flush=True)
+    print('{"type":"tool_execution_update","partialResult":{}}', flush=True)
+    print(json.dumps({"type": "agent_end", "got": line.strip()}), flush=True)
+sys.exit(int(sys.argv[sys.argv.index("--provider") + 1] == "fail"))
+"""
+
+
+@pytest.fixture
+def pi_on_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "fake_pi.py").write_text(FAKE_PI)
+    pi = bin_dir / "pi"
+    pi.write_text(f'#!/bin/sh\nexec {sys.executable} {bin_dir / "fake_pi.py"} "$@"\n')
+    pi.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+
+def run(command: str, stdin: str = "") -> tuple[list[Any], int]:
+    done = subprocess.run(["sh", "-c", command], input=stdin, capture_output=True, text=True)
+    return [json.loads(line) for line in done.stdout.splitlines()], done.returncode
+
+
+def argv(command: str) -> list[str]:
+    events, _ = run(command)
+    assert events[0]["type"] == "argv"
+    return list(events[0]["argv"])
+
+
+@pytest.mark.usefixtures("pi_on_path")
 def describe_command() -> None:
     def it_runs_pi_in_print_mode_with_json_output_against_the_provider() -> None:
-        assert PiAgent(provider="openrouter").command("Fix the tests") == (
-            "pi -p 'Fix the tests' --mode json --provider openrouter"
+        assert argv(PiAgent(provider="openrouter").command("Fix the tests")) == (
+            ["-p", "Fix the tests", "--mode", "json", "--provider", "openrouter"]
         )
 
     def it_passes_a_custom_provider_through(custom_home: Path) -> None:
-        assert PiAgent("ollama", host_home=custom_home).command("hi") == (
-            "pi -p hi --mode json --provider ollama"
-        )
+        assert argv(PiAgent("ollama", host_home=custom_home).command("hi"))[-1] == "ollama"
 
     def it_shell_quotes_the_provider(tmp_path: Path) -> None:
         (tmp_path / "models.json").write_text(
             json.dumps({"providers": {"a b; id": {"baseUrl": "https://models.example"}}})
         )
         agent = PiAgent("a b; id", host_home=tmp_path)
-        assert agent.command("hi") == "pi -p hi --mode json --provider 'a b; id'"
-        assert agent.session_command() == "pi --mode rpc --provider 'a b; id'"
+        assert argv(agent.command("hi"))[-1] == "a b; id"
+        assert argv(agent.session_command())[-1] == "a b; id"
 
     def it_shell_quotes_the_prompt() -> None:
-        assert PiAgent(provider="openrouter").command("it's $HOME") == (
-            "pi -p 'it'\"'\"'s $HOME' --mode json --provider openrouter"
-        )
+        assert argv(PiAgent(provider="openrouter").command("it's $HOME"))[1] == "it's $HOME"
 
     def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == (
-            "pi -p hi --mode json --provider openrouter --model qwen/qwen3-coder"
+        assert argv(PiAgent("openrouter", "qwen/qwen3-coder").command("hi"))[-2:] == (
+            ["--model", "qwen/qwen3-coder"]
         )
 
     def it_takes_the_model_by_keyword() -> None:
-        assert PiAgent(provider="openrouter", model="m").command("hi").endswith(" --model m")
+        assert argv(PiAgent(provider="openrouter", model="m").command("hi"))[-1] == "m"
 
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").command("hi").endswith(" --model 'a b; id'")
+        assert argv(PiAgent("openrouter", "a b; id").command("hi"))[-1] == "a b; id"
+
+
+@pytest.mark.usefixtures("pi_on_path")
+def describe_update_events() -> None:
+    def it_drops_them_and_keeps_the_rest() -> None:
+        events, code = run(PiAgent("openrouter").session_command(), "go\n")
+        assert [event["type"] for event in events] == ["argv", "agent_end"]
+        assert code == 0
+
+    def it_keeps_pis_exit_code(tmp_path: Path) -> None:
+        (tmp_path / "models.json").write_text(
+            json.dumps({"providers": {"fail": {"baseUrl": "https://models.example"}}})
+        )
+        _, code = run(PiAgent("fail", host_home=tmp_path).command("hi"))
+        assert code == 1
+
+    def it_passes_each_line_on_as_pi_prints_it() -> None:
+        with subprocess.Popen(
+            ["sh", "-c", PiAgent("openrouter").session_command()],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        ) as pi:
+            assert pi.stdin is not None
+            assert pi.stdout is not None
+            assert json.loads(pi.stdout.readline())["type"] == "argv"
+            pi.stdin.write("go\n")
+            pi.stdin.flush()
+            assert json.loads(pi.stdout.readline()) == {"type": "agent_end", "got": "go"}
+            pi.stdin.close()
 
 
 def describe_session() -> None:
+    @pytest.mark.usefixtures("pi_on_path")
     def it_runs_pi_in_rpc_mode_against_the_provider() -> None:
-        assert PiAgent("openrouter").session_command() == "pi --mode rpc --provider openrouter"
-
-    def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
-            "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
+        assert argv(PiAgent("openrouter").session_command()) == (
+            ["--mode", "rpc", "--provider", "openrouter"]
         )
 
+    @pytest.mark.usefixtures("pi_on_path")
+    def it_passes_the_model_when_set() -> None:
+        assert argv(PiAgent("openrouter", "qwen/qwen3-coder").session_command())[-2:] == (
+            ["--model", "qwen/qwen3-coder"]
+        )
+
+    @pytest.mark.usefixtures("pi_on_path")
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").session_command().endswith(" --model 'a b; id'")
+        assert argv(PiAgent("openrouter", "a b; id").session_command())[-1] == "a b; id"
 
     def it_encodes_a_message_as_a_prompt_command() -> None:
         assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {

@@ -30,6 +30,12 @@ def describe_a_pi_session_on_openrouter() -> None:
         assert "pong" in (output / "stdout.txt").read_text()
 
     @pytest.mark.usefixtures("result")
+    def it_keeps_the_final_message_but_drops_streaming_updates(output: Path) -> None:
+        stdout = (output / "stdout.txt").read_text()
+        assert '{"type":"message_end"' in stdout
+        assert '"type":"message_update"' not in stdout
+
+    @pytest.mark.usefixtures("result")
     def it_writes_the_transcript(output: Path) -> None:
         transcript = transcripts(output)
         assert transcript

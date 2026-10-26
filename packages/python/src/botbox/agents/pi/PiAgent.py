@@ -12,6 +12,25 @@ PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
 AUTH = "auth.json"
 MODELS = "models.json"
 
+# Each update resends the whole partial message, so a turn's output grows with its square.
+# message_end and tool_execution_end carry the final versions. pi writes `type` first.
+DROP_UPDATES = shlex.join(
+    [
+        "sed",
+        "-u",
+        "-e",
+        '/^{"type":"message_update"/d',
+        "-e",
+        '/^{"type":"tool_execution_update"/d',
+    ]
+)
+
+
+def drop_updates(command: str) -> str:
+    """`command` with pi's streaming update events dropped inside the container."""
+    # Not grep -v: it exits 1 on empty output, which pipefail would report as a failure.
+    return "exec bash -o pipefail -c " + shlex.quote(f"{command} | {DROP_UPDATES}")
+
 
 def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) -> tuple[str, ...]:
     if provider in PROVIDER_HOSTS:
@@ -61,13 +80,13 @@ class PiAgent:
         command = f"pi -p {shlex.quote(prompt)} --mode json --provider {shlex.quote(self.provider)}"
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
-        return command
+        return drop_updates(command)
 
     def session_command(self) -> str:
         command = f"pi --mode rpc --provider {shlex.quote(self.provider)}"
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
-        return command
+        return drop_updates(command)
 
     def encode(self, message: str) -> str:
         return json.dumps({"type": "prompt", "message": message})
