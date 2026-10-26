@@ -1,9 +1,10 @@
 import json
+import shlex
 from pathlib import Path
 
 import pytest
 
-from botbox.agents.pi.PiAgent import PiAgent
+from botbox.agents.pi.PiAgent import PiAgent, drop_updates
 
 
 @pytest.fixture
@@ -228,14 +229,27 @@ def describe_api_key() -> None:
         assert "sk-or-test" not in repr(keyed)
 
 
+def describe_drop_updates() -> None:
+    def it_pipes_the_command_through_an_unbuffered_sed_under_pipefail() -> None:
+        assert shlex.split(drop_updates("pi --mode rpc")) == [
+            "exec",
+            "bash",
+            "-o",
+            "pipefail",
+            "-c",
+            'pi --mode rpc | sed -u -e \'/^{"type":"message_update"/d\''
+            ' -e \'/^{"type":"tool_execution_update"/d\'',
+        ]
+
+
 def describe_command() -> None:
     def it_runs_pi_in_print_mode_with_json_output_against_the_provider() -> None:
-        assert PiAgent(provider="openrouter").command("Fix the tests") == (
+        assert PiAgent(provider="openrouter").command("Fix the tests") == drop_updates(
             "pi -p 'Fix the tests' --mode json --provider openrouter"
         )
 
     def it_passes_a_custom_provider_through(custom_home: Path) -> None:
-        assert PiAgent("ollama", host_home=custom_home).command("hi") == (
+        assert PiAgent("ollama", host_home=custom_home).command("hi") == drop_updates(
             "pi -p hi --mode json --provider ollama"
         )
 
@@ -244,37 +258,45 @@ def describe_command() -> None:
             json.dumps({"providers": {"a b; id": {"baseUrl": "https://models.example"}}})
         )
         agent = PiAgent("a b; id", host_home=tmp_path)
-        assert agent.command("hi") == "pi -p hi --mode json --provider 'a b; id'"
-        assert agent.session_command() == "pi --mode rpc --provider 'a b; id'"
+        assert agent.command("hi") == drop_updates("pi -p hi --mode json --provider 'a b; id'")
+        assert agent.session_command() == drop_updates("pi --mode rpc --provider 'a b; id'")
 
     def it_shell_quotes_the_prompt() -> None:
-        assert PiAgent(provider="openrouter").command("it's $HOME") == (
+        assert PiAgent(provider="openrouter").command("it's $HOME") == drop_updates(
             "pi -p 'it'\"'\"'s $HOME' --mode json --provider openrouter"
         )
 
     def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == (
+        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == drop_updates(
             "pi -p hi --mode json --provider openrouter --model qwen/qwen3-coder"
         )
 
     def it_takes_the_model_by_keyword() -> None:
-        assert PiAgent(provider="openrouter", model="m").command("hi").endswith(" --model m")
+        assert PiAgent(provider="openrouter", model="m").command("hi") == drop_updates(
+            "pi -p hi --mode json --provider openrouter --model m"
+        )
 
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").command("hi").endswith(" --model 'a b; id'")
+        assert PiAgent("openrouter", "a b; id").command("hi") == drop_updates(
+            "pi -p hi --mode json --provider openrouter --model 'a b; id'"
+        )
 
 
 def describe_session() -> None:
     def it_runs_pi_in_rpc_mode_against_the_provider() -> None:
-        assert PiAgent("openrouter").session_command() == "pi --mode rpc --provider openrouter"
+        assert PiAgent("openrouter").session_command() == drop_updates(
+            "pi --mode rpc --provider openrouter"
+        )
 
     def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
+        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == drop_updates(
             "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
         )
 
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").session_command().endswith(" --model 'a b; id'")
+        assert PiAgent("openrouter", "a b; id").session_command() == drop_updates(
+            "pi --mode rpc --provider openrouter --model 'a b; id'"
+        )
 
     def it_encodes_a_message_as_a_prompt_command() -> None:
         assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {

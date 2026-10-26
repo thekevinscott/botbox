@@ -4,6 +4,7 @@ import importlib.metadata
 import importlib.util
 import inspect
 
+import adocker
 import botbox
 from adocker.DockerException import DockerException
 from botbox.Timeout import Timeout
@@ -32,3 +33,22 @@ def describe_botbox() -> None:
         requires = importlib.metadata.requires("botbox") or []
         assert not [r for r in requires if r.startswith("python-on-whales")]
         assert importlib.util.find_spec("python_on_whales") is None
+
+
+def describe_adocker() -> None:
+    def it_exports_its_docker_client() -> None:
+        assert adocker.__all__ == [
+            "DockerException",
+            "build",
+            "inspect_container",
+            "inspect_image",
+            "run",
+        ]
+        assert all(
+            inspect.iscoroutinefunction(getattr(adocker, name))
+            for name in adocker.__all__
+            if name != "DockerException"
+        )
+
+    def it_shares_botboxs_docker_exception() -> None:
+        assert adocker.DockerException is botbox.DockerException
