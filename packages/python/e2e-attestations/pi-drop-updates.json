@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/pi_openrouter_test.py tests/e2e/session_test.py tests/e2e/sigterm_test.py tests/e2e/teardown_test.py",
+  "ran_at": 1792980287,
+  "exit_code": 0,
+  "commit": "a9e683ff605cb3e8196d0972c0d950cb23721c2b",
+  "branch": "pi-drop-updates"
+}
