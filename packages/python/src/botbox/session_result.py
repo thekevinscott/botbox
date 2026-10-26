@@ -4,7 +4,6 @@ from botbox.Session import Session
 
 async def session_result(
     live: Session,
-    proxy: str,
     image: str,
     exit_code: int,
 ) -> None:
@@ -13,6 +12,5 @@ async def session_result(
         "" if live.stdout is None else live.stdout.into.decode(errors="replace"),
         live.stderr.decode(errors="replace"),
         exit_code,
-        proxy,
         image,
     )

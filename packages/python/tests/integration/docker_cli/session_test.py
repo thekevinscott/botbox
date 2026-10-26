@@ -103,7 +103,7 @@ def describe_session() -> None:
             async with talker.session(output=output) as live:
                 await live.message("hi")
                 assert live.result is None
-            assert live.result == RunResult("", "", 0, "", "botbox-claude:latest")
+            assert live.result == RunResult("", "", 0, "botbox-claude:latest")
             assert stdout(output) == (
                 "booting\n"
                 '{"type": "assistant", "said": "hi"}\n'
@@ -130,7 +130,6 @@ def describe_session() -> None:
                 ),
                 stderr="",
                 exit_code=0,
-                proxy=LISTENING + REFUSAL,
                 image="botbox-claude:latest",
             )
 
@@ -169,7 +168,7 @@ def describe_session() -> None:
                 assert followers(output / "stdout.txt")
             assert first[-1] == {"type": "result", "result": "ONE"}
             assert second[-1] == {"type": "result", "result": "TWO"}
-            assert live.result == RunResult("", "", 0, "", "botbox-claude:latest")
+            assert live.result == RunResult("", "", 0, "botbox-claude:latest")
             stdout = (output / "stdout.txt").read_text()
             assert stdout.startswith("booting\n")
             assert '{"type": "result", "result": "TWO"}\n' in stdout
@@ -199,7 +198,7 @@ def describe_session() -> None:
             assert events == [{"type": "assistant", "said": "die"}]
             assert raised.value.return_code == -9
             assert raised.value.stderr == f"See {tmp_path / 'stderr.txt'}"
-            assert live.result == RunResult("", "", -1, "", "botbox-claude:latest")
+            assert live.result == RunResult("", "", -1, "botbox-claude:latest")
             assert '"said": "die"' in (tmp_path / "stdout.txt").read_text()
             assert followers(tmp_path / "stdout.txt") == []
             assert daemon.containers == []
@@ -220,7 +219,7 @@ def describe_session() -> None:
             task.cancel()
             await asyncio.wait({task}, timeout=10)
             assert task.cancelled()
-            assert sessions[0].result == RunResult("", "", -1, "", "botbox-claude:latest")
+            assert sessions[0].result == RunResult("", "", -1, "botbox-claude:latest")
             assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
             transcript = tmp_path / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
@@ -234,7 +233,7 @@ def describe_session() -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker.agent, timeout=2).session(output=tmp_path) as live:
                     await live.message("hang")
-            assert raised.value.result == RunResult("", "", -1, "", "botbox-claude:latest")
+            assert raised.value.result == RunResult("", "", -1, "botbox-claude:latest")
             assert '"said": "hang"' in (tmp_path / "stdout.txt").read_text()
             assert followers(tmp_path / "stdout.txt") == []
             assert daemon.containers == []
