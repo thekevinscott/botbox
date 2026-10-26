@@ -133,7 +133,8 @@ class Botbox:
 
         Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
         a fresh host temp directory with the credentials staged in; without `output`, the proxy
-        logs into the same directory. Without `output`, nothing the run left is kept.
+        logs into the same directory. Without `output`, the streams, transcripts and proxy log
+        are not kept; files written to `mounts` are.
         A non-zero exit is a normal result; so is the daemon going away mid-run, with
         `exit_code` -1.
 

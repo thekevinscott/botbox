@@ -45,7 +45,7 @@ print((output / "proxy.log").read_text())
 
 ## Without `output`
 
-Omit `output` and nothing the run left is kept. Only the `exit_code` comes back.
+Omit `output` and `run()` keeps none of the streams, transcripts or proxy log. Only the `exit_code` comes back. Files the command wrote to your mounts stay.
 
 ## Keep what the run wrote
 

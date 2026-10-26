@@ -31,9 +31,9 @@ None. The fields are removed without a deprecation period.
 
 ## Behavior changes without code changes
 
-- Without `output`, the streams are not kept.
+- `RunResult` no longer carries the streams. Without `output`, `run()` drops them when it returns.
 - The "could not read its session artifacts" warning is gone.
-- Without `output`, a session's `live.stdout` and `live.stderr` are unchanged.
+- Without `output`, a session still buffers its streams in memory. `live.stdout` and `live.stderr` are unchanged and outlive the block.
 
 ## Verification
 
