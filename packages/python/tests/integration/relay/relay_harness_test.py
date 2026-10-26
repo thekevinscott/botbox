@@ -12,6 +12,8 @@ from uuid import uuid4
 from adocker import Container, Image, Mount, Volume
 from botbox.lockdown import PROXY_USER, RELAY, SOCKET_DIR
 
+# Without cloexec the relay's orphaned socat inherits kcov's trace fd, and kcov never exits.
+KCOV_COMMAND = ("kcov", "--bash-tracefd-cloexec", "--bash-dont-parse-binary-dir")
 SERVE = 'socat UNIX-LISTEN:{dir}/{name}.sock,fork,mode=666 SYSTEM:"echo {name}" &'
 
 
@@ -48,7 +50,7 @@ class Relay:
         name = f"botbox-relay-test-{uuid4().hex[:12]}"
         argv: tuple[str, ...] = (RELAY, *command)
         if self.coverage is not None:
-            argv = ("kcov", f"/cov/{name}", *argv)
+            argv = (*KCOV_COMMAND, f"/cov/{name}", *argv)
             mounts = [*mounts, self.coverage.mount("/cov")]
         stdout, stderr = bytearray(), bytearray()
         container = await self.image.run(
@@ -89,7 +91,10 @@ async def uncovered_lines(image: Image, coverage: Volume) -> list[str]:
 async def serving(image: Image, *names: str) -> AsyncIterator[Proxy]:
     """A container as the proxy's uid, serving each named socket with a reply of its name."""
     token = uuid4().hex[:12]
-    script = "".join(SERVE.format(dir=SOCKET_DIR, name=name) for name in names) + " sleep infinity"
+    serve = "".join(SERVE.format(dir=SOCKET_DIR, name=name) for name in names)
+    ready = " && ".join(f"[ -S {SOCKET_DIR}/{name}.sock ]" for name in names)
+    script = f"{serve} until {ready}; do sleep 0.05; done; echo ready; exec sleep infinity"
+    up = asyncio.Event()
     async with Volume(f"botbox-relay-test-{token}") as sockets:
         container = await image.run(
             "sh",
@@ -99,10 +104,10 @@ async def serving(image: Image, *names: str) -> AsyncIterator[Proxy]:
             user=PROXY_USER,
             network="none",
             mounts=[sockets.mount(SOCKET_DIR)],
+            stdout=lambda _: up.set(),
         )
         try:
-            ready = " && ".join(f"[ -S {SOCKET_DIR}/{name}.sock ]" for name in names) or "true"
-            await container.exec("timeout", "30", "sh", "-c", f"until {ready}; do sleep 0.05; done")
+            await asyncio.wait_for(up.wait(), 30)
             yield Proxy(container, sockets)
         finally:
             await container.remove()

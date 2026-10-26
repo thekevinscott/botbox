@@ -22,6 +22,13 @@ test-unit:
 test-integration:
     cd packages/python && uv run pytest tests/integration
 
+# Fails unless the relay tests, run through kcov, reach every line of botbox-relay.
+test-relay-coverage:
+    cd packages/python && BOTBOX_RELAY_KCOV=1 uv run pytest tests/integration/relay
+
+shellcheck:
+    cd packages/python && uv run shellcheck src/botbox/relay/botbox-relay tests/integration/relay/fakes/*/socat
+
 test-e2e:
     cd packages/python && uv run --env-file ../../.env pytest tests/e2e
 

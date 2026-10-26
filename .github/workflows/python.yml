@@ -68,3 +68,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: taiki-e/install-action@just
       - run: just test-integration
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+      - uses: taiki-e/install-action@just
+      - run: just shellcheck
+
+  relay-coverage:
+    name: Relay coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+      - uses: taiki-e/install-action@just
+      - run: just test-relay-coverage
