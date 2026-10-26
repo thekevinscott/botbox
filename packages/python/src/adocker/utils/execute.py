@@ -26,6 +26,11 @@ async def execute(
     cancelled or fails first, a sink raising included, the client is killed and reaped before
     the error propagates.
     """
+
+    async def drain(reader: asyncio.StreamReader, sink: Sink) -> None:
+        while chunk := await reader.read(CHUNK_BYTES):
+            sink(chunk)
+
     sinks = [stream if callable(stream) else None for stream in (stdout, stderr)]
     streams = [asyncio.subprocess.PIPE if callable(s) else s for s in (stdout, stderr)]
     async with spawn("docker", *args, stdin=stdin, stdout=streams[0], stderr=streams[1]) as process:
@@ -48,8 +53,3 @@ async def execute(
             await process.wait()
             raise
     return exited.result()
-
-
-async def drain(reader: asyncio.StreamReader, sink: Sink) -> None:
-    while chunk := await reader.read(CHUNK_BYTES):
-        sink(chunk)
