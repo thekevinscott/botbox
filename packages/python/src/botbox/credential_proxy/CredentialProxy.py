@@ -2,12 +2,12 @@ import asyncio
 import os
 from pathlib import Path
 
+from adocker.Capture import Capture
+from adocker.DockerException import DockerException
+from adocker.execute import execute
 from botbox.credential_proxy.envoy_config import SECRET_FILE
 from botbox.credential_proxy.preloaded import preloaded
 from botbox.credential_proxy.sds_secret import sds_secret
-from botbox.docker.Capture import Capture
-from botbox.docker.DockerException import DockerException
-from botbox.docker.execute import execute
 
 # Envoy only notices a file renamed over the secret.
 ROTATE = 'cat >"$1.next" && mv "$1.next" "$1"'
