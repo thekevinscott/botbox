@@ -75,13 +75,18 @@ def runs(temp: Path) -> Iterator[Runs]:
 
 
 @pytest.fixture(scope="module")
-def session(harness: str) -> tuple[Turns, list[float], RunResult]:
+def output(harness: str, tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp(f"session-{harness}")
+
+
+@pytest.fixture(scope="module")
+def session(harness: str, output: Path) -> tuple[Turns, list[float], RunResult]:
     """Three messages in one session; for the first, when each event arrived."""
     make, _, _ = HARNESSES[harness]
     box = Botbox(make())
 
     async def talk() -> tuple[Turns, list[float], RunResult]:
-        async with box.session() as live:
+        async with box.session(output=output) as live:
             arrivals, first = [], []
             async for event in live.stream(
                 "Remember the codeword heron. Use bash to run exactly:"
@@ -143,19 +148,22 @@ def describe_a_session() -> None:
         _, _, reply = HARNESSES[harness]
         assert "heron" in reply(turns[2]).lower()
 
-    def it_exits_zero_once_the_block_ends(session: tuple[Turns, list[float], RunResult]) -> None:
+    def it_exits_zero_once_the_block_ends(
+        session: tuple[Turns, list[float], RunResult], output: Path
+    ) -> None:
         _, _, result = session
-        assert result.exit_code == 0, result.stderr
+        assert result.exit_code == 0, (output / "stderr.txt").read_text()
 
-    def it_returns_the_transcript(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        assert result.transcript
-        assert all(result.transcript.values())
+    @pytest.mark.usefixtures("session")
+    def it_writes_the_transcript_into_output(output: Path) -> None:
+        transcripts = [p for p in (output / "transcripts").rglob("*.jsonl") if p.is_file()]
+        assert transcripts
+        assert all(p.stat().st_size for p in transcripts)
 
-    def it_reaches_for_no_refused_host(session: tuple[Turns, list[float], RunResult]) -> None:
-        _, _, result = session
-        refused = [line for line in result.proxy.splitlines() if "Proxying refused" in line]
-        assert refused == []
+    @pytest.mark.usefixtures("session")
+    def it_reaches_for_no_refused_host(output: Path) -> None:
+        log = (output / "proxy.log").read_text()
+        assert [line for line in log.splitlines() if "Proxying refused" in line] == []
 
 
 def describe_cancelling_mid_turn() -> None:

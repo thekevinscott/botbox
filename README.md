@@ -100,21 +100,20 @@ await box.run(
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
-| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, those come back on the result. |
+| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, the streams and proxy log come back on the result and the transcripts are deleted. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `transcript`, `proxy`, `image`. Nothing parsed.
+`RunResult`: `stdout`, `stderr`, `exit_code`, `proxy`, `image`. Nothing parsed.
 
 | Field        | What it is                                                                     |
 | ------------ | ------------------------------------------------------------------------------ |
-| `transcript` | `dict[str, str]`: path relative to the agent's home → file contents.            |
 | `proxy`      | `str`: the proxy log.                                                           |
 | `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 
 The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever transcript and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever output and proxy log exist, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 
@@ -141,7 +140,7 @@ If given, `workdir` must be a mounted path or inside one; otherwise `run()` rais
 
 ### Home and credentials
 
-Each run gets a fresh temporary home, mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, transcript files are read into `result.transcript` after the command exits. The temporary home is then deleted.
+Each run gets a fresh temporary home, mounted at the agent's home path. With `output`, the agent's sessions directory is mounted from `output/transcripts/`; without it, the transcripts are deleted with the temporary home.
 
 `ClaudeAgent` authenticates one of two ways, never both:
 

@@ -2,16 +2,16 @@
 
 Nothing parsed.
 
-When [`run(output=...)`](./run) is used, `stdout`, `stderr` and `proxy` are empty strings
-and `transcript` is empty; read `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/` in
-that directory instead. `exit_code` and `image` are unchanged.
+When [`run(output=...)`](./run) is used, `stdout`, `stderr` and `proxy` are empty strings;
+read `stdout.txt`, `stderr.txt` and `proxy.log` in that directory instead. `exit_code` and
+`image` are unchanged. Transcripts are only kept in `output/transcripts/`; without `output`
+they are deleted with the temporary home.
 
 | Field       | What it is                                                           |
 | ----------- | -------------------------------------------------------------------- |
 | `stdout`    | The command's standard output.                                       |
 | `stderr`    | The command's standard error.                                        |
 | `exit_code` | The command's exit code.                                             |
-| `transcript`| `dict[str, str]`: path relative to the agent's home → file contents. |
 | `proxy`     | `str`: the proxy log. Every connection, admitted or refused.         |
 | `image`     | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
 

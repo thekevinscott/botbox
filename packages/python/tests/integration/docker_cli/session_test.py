@@ -2,9 +2,7 @@
 
 import asyncio
 import os
-from collections.abc import Iterator
 from pathlib import Path
-from unittest.mock import Mock, patch
 
 import pytest
 from fake_docker_test import REFUSAL, Daemon, homes, option, token
@@ -27,19 +25,6 @@ def talker(box: Botbox, daemon: Daemon) -> Botbox:
     """The box, its agent's session planned to answer each message."""
     daemon.agent(SESSION, mode="session", stdout="booting\n")
     return box
-
-
-@pytest.fixture
-def unreadable_transcript() -> Iterator[Mock]:
-    original = Path.glob
-
-    def glob(path: Path, pattern: str) -> Iterator[Path]:
-        if path.name == "home":
-            raise OSError("unreadable transcript directory")
-        return original(path, pattern)
-
-    with patch("pathlib.Path.glob", autospec=True, side_effect=glob) as read:
-        yield read
 
 
 def describe_session() -> None:
@@ -92,7 +77,6 @@ def describe_session() -> None:
                 ),
                 stderr="",
                 exit_code=0,
-                transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
                 proxy=REFUSAL,
                 image="botbox-claude:latest",
             )
@@ -131,7 +115,7 @@ def describe_session() -> None:
                 second = await live.message("two")
             assert first[-1] == {"type": "result", "result": "ONE"}
             assert second[-1] == {"type": "result", "result": "TWO"}
-            assert live.result == RunResult("", "", 0, {}, "", "botbox-claude:latest")
+            assert live.result == RunResult("", "", 0, "", "botbox-claude:latest")
             stdout = (output / "stdout.txt").read_text()
             assert stdout.startswith("booting\n")
             assert '{"type": "result", "result": "TWO"}\n' in stdout
@@ -197,24 +181,6 @@ def describe_session() -> None:
             assert daemon.containers == []
             assert homes(temp) == []
 
-        @pytest.mark.usefixtures("unreadable_transcript")
-        async def it_preserves_the_original_error_if_artifact_reading_fails(
-            talker: Botbox,
-            daemon: Daemon,
-            temp: Path,
-        ) -> None:
-            failed = ValueError("original failure")
-            with (
-                pytest.warns(RuntimeWarning, match="read its session artifacts"),
-                pytest.raises(ValueError) as raised,
-            ):
-                async with talker.session() as live:
-                    await live.message("hi")
-                    raise failed
-            assert raised.value is failed
-            assert daemon.containers == []
-            assert homes(temp) == []
-
         async def it_tears_down_and_raises_when_the_block_fails(
             talker: Botbox, daemon: Daemon, temp: Path
         ) -> None:
@@ -224,7 +190,6 @@ def describe_session() -> None:
                     raise ValueError("boom")
             assert live.result is not None
             assert live.result.exit_code == -1
-            assert live.result.transcript
             assert '"said": "hi"' in live.result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
@@ -256,7 +221,6 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert result.transcript
             assert '"said": "hang"' in result.stdout
             assert heard == [{"type": "assistant", "said": "hang"}]
             assert daemon.containers == []
@@ -284,7 +248,6 @@ def describe_session() -> None:
             result = sessions[0].result
             assert result is not None
             assert result.exit_code == -1
-            assert result.transcript
             assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
@@ -309,7 +272,6 @@ def describe_session() -> None:
             result = raised.value.result
             assert result is sessions[0].result
             assert result.exit_code == -1
-            assert result.transcript
             assert '"said": "hang"' in result.stdout
             assert daemon.containers == []
             assert homes(temp) == []
