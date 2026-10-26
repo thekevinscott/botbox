@@ -290,6 +290,9 @@ def describe_command() -> None:
 
 
 def describe_tool_timeout() -> None:
+    def it_sets_the_environment_at_a_positive_limit() -> None:
+        assert PiAgent("openrouter", tool_timeout=2.5).env == {"BOTBOX_TOOL_TIMEOUT": "2.5"}
+
     def it_loads_the_extension_with_the_limit_in_print_mode() -> None:
         assert PiAgent("openrouter", tool_timeout=30).command("hi") == drop_updates(
             "BOTBOX_TOOL_TIMEOUT=30 pi -p hi --mode json --provider openrouter"
@@ -304,6 +307,7 @@ def describe_tool_timeout() -> None:
 
     def it_sets_nothing_when_zero() -> None:
         agent = PiAgent("openrouter", tool_timeout=0)
+        assert agent.env == {}
         assert "tool-timeout" not in agent.command("hi") + agent.session_command()
 
     def it_rejects_a_negative_timeout() -> None:

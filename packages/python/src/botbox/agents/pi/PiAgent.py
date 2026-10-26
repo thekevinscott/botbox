@@ -1,11 +1,14 @@
 import json
 import shlex
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import json5
+
+from botbox.agents.with_env import with_env
 
 PROVIDER_HOSTS = {"openrouter": ("openrouter.ai",)}
 
@@ -78,6 +81,9 @@ class PiAgent:
         self.model = model
         self.api_key = api_key
         self.tool_timeout = tool_timeout
+        self.env: Mapping[str, str] = (
+            {"BOTBOX_TOOL_TIMEOUT": f"{tool_timeout:g}"} if tool_timeout else {}
+        )
         self.host_home = Path.home() / ".pi" / "agent" if host_home is None else host_home
         self.allow = resolve_allow(provider, model, self.host_home / MODELS, staged=api_key is None)
 
@@ -92,9 +98,8 @@ class PiAgent:
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
         if self.tool_timeout:
-            command = f"BOTBOX_TOOL_TIMEOUT={self.tool_timeout:g} {command}"
             command += f" -e {TOOL_TIMEOUT_EXTENSION}"
-        return command
+        return with_env(self.env, command)
 
     def encode(self, message: str) -> str:
         return json.dumps({"type": "prompt", "message": message})
