@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/credential_relay_test.py",
-  "ran_at": 1793036489,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/credential_relay_test.py tests/e2e/credential_proxy_test.py tests/e2e/network_test.py tests/e2e/lockdown_test.py",
+  "ran_at": 1793037682,
   "exit_code": 0,
-  "commit": "8fb913074c15a24e5c90eec1c2b5fcbef318cfe1",
+  "commit": "a753f72c2e20bfe81eb3c8c1f676339242b0f750",
   "branch": "cred-proxy-3"
 }
