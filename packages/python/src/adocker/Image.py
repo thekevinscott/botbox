@@ -4,8 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from adocker.Container import Container
-from adocker.execute import Stream, execute
-from adocker.Pump import Sink
+from adocker.execute import Sink, Stream, execute
 from adocker.run_args import Mount, run_args
 from adocker.run_docker import run_docker
 from adocker.settle import settle
