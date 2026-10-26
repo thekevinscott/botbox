@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py tests/e2e/teardown_test.py",
+  "ran_at": 1792980471,
+  "exit_code": 0,
+  "commit": "d859ab45f0ffcf5852446fc6c99e1d6d74a8afec",
+  "branch": "process-child-2"
+}
