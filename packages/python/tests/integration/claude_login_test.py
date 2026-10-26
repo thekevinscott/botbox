@@ -53,7 +53,7 @@ def describe_a_claude_agent_on_the_host_login() -> None:
         credential = agent.credential_source.read()
         assert credential.secret == f"Bearer {ACCESS}"
         assert credential.injection.upstream == "api.anthropic.com"
-        assert agent.credential_source.env == {"ANTHROPIC_BASE_URL": "http://127.0.0.1:41894"}
+        assert agent.credential_source.env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:41894"
 
     def it_refuses_a_login_that_has_expired(tmp_path: Path) -> None:
         host_login(tmp_path / "claude", time.time() - 60)

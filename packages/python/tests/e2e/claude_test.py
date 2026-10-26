@@ -7,7 +7,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 import pytest
-from conftest import transcripts
+from conftest import refused, transcripts
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
@@ -62,7 +62,7 @@ def describe_a_claude_session() -> None:
     @pytest.mark.usefixtures("result")
     def it_reaches_for_no_refused_host(output: Path) -> None:
         proxy = (output / "proxy.log").read_text()
-        assert [line for line in proxy.splitlines() if "Proxying refused" in line] == []
+        assert refused(proxy) == []
 
 
 def describe_a_tool_call() -> None:

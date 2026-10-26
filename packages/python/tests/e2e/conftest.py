@@ -137,6 +137,18 @@ def probe(
     return written.read_text(errors="replace")
 
 
+# Claude Code on a login fetches its OAuth profile from api.anthropic.com once, past
+# ANTHROPIC_BASE_URL; the proxy refuses it, and the run goes on without it.
+PROFILE_FETCH = 'Proxying refused on filtered url "api.anthropic.com:443"'
+
+
+def refused(proxy_log: str) -> list[str]:
+    """The proxy's refusals, less the one profile fetch a Claude login makes."""
+    lines = [line for line in proxy_log.splitlines() if "Proxying refused" in line]
+    profile = [line for line in lines if PROFILE_FETCH in line]
+    return [line for line in lines if line not in profile[:1]]
+
+
 def leaked(output: Path, secret: str) -> list[str]:
     """Each file under `output` holding `secret`. Links are not followed: a link is not a read."""
     hits = []

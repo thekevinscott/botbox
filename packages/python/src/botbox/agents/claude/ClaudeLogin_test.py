@@ -128,4 +128,7 @@ def describe_ClaudeLogin() -> None:
 
     def describe_env() -> None:
         def it_points_claude_code_at_the_proxy() -> None:
-            assert ClaudeLogin.env == {"ANTHROPIC_BASE_URL": "http://127.0.0.1:41894"}
+            assert ClaudeLogin.env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:41894"
+
+        def it_turns_off_the_claude_ai_mcp_fetch() -> None:
+            assert ClaudeLogin.env["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"

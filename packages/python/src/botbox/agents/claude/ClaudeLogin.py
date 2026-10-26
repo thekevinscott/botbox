@@ -20,7 +20,11 @@ class ClaudeLogin:
     """The host's Claude Code login. The credential proxy sends its access token upstream, and
     the box gets a placeholder login that points Claude Code at the proxy."""
 
-    env: Mapping[str, str] = {"ANTHROPIC_BASE_URL": PROXY_URL}
+    # The claude.ai MCP server list is fetched from api.anthropic.com directly, past the proxy.
+    env: Mapping[str, str] = {
+        "ANTHROPIC_BASE_URL": PROXY_URL,
+        "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+    }
 
     def __init__(self, path: Path) -> None:
         self.path = path
