@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/canary_host_file_test.py",
+  "ran_at": 1792985632,
+  "exit_code": 0,
+  "commit": "d7feded88f5fd70c6c59582d516053d60a0b7a5e",
+  "branch": "isolation-probe"
+}

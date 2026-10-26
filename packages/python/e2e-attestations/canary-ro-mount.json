@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/canary_ro_mount_test.py",
+  "ran_at": 1792985823,
+  "exit_code": 0,
+  "commit": "954eaf8ad36acf24a95826edd07add55781b83e5",
+  "branch": "canary-ro-mount"
+}

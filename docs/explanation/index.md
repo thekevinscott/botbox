@@ -8,7 +8,7 @@ botbox is that container. It gives each run:
 2. **No capabilities, no privilege escalation.** See [The Container](#the-container).
 3. **Network only to an allowlist.** See [Network](#network).
 4. **Mounted directories,** read-only or read-write.
-5. **Logs.** The agent's transcript and the proxy's log come back on the result. See [Home and Credentials](#home-and-credentials).
+5. **Logs.** The agent's output, transcripts and the proxy's log are written to a folder you choose. See [Home and Credentials](#home-and-credentials).
 
 This page is what botbox does with Docker to get there. For how to call it, see [Getting Started](../getting-started).
 
@@ -22,11 +22,11 @@ This page is what botbox does with Docker to get there. For how to call it, see 
 4. Starts a proxy for this run (see [Network](#network)).
 5. Runs the container with the command as `sh -c`, in one attached `docker run`. Its stdout and stderr stream to the host: into `stdout.txt` and `stderr.txt` in `output` when one is given, or else into memory.
 6. Reads the exit code from the stopped container with `docker container inspect`, then removes it.
-7. Without `output`, reads the transcript and the proxy log out of the temporary directory. Stops and removes the proxy, and deletes the directory.
+7. Stops and removes the proxy, and deletes the temporary directory.
 
 The client attaches before the container starts, so no output is missed. Neither container has `--rm`, so the exit code is read from the stopped container and can't race its removal. If the container isn't stopped when the client exits, the client died while the daemon was up, and the run raises `DockerException`. So does a container that never started: a missing image, say, raises with `return_code` 125.
 
-If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept. The transcript and proxy log are on the host, in `output` or in the temporary directory, so they survive too. That's why both live on the host and not in the container.
+If the inspect fails and `docker version` fails too, the daemon is gone and `exit_code` is -1. The output that already streamed out is kept, and so are the transcripts and proxy log. That's why they live on the host and not in the container.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Both containers carry the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -69,12 +69,7 @@ There is no network at run time beyond the allowlist, so installs belong in the 
 
 Each run's home is a fresh host directory, mounted at the harness's home (`/home/user`). The harness's login is copied in, or, with `api_key`, a fresh credentials file (mode 600) holds only that key and nothing is read from the host. Copying means a token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
-With `output`, `output/transcripts/` is mounted over the harness's sessions directory, and botbox reads nothing back. The agent writes that folder directly, links included, so treat it as untrusted.
-
-Without `output`, after the container exits, every `.jsonl` file under the harness's sessions directory becomes an entry in `result.transcript`. The agent can write anything in its home, so botbox defends the read:
-
-- A match that resolves outside the home is a link to a host file, and is skipped. The container has exited by then, so no link can change after the check.
-- Bytes that aren't UTF-8 are replaced, and a file that won't open is skipped. The agent can't break the run's result.
+With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the home.
 
 ## Sessions
 
@@ -82,7 +77,7 @@ Without `output`, after the container exits, every `.jsonl` file under the harne
 
 The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. With `output`, they go to `stdout.txt` and `stderr.txt` instead, and a `tail -F` follower of `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
 
-The block's end closes stdin, waits for the client, reads the exit code, removes the container and, without `output`, reads the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
+The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
 ## Images
 
