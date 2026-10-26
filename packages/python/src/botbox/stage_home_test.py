@@ -7,11 +7,23 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from adocker.DockerException import DockerException
 from botbox.stage_home import stage_home
 
 TOKEN = "0123456789ab"
 NAME = "botbox-stage-0123456789ab"
+
+
+class DockerException(Exception):
+    def __init__(self, docker_command: list[str], return_code: int, stderr: str) -> None:
+        self.docker_command = docker_command
+        self.return_code = return_code
+        self.stderr = stderr
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch("botbox.stage_home.DockerException", DockerException):
+        yield
 
 
 @pytest.fixture
@@ -130,3 +142,23 @@ def describe_stage_home() -> None:
             RuntimeWarning, match=f"^botbox could not remove its home container {NAME}"
         ):
             await stage_home(agent, "an-agent:latest", "botbox-home-x", TOKEN)
+
+    async def it_keeps_the_last_64_kib_of_what_docker_said(agent: Mock, run: Mock) -> None:
+        await stage_home(agent, "an-agent:latest", "botbox-home-x", TOKEN)
+        assert run.call_args.kwargs["limit"] == 65536
+
+    async def it_raises_when_the_unpack_is_killed(agent: Mock, seen: dict[str, Any]) -> None:
+        seen["code"] = -9
+        with pytest.raises(DockerException) as raised:
+            await stage_home(agent, "an-agent:latest", "botbox-home-x", TOKEN)
+        assert raised.value.return_code == -9
+
+    async def it_keeps_a_sessions_dir_the_agent_staged(agent: Mock, seen: dict[str, Any]) -> None:
+        def stage(home: Path) -> None:
+            agent.staged = home
+            (home / ".credentials").write_text("token")
+            (home / ".claude" / "projects").mkdir(parents=True)
+
+        agent.stage_auth.side_effect = stage
+        await stage_home(agent, "an-agent:latest", "botbox-home-x", TOKEN)
+        assert seen["members"]["./.claude/projects"].isdir()
