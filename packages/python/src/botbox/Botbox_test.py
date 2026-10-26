@@ -1274,6 +1274,7 @@ def describe_session() -> None:
             async with Botbox(talker).session(output=tmp_path) as live:
                 pass
             assert agent_exit.call_args.args[3] == f"See {tmp_path / 'stderr.txt'}"
+            assert live.result is not None
             assert astuple(live.result) == ("", "", 3, {}, "", "an-agent-123:latest")
             assert (tmp_path / "stdout.txt").read_bytes() == b""
             assert (tmp_path / "keep").read_text() == "keep"

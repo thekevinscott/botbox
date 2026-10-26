@@ -5,6 +5,8 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import IO
 
+from posix_tools import tail
+
 from adocker.abort_writer import abort_writer
 from adocker.Capture import Capture
 from adocker.execute import execute
@@ -12,7 +14,6 @@ from botbox.agents.agent import SessionAgent
 from botbox.process import owner_only, settle
 from botbox.Session import Session
 from botbox.utils.CapturedLines import CapturedLines
-from posix_tools import tail
 
 
 @asynccontextmanager
