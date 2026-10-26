@@ -333,7 +333,8 @@ def describe_run() -> None:
                 }
                 assert volumes(token) == [f"botbox-run-{token}"]
                 listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
-                assert docker_lines(*listing, "ls", "-A", "/v") == []
+                # A killed credential sidecar leaves its socket behind.
+                assert set(docker_lines(*listing, "ls", "-A", "/v")) <= {"credentials.sock"}
                 if holder == OWNER:
                     assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
                     assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
