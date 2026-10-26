@@ -9,8 +9,11 @@ from pathlib import Path
 from botbox.authority import authority
 from botbox.docker.build import build
 from botbox.docker.run import run
+from botbox.docker.volume import create_volume, remove_volume
+from botbox.remove_within import REMOVE_SECONDS
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
+from botbox.warned import warned
 from posix_tools.process import owner_only, settle
 
 PROXY_DIR = Path(__file__).with_name("proxy")
@@ -30,11 +33,12 @@ RELAY_PORT = 41893
 
 
 class Lockdown:
-    """The proxy a locked-down container shares a PID namespace with, its socket, and its log."""
+    """The proxy a locked-down container shares a PID namespace with, the volume holding its
+    socket, and its log."""
 
-    def __init__(self, proxy: str, sockets: Path, envs: dict[str, str]) -> None:
+    def __init__(self, proxy: str, volume: str, envs: dict[str, str]) -> None:
         self.proxy = proxy
-        self.sockets = sockets
+        self.volume = volume
         self.envs = envs
         self.log = ""
 
@@ -45,15 +49,16 @@ async def lockdown(
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
-    The container gets no network. Its only way out is a unix socket in `scratch`, served by
-    a tinyproxy sidecar on Docker's default bridge that refuses anything outside `allow`.
+    The container gets no network. Its only way out is a unix socket in the run's volume, served
+    by a tinyproxy sidecar on Docker's default bridge that refuses anything outside `allow`.
     tinyproxy listens on the sidecar's loopback only, so nothing else on the bridge reaches it.
 
     The sidecar runs under an init, attached, and lives while this process holds its stdin,
     which children forked meanwhile close. When stdin closes the init exits, and the kernel
     kills every process in the sidecar's PID namespace, which the agent joins. It doesn't
     remove itself: leaving the block closes its stdin and removes it, through any number of
-    cancels. An owner killed outright leaves it stopped, labelled `botbox.run=<token>`.
+    cancels. The volume is removed after it. An owner killed outright leaves both, the sidecar
+    stopped, labelled `botbox.run=<token>`.
 
     All of the sidecar's output goes straight to `output/proxy.log`, which stays after exit.
     The last 64 KiB of it is the error if it won't start. Without `output` it goes to
@@ -62,14 +67,11 @@ async def lockdown(
     await build(PROXY_DIR, tag=PROXY_IMAGE, file=PROXY_DIR / "Dockerfile")
 
     name = f"botbox-proxy-{token}"
+    volume = f"botbox-run-{token}"
     url = f"http://127.0.0.1:{RELAY_PORT}"
-    sockets = scratch / "sockets"
-    sockets.mkdir()
-    # The proxy runs as its own user and creates the socket here.
-    sockets.chmod(0o777)
     jail = Lockdown(
         proxy=name,
-        sockets=sockets,
+        volume=volume,
         envs={
             "HTTP_PROXY": url,
             "HTTPS_PROXY": url,
@@ -79,11 +81,9 @@ async def lockdown(
         },
     )
 
-    allowlist = scratch / "filter"
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
-    allowlist.write_text("".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities))
-    allowlist.chmod(0o644)
+    allowlist = "".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities)
     log = (scratch if output is None else output) / "proxy.log"
 
     args = [
@@ -105,10 +105,10 @@ async def lockdown(
         "ALL",
         "--security-opt",
         "no-new-privileges",
+        "--env",
+        f"BOTBOX_FILTER={allowlist}",
         "--volume",
-        f"{allowlist}:/etc/tinyproxy/filter:ro",
-        "--volume",
-        f"{sockets}:{SOCKET_DIR}:rw",
+        f"{volume}:{SOCKET_DIR}:rw",
         PROXY_IMAGE,
     ]
     # Created here, not by the spawn, so the write end is owner-only before any fork can copy it.
@@ -116,12 +116,16 @@ async def lockdown(
     stdin = os.fdopen(write, "wb")
     try:
         with owner_only(stdin), log.open("wb") as sink:
-            client = asyncio.ensure_future(run(args, stdin=read, stdout=sink, stderr=sink))
+            await create_volume(volume, f"botbox.run={token}")
             try:
-                await wait_for_proxy(sockets / "proxy.sock", client, log, PROXY_READY_SECONDS)
-                yield jail
+                client = asyncio.ensure_future(run(args, stdin=read, stdout=sink, stderr=sink))
+                try:
+                    await wait_for_proxy(client, log, PROXY_READY_SECONDS)
+                    yield jail
+                finally:
+                    await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
             finally:
-                await settle(stop_proxy(client, stdin, name, PROXY_EXIT_SECONDS))
+                await settle(warned(remove_volume_within(volume), f"remove its volume {volume}"))
     finally:
         with suppress(OSError):
             stdin.close()
@@ -134,3 +138,12 @@ async def lockdown(
                 warnings.warn(
                     f"botbox could not read its proxy log: {error}", RuntimeWarning, stacklevel=3
                 )
+
+
+async def remove_volume_within(volume: str) -> None:
+    """Remove `volume`, or give up after `REMOVE_SECONDS` so a hung daemon can't stall teardown."""
+    try:
+        async with asyncio.timeout(REMOVE_SECONDS):
+            await remove_volume(volume)
+    except TimeoutError:
+        raise TimeoutError(f"the daemon did not remove it within {REMOVE_SECONDS:g}s") from None

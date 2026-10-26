@@ -1,6 +1,7 @@
 """`Botbox.run()` against real Docker: cancels, timeouts, task groups and a killed owner.
 
-Every run labels its containers `botbox.run=<token>` and names its temp home after the token.
+Every run labels its containers and volume `botbox.run=<token>` and names its temp home
+after the token.
 A test sees only the tokens that appeared while it ran, and cleans up only those.
 """
 
@@ -84,6 +85,12 @@ def containers(token: str, *filters: str) -> list[str]:
     )
 
 
+def volumes(token: str) -> list[str]:
+    return docker_lines(
+        "volume", "ls", "--filter", f"label=botbox.run={token}", "--format", "{{.Name}}"
+    )
+
+
 class Runs:
     """The runs this test started, known by the temp homes they make in its own temp dir.
 
@@ -107,6 +114,7 @@ class Runs:
     def leftovers(self) -> list[str]:
         return [
             *(f"container {c}" for t in self.tokens for c in containers(t)),
+            *(f"volume {v}" for t in self.tokens for v in volumes(t)),
             *(f"temp {h.name}" for h in self.homes()),
         ]
 
@@ -130,6 +138,10 @@ class Runs:
         for token in self.tokens:
             for name in containers(token):
                 subprocess.run(["docker", "rm", "-f", name], check=False, capture_output=True)
+            for name in volumes(token):
+                subprocess.run(
+                    ["docker", "volume", "rm", "-f", name], check=False, capture_output=True
+                )
 
 
 @pytest.fixture(scope="module")
@@ -319,7 +331,9 @@ def describe_run() -> None:
                     assert time.monotonic() - started < GRACE, containers(token, "status=running")
                     await asyncio.sleep(0.1)
                 assert {c.split("-")[1] for c in containers(token)} <= {"agent", "proxy"}
-                assert [s for h in runs.homes() for s in (h / "sockets").glob("*")] == []
+                assert volumes(token) == [f"botbox-run-{token}"]
+                listing = ("run", "--rm", "--volume", f"botbox-run-{token}:/v", "botbox-proxy")
+                assert docker_lines(*listing, "ls", "-A", "/v") == []
                 if holder == OWNER:
                     assert (tmp_path / "output" / "stdout.txt").read_text() == "partial\n"
                     assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"

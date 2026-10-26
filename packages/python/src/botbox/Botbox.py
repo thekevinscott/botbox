@@ -350,7 +350,7 @@ class Botbox:
         No `--rm`: the run reads the exit code from the stopped container, then removes it.
         """
         agent = self.agent
-        mounts = [(str(home), agent.home, "rw"), (str(jail.sockets), SOCKET_DIR, "ro"), *volumes]
+        mounts = [(str(home), agent.home, "rw"), (jail.volume, SOCKET_DIR, "ro"), *volumes]
         return [
             "--label",
             f"botbox.run={token}",

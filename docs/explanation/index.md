@@ -51,7 +51,7 @@ The proxy denies by default. It allows the harness's own hosts plus your `allow`
 
 tinyproxy listens on the proxy container's loopback and accepts only loopback clients. Other containers on the default bridge can reach the proxy's address, but nothing listens there. The socket is the only way in, and only this run's container has it mounted.
 
-The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client writes all of the container's output straight to a host file: `proxy.log` in `output` when one is given, or else a file in the host temporary directory that becomes `result.proxy`. The proxy container has no writable mount besides the socket directory.
+The proxy runs with no capabilities, a cap on its process count, and a pinned uid (100) apart from the agent's. tinyproxy runs in the foreground and logs to its stdout. The attached `docker run` client writes all of the container's output straight to a host file: `proxy.log` in `output` when one is given, or else a file in the host temporary directory that becomes `result.proxy`. The socket lives in a Docker volume made for the run, `botbox-run-<token>`, labelled `botbox.run=<token>`. The proxy mounts it read-write and the agent read-only. The allowlist reaches the proxy as an environment variable. The proxy container has no writable mount besides that volume.
 
 ### Lifetime
 
@@ -59,9 +59,9 @@ The owning Python process starts the proxy with one attached `docker run --inter
 
 Sharing the namespace means the agent can see the proxy's processes, but not touch them. They run as another uid, so the agent can't signal them or read their `/proc` entries beyond what any user can. The relay refuses to start if the agent runs as the proxy's uid. The proxy's init also reaps whatever the agent orphans.
 
-A normal end or a cancel removes both containers. After SIGKILL of the owner they stay, stopped and labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
+A normal end or a cancel removes both containers and the volume. After SIGKILL of the owner they stay, the containers stopped, all labelled `botbox.run=<token>`. The host temporary directory stays too, credentials included.
 
-botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`.
+botbox doesn't sweep up after a killed owner. Remove its containers with `docker rm --force $(docker ps --all --quiet --filter label=botbox.run=<token>)`, then its volume with `docker volume rm botbox-run-<token>`.
 
 There is no network at run time beyond the allowlist, so installs belong in the image build.
 

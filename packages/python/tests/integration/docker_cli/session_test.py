@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from fake_docker_test import REFUSAL, Daemon, homes, option, token
+from fake_docker_test import LISTENING, REFUSAL, Daemon, homes, option, token
 
 from botbox import (
     Botbox,
@@ -93,7 +93,7 @@ def describe_session() -> None:
                 stderr="",
                 exit_code=0,
                 transcript={".claude/projects/-work/abc.jsonl": '{"type": "user"}\n'},
-                proxy=REFUSAL,
+                proxy=LISTENING + REFUSAL,
                 image="botbox-claude:latest",
             )
 
@@ -143,6 +143,7 @@ def describe_session() -> None:
             run = token(daemon)
             assert daemon.removed == [f"botbox-agent-{run}", f"botbox-proxy-{run}"]
             assert daemon.containers == []
+            assert daemon.volumes == []
             assert homes(temp) == []
 
     def describe_failure() -> None:
