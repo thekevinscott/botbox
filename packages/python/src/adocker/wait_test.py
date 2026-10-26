@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.wait import wait
+from adocker.wait import wait
 
 
 @pytest.fixture(autouse=True)
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.wait.run_docker", autospec=True) as m:
+    with patch("adocker.wait.run_docker", autospec=True) as m:
         m.return_value = "137\n"
         yield m
 

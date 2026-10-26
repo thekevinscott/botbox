@@ -27,16 +27,6 @@ rules = ["co-change"]
 reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
 
 [[python.exempt]]
-path = "src/botbox/docker/execute.py"
-rules = ["co-change"]
-reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/docker/spawn.py"
-rules = ["co-change"]
-reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."
-
-[[python.exempt]]
 path = "src/botbox/hold_session.py"
 rules = ["co-change"]
 reason = "#175 import-only relocation; review requested removing location-pinning tests. Existing behavioral tests are unchanged; package-boundary enforcement is deferred to #180. Remove for the next behavioral edit."

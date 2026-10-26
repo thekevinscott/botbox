@@ -12,6 +12,7 @@ license = "MIT"
 authors = [{ name = "Kevin Scott", email = "me@thekevinscott.com" }]
 dependencies = [
     "json5>=0.17.3",
+    "posix-tools>=0.0.4",
 ]
 
 [project.urls]
@@ -31,7 +32,7 @@ source = "vcs"
 raw-options = { root = "../.." }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/botbox", "src/posix_tools"]
+packages = ["src/adocker", "src/botbox"]
 exclude = ["**/*_test.py"]
 
 [tool.hatch.build.targets.sdist]
@@ -49,7 +50,7 @@ select = ["E", "W", "F", "I", "B", "C4", "C90", "UP", "ARG", "SIM", "PTH", "PLR"
 "tests/**/*.py" = ["PLR2004", "PLR0915", "C901"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["botbox", "posix_tools"]
+known-first-party = ["adocker", "botbox"]
 
 [tool.mypy]
 strict = true
@@ -58,3 +59,6 @@ strict = true
 python_files = ["*_test.py"]
 testpaths = ["src"]
 asyncio_mode = "auto"
+
+[tool.uv]
+exclude-newer-package = { posix-tools = false }

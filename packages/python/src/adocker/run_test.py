@@ -1,13 +1,11 @@
 from collections.abc import Iterator
 from pathlib import Path
 from types import TracebackType
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.run import run
-
-KILL = 9
+from adocker.run import run
 
 
 class Capture:
@@ -37,20 +35,13 @@ MADE: list[Capture] = []
 @pytest.fixture(autouse=True)
 def captures() -> Iterator[list[Capture]]:
     MADE.clear()
-    with patch("botbox.docker.run.Capture", Capture):
+    with patch("adocker.run.Capture", Capture):
         yield MADE
 
 
 @pytest.fixture(autouse=True)
-def signal() -> Iterator[Mock]:
-    with patch("botbox.docker.run.signal", autospec=True) as m:
-        m.SIGKILL = KILL
-        yield m
-
-
-@pytest.fixture(autouse=True)
 def execute() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.run.execute", autospec=True, return_value=5) as m:
+    with patch("adocker.run.execute", autospec=True, return_value=5) as m:
         yield m
 
 
@@ -72,7 +63,6 @@ def describe_run() -> None:
             stdin=7,
             stdout=stdout,
             stderr=stderr,
-            signum=KILL,
         )
 
     async def it_keeps_all_the_output_by_default(captures: list[Capture]) -> None:
@@ -102,7 +92,5 @@ def describe_file_output() -> None:
         with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
             assert await run(["img"], stdin=None, stdout=out, stderr=err) == 5
             assert not out.closed and not err.closed
-            execute.assert_awaited_once_with(
-                ["run", "img"], stdin=None, stdout=out, stderr=err, signum=KILL
-            )
+            execute.assert_awaited_once_with(["run", "img"], stdin=None, stdout=out, stderr=err)
         assert captures == []

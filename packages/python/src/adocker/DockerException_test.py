@@ -1,4 +1,4 @@
-from botbox.docker.DockerException import DockerException
+from adocker.DockerException import DockerException
 
 
 def describe_docker_exception() -> None:

@@ -6,13 +6,13 @@ from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
+from adocker.build import build
+from adocker.run import run
 from botbox.authority import authority
 from botbox.build_lock import build_lock
-from botbox.docker.build import build
-from botbox.docker.run import run
+from botbox.process import owner_only, settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
-from posix_tools.process import owner_only, settle
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"

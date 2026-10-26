@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from botbox.docker.version import version
+from adocker.version import version
 
 
 @pytest.fixture(autouse=True)
 def run_docker() -> Iterator[AsyncMock]:
-    with patch("botbox.docker.version.run_docker", autospec=True) as m:
+    with patch("adocker.version.run_docker", autospec=True) as m:
         m.return_value = '{"Client":{"Version":"29.1"},"Server":{"Version":"29.1"}}\n'
         yield m
 
