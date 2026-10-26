@@ -1,24 +1,24 @@
 import asyncio
 import os
+from collections.abc import Callable
 from types import TracebackType
 
+type Sink = Callable[[bytes], object]
 
-class Capture(asyncio.Protocol):
-    """A pipe whose output lands in `into`, keeping only its last `limit` bytes if given.
 
-    Hand `write` to a child, then `release` it. `grew` is set each time bytes land, and `eof`
-    resolves when the pipe closes. Leaving the context closes the pipe, though a child that
-    escaped its group still holds the write end. `into` belongs to the caller, so what was read
-    outlasts the pipe.
+class Pump(asyncio.Protocol):
+    """A pipe whose output goes to `sink` chunk by chunk, as it arrives. Nothing is kept.
+
+    Hand `write` to a child, then `release` it. `eof` resolves when the pipe closes, or raises
+    what `sink` raised, which also closes the pipe. Leaving the context closes the pipe, though
+    a child that escaped its group still holds the write end.
     """
 
-    def __init__(self, into: bytearray, limit: int | None = None) -> None:
-        self.into = into
-        self.limit = limit
-        self.grew = asyncio.Event()
+    def __init__(self, sink: Sink) -> None:
+        self.sink = sink
         self.eof: asyncio.Future[None] = asyncio.get_running_loop().create_future()
 
-    async def __aenter__(self) -> "Capture":
+    async def __aenter__(self) -> "Pump":
         read, self.write = os.pipe()
         self.released = False
         pipe = os.fdopen(read, "rb")
@@ -47,10 +47,12 @@ class Capture(asyncio.Protocol):
             os.close(self.write)
 
     def data_received(self, data: bytes) -> None:
-        self.into += data
-        if self.limit is not None:
-            del self.into[: max(len(self.into) - self.limit, 0)]
-        self.grew.set()
+        try:
+            self.sink(data)
+        except Exception as error:
+            self.eof.set_exception(error)
+            self.transport.close()
 
     def connection_lost(self, _error: Exception | None) -> None:
-        self.eof.set_result(None)
+        if not self.eof.done():
+            self.eof.set_result(None)

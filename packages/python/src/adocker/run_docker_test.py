@@ -1,35 +1,11 @@
 import asyncio
 from collections.abc import Iterator
-from types import TracebackType
+from typing import IO
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from adocker.run_docker import STDERR_LIMIT, run_docker
-
-
-class Capture:
-    """A fake capture that records its limit and whether it was left."""
-
-    def __init__(self, into: bytearray, limit: int | None = None) -> None:
-        self.into = into
-        self.limit = limit
-        self.closed = False
-        MADE.append(self)
-
-    async def __aenter__(self) -> "Capture":
-        return self
-
-    async def __aexit__(
-        self,
-        _type: type[BaseException] | None,
-        _error: BaseException | None,
-        _tb: TracebackType | None,
-    ) -> None:
-        self.closed = True
-
-
-MADE: list[Capture] = []
 
 
 class DockerException(Exception):
@@ -45,25 +21,31 @@ def docker_exception() -> Iterator[None]:
         yield
 
 
-@pytest.fixture(autouse=True)
-def captures() -> Iterator[list[Capture]]:
-    MADE.clear()
-    with patch("adocker.run_docker.Capture", Capture):
-        yield MADE
-
-
 @pytest.fixture
 def output() -> list[bytes]:
-    """What the client writes to its stdout and stderr."""
+    """What the client writes to its stdout and stderr, and the code it exits with."""
     return [b'{"Version":"29"}\n', b""]
 
 
+@pytest.fixture
+def code() -> list[int]:
+    return [0]
+
+
+@pytest.fixture
+def files() -> list[IO[bytes]]:
+    return []
+
+
 @pytest.fixture(autouse=True)
-def execute(output: list[bytes]) -> Iterator[AsyncMock]:
-    async def write(_args: object, *, stdout: Capture, stderr: Capture, **_options: object) -> int:
-        stdout.into += output[0]
-        stderr.into += output[1]
-        return 0
+def execute(output: list[bytes], code: list[int], files: list[IO[bytes]]) -> Iterator[AsyncMock]:
+    async def write(
+        _args: object, *, stdout: IO[bytes], stderr: IO[bytes], **_options: object
+    ) -> int:
+        files.extend([stdout, stderr])
+        stdout.write(output[0])
+        stderr.write(output[1])
+        return code[0]
 
     with patch("adocker.run_docker.execute", autospec=True, side_effect=write) as m:
         yield m
@@ -76,57 +58,59 @@ def describe_run_docker() -> None:
     async def it_returns_stdout() -> None:
         assert await run_docker("version") == '{"Version":"29"}\n'
 
-    async def it_captures_all_of_stdout_and_the_end_of_stderr(captures: list[Capture]) -> None:
-        await run_docker("version")
-        assert [capture.limit for capture in captures] == [None, STDERR_LIMIT]
-
-    async def it_runs_docker_with_no_stdin_writing_to_its_captures(
-        execute: AsyncMock, captures: list[Capture]
-    ) -> None:
+    async def it_runs_docker_with_no_stdin_by_default(execute: AsyncMock) -> None:
         await run_docker("version", "--format", "json")
-        stdout, stderr = captures
-        execute.assert_awaited_once_with(
-            ("version", "--format", "json"),
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=stdout,
-            stderr=stderr,
-        )
+        [(args, options)] = [(c.args, c.kwargs) for c in execute.await_args_list]
+        assert args == (("version", "--format", "json"),)
+        assert options["stdin"] == asyncio.subprocess.DEVNULL
 
-    async def it_closes_the_captures_when_done(captures: list[Capture]) -> None:
+    async def it_passes_its_stdin_on(execute: AsyncMock) -> None:
+        await run_docker("exec", stdin=9)
+        assert execute.await_args_list[0].kwargs["stdin"] == 9
+
+    async def it_writes_to_temp_files_and_closes_them(files: list[IO[bytes]]) -> None:
         await run_docker("version")
-        assert all(capture.closed for capture in captures)
+        assert len(files) == 2
+        assert files[0] is not files[1]
+        assert all(file.closed for file in files)
 
-    async def it_closes_the_captures_when_it_fails(
-        execute: AsyncMock, captures: list[Capture]
-    ) -> None:
-        execute.side_effect = OSError("wait failed")
-        with pytest.raises(OSError, match="wait failed"):
-            await run_docker("version")
-        assert all(capture.closed for capture in captures)
-
-    async def it_raises_the_command_code_and_stderr_on_failure(
-        execute: AsyncMock, output: list[bytes]
-    ) -> None:
-        output[:] = [b"", b"no such image\xff"]
+    async def it_closes_the_files_when_it_fails(execute: AsyncMock, files: list[IO[bytes]]) -> None:
         side_effect = execute.side_effect
 
         async def failing(*args: object, **options: object) -> int:
             await side_effect(*args, **options)
-            return 1
+            raise OSError("wait failed")
 
         execute.side_effect = failing
+        with pytest.raises(OSError, match="wait failed"):
+            await run_docker("version")
+        assert all(file.closed for file in files)
+
+    async def it_raises_the_command_code_and_stderr_on_failure(
+        output: list[bytes], code: list[int]
+    ) -> None:
+        output[:] = [b"", b"no such image\xff"]
+        code[0] = 1
         with pytest.raises(DockerException) as raised:
             await run_docker("rm", "x")
         assert raised.value.docker_command == ["docker", "rm", "x"]
         assert raised.value.return_code == 1
-        assert raised.value.stderr == "no such image�"
+        assert raised.value.stderr == "no such image\N{REPLACEMENT CHARACTER}"
 
-    async def it_raises_when_a_signal_killed_the_client(execute: AsyncMock) -> None:
-        execute.side_effect = None
-        execute.return_value = -9
+    async def it_raises_with_only_the_end_of_a_long_stderr(
+        output: list[bytes], code: list[int]
+    ) -> None:
+        output[:] = [b"", b"a" + b"b" * STDERR_LIMIT]
+        code[0] = 1
+        with pytest.raises(DockerException) as raised:
+            await run_docker("rm", "x")
+        assert raised.value.stderr == "b" * STDERR_LIMIT
+
+    async def it_raises_when_a_signal_killed_the_client(code: list[int]) -> None:
+        code[0] = -9
         with pytest.raises(DockerException):
             await run_docker("rm", "x")
 
     async def it_decodes_stdout_leniently(output: list[bytes]) -> None:
         output[:] = [b"built\xff", b""]
-        assert await run_docker("build") == "built�"
+        assert await run_docker("build") == "built\N{REPLACEMENT CHARACTER}"
