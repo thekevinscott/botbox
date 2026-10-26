@@ -6,7 +6,9 @@ Keep one agent process alive across several messages with `session()`. Context c
 agent = PiAgent("openrouter", "openai/gpt-4o-mini")
 
 async with Botbox(agent) as box:
-    async with box.session(mounts=[("./work", "/work", "rw")], workdir="/work") as live:
+    async with box.session(
+        output="runs/session", mounts=[("./work", "/work", "rw")], workdir="/work"
+    ) as live:
         events = await live.message("Start the dev server in the background")
         async for event in live.stream("Now run the tests against it"):
             print(event["type"])
@@ -15,7 +17,7 @@ async with Botbox(agent) as box:
 
 `await live.message(text)` returns when the agent ends its turn, with that turn's events: the CLI's JSON lines, parsed. `live.stream(text)` yields the same events as they arrive. The events are the CLI's own format; for pi, the reply is the last `message_end` whose `message.role` is `assistant`.
 
-Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../api/run-result). If the block raises or is cancelled, `live.result` still holds what was captured, with `exit_code` -1.
+Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../api/run-result), which is only the exit code. If the block raises or is cancelled, its `exit_code` is -1. Either way, `output` holds every line the CLI wrote, events included, in `stdout.txt`, with `stderr.txt`, `proxy.log` and `transcripts/` beside it, as for a run.
 
 `ClaudeAgent` and `PiAgent` have a session mode. `CodexAgent` does not: to hold a session with a Codex model, run it through pi on OpenRouter, `PiAgent("openrouter", "openai/<model>")`.
 

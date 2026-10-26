@@ -83,9 +83,9 @@ If the proxy won't start, the error carries the last 64 KiB of `proxy.log`. A Do
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr go to `stdout.txt` and `stderr.txt` in `output`, as in a run. Events come from following `stdout.txt` with `tail -F -n +1`, read from tail's pipe line by line, so only the line being read is held in memory, however long it is. tail runs under a small `sh` that holds a pipe from the owner as its stdin; when the owner dies, that pipe closes and the `sh` kills tail. `stream()` and `message()` write one line in the harness's input format, then read lines, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe. Lines tail hadn't passed on by then are still in `stdout.txt`.
 
-The block's end closes stdin, waits for the client, reads the exit code, removes the container and reads the transcript as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
+The block's end closes stdin, waits for the client, stops tail, reads the exit code, and removes the container and temporary home as `run()` does. `output` stays. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
 ## Images
 

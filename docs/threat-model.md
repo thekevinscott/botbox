@@ -10,7 +10,7 @@ Each threat has four parts: who attacks, what botbox does about it now, what's l
 
 ### Who Attacks
 
-Any process in the box: a tool call, a test script from the repo, a build step. The agent CLI's stdout is a pipe to botbox. Processes the CLI starts may inherit it. Any process under the same uid can also open it through `/proc/<pid>/fd/1` of the shell above the CLI. Whatever it writes there, botbox reads as the agent's output.
+Any process in the box: a tool call, a test script from the repo, a build step. The agent CLI's stdout is a pipe to the attached `docker run`, which writes it to `stdout.txt`, and a session reads its events from that file. Processes the CLI starts may inherit the pipe. Any process under the same uid can also open it through `/proc/<pid>/fd/1` of the shell above the CLI. Whatever it writes there, botbox reads as the agent's output.
 
 ### What botbox Does
 
