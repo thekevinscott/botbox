@@ -1,7 +1,16 @@
 import json
+from collections.abc import Iterator
+from unittest.mock import patch
 
-from botbox.credential_proxy.envoy_config import SECRET_NAME
+import pytest
+
 from botbox.credential_proxy.sds_secret import sds_secret
+
+
+@pytest.fixture(autouse=True)
+def secret_name() -> Iterator[str]:
+    with patch(f"{__package__}.sds_secret.SECRET_NAME", "the-name") as name:
+        yield name
 
 
 def describe_sds_secret() -> None:
@@ -9,7 +18,7 @@ def describe_sds_secret() -> None:
         (resource,) = json.loads(sds_secret("Bearer token"))["resources"]
         assert resource == {
             "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.Secret",
-            "name": SECRET_NAME,
+            "name": "the-name",
             "generic_secret": {"secret": {"inline_string": "Bearer token"}},
         }
 

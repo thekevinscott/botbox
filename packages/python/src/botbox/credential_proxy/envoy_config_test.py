@@ -1,5 +1,8 @@
+import dataclasses
 import json
 from typing import Any
+
+import pytest
 
 from botbox.credential_proxy.envoy_config import (
     SECRET_DIR,
@@ -33,6 +36,12 @@ def injector(bootstrap: Any) -> Any:
 
 def cluster(bootstrap: Any) -> Any:
     return bootstrap["static_resources"]["clusters"][0]
+
+
+def describe_Injection() -> None:
+    def it_is_immutable() -> None:
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            CLAUDE.upstream = "other"  # type: ignore[misc]
 
 
 def describe_envoy_config() -> None:
