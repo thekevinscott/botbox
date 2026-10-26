@@ -100,19 +100,15 @@ await box.run(
 | Argument         | What it is                                                              |
 | ---------------- | ----------------------------------------------------------------------- |
 | `command`        | Shell command line, run as `sh -c`.                                     |
-| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, the streams come back on the result and the proxy log and transcripts are deleted. |
+| `output`         | Host directory for `stdout.txt`, `stderr.txt`, `proxy.log` and `transcripts/`. Without it, they are deleted after the run. |
 | `mounts`         | Bind mounts: host path, container path, mode. See [Mounts](#mounts).    |
 | `workdir`        | Where the command starts. Must be a mounted path. Defaults to the agent's home. |
 
-`RunResult`: `stdout`, `stderr`, `exit_code`, `image`. Nothing parsed.
+`RunResult`: `exit_code` only. Read the rest from `output`.
 
-| Field        | What it is                                                                     |
-| ------------ | ------------------------------------------------------------------------------ |
-| `image`      | `str`: the tag that ran: your layer's when `dockerfile` is given, else the agent's. |
+The container is removed once its exit code is read. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
 
-The container is removed once its exit code is read. Everything in the result is read before it goes. Anything the command wrote outside the mounts and the agent's home goes with it, so write what you want to keep to a mount.
-
-A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with whatever output exists, and `exit_code` -1. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
+A non-zero exit is a normal `RunResult`. API errors inside the container are the CLI's to handle; they show up in `exit_code` and `stderr.txt`. If the Docker daemon dies mid-run, `run()` still returns a `RunResult` with `exit_code` -1, and what the run left so far stays in `output`. `run()` raises only when setup fails or the run is cancelled. Docker failures in setup raise `botbox.DockerException`, and so does a container that never started: an image the daemon can't find raises with `return_code` 125. Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and temp home before the cancel propagates.
 
 ### `build()`
 

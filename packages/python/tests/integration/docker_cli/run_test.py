@@ -48,16 +48,10 @@ def started_nothing(daemon: Daemon) -> bool:
 
 def describe_run() -> None:
     def describe_the_result() -> None:
-        async def it_returns_what_the_run_left(box: Botbox, daemon: Daemon) -> None:
+        async def it_returns_only_the_exit_code(box: Botbox, daemon: Daemon) -> None:
             daemon.agent("claude -p hi", stdout="out\n", stderr="err\n", exit=3)
             daemon.set(proxy_log=REFUSAL)
-            result = await box.run("claude -p hi")
-            assert result == RunResult(
-                stdout="out\n",
-                stderr="err\n",
-                exit_code=3,
-                image="botbox-claude:latest",
-            )
+            assert await box.run("claude -p hi") == RunResult(3)
 
         async def it_writes_the_proxy_log_bytes_into_output(
             box: Botbox, daemon: Daemon, output: Path
@@ -87,8 +81,7 @@ def describe_run() -> None:
                 f"botbox could not remove its proxy botbox-proxy-{token(daemon)}",
                 f"botbox could not remove its volume botbox-run-{token(daemon)}",
             ]
-            assert result.exit_code == -1
-            assert result.stdout == ""
+            assert result == RunResult(-1)
             assert (output / "stdout.txt").read_text() == "partial\n"
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
@@ -339,12 +332,7 @@ def describe_run() -> None:
                 await Botbox(box.agent, timeout=2).run("sleep 600", output=output)
             assert (output / "stdout.txt").read_text() == "partial\n"
             assert (output / "proxy.log").read_text() == LISTENING + REFUSAL
-            assert raised.value.result == RunResult(
-                stdout="",
-                stderr="",
-                exit_code=-1,
-                image="botbox-claude:latest",
-            )
+            assert raised.value.result == RunResult(-1)
             transcript = output / "transcripts" / "-work" / "abc.jsonl"
             assert transcript.read_text() == '{"type": "user"}\n'
             assert daemon.containers == []
@@ -388,7 +376,7 @@ def describe_run_output() -> None:
         stdout, stderr = "x" * 200_000, "y" * 200_000
         daemon.agent("true", stdout=stdout, stderr=stderr, exit=7)
         result = await box.run("true", output=tmp_path)
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", 7)
+        assert result == RunResult(7)
         assert (tmp_path / "stdout.txt").read_text() == stdout
         assert (tmp_path / "stderr.txt").read_text() == stderr
         assert daemon.containers == []
@@ -416,14 +404,11 @@ def describe_run_output() -> None:
         assert (tmp_path / "stderr.txt").read_text() == "error\n"
         assert daemon.containers == []
 
-    async def it_keeps_files_and_empty_stream_fields_after_timeout(
-        box: Botbox, daemon: Daemon, tmp_path: Path
-    ) -> None:
+    async def it_keeps_files_after_timeout(box: Botbox, daemon: Daemon, tmp_path: Path) -> None:
         daemon.agent("sleep 600", stdout="partial\n", mode="hang")
         with pytest.raises(Timeout) as raised:
             await box.run("sleep 600", output=tmp_path, timeout=2)
-        result = raised.value.result
-        assert (result.stdout, result.stderr, result.exit_code) == ("", "", -1)
+        assert raised.value.result == RunResult(-1)
         assert (tmp_path / "stdout.txt").read_text() == "partial\n"
         assert daemon.containers == []
 
