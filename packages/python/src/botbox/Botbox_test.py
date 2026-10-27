@@ -135,6 +135,16 @@ def describe_botbox() -> None:
     def it_holds_the_timeout(agent: Mock) -> None:
         assert Botbox(agent, timeout=30).timeout == 30
 
+    def it_copies_caller_labels(agent: Mock) -> None:
+        labels = {"test.run": "one"}
+        box = Botbox(agent, labels=labels)
+        labels["test.run"] = "two"
+        assert box.labels == {"test.run": "one"}
+
+    def it_reserves_the_cleanup_label(agent: Mock) -> None:
+        with pytest.raises(ValueError, match=r"botbox\.run"):
+            Botbox(agent, labels={"botbox.run": "other"})
+
     @pytest.mark.parametrize("seconds", [0, -1])
     def it_refuses_a_timeout_that_is_not_positive(agent: Mock, seconds: float) -> None:
         with pytest.raises(ValueError, match="timeout"):
@@ -621,7 +631,12 @@ def describe_run() -> None:
     ) -> None:
         await Botbox(runner, allow=["registry.npmjs.org"]).run("true")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None, credential=None
+            ("api.anthropic.com", "registry.npmjs.org"),
+            scratch,
+            TOKEN,
+            None,
+            credential=None,
+            labels={},
         )
 
     async def it_runs_and_tears_down_in_order(runner: Mock, steps: list[str]) -> None:
@@ -678,6 +693,16 @@ def describe_run() -> None:
             options = docker_run.call_args.kwargs
             assert options["name"] == AGENT
             assert options["labels"] == {"botbox.run": TOKEN}
+
+        async def it_merges_caller_labels_into_the_agent_container(
+            runner: Mock, docker_run: Mock, lockdown: Mock
+        ) -> None:
+            await Botbox(runner, labels={"test.run": "one"}).run("true")
+            assert docker_run.call_args.kwargs["labels"] == {
+                "test.run": "one",
+                "botbox.run": TOKEN,
+            }
+            assert lockdown.call_args.kwargs["labels"] == {"test.run": "one"}
 
         async def it_does_not_remove_itself_and_reads_nothing(
             runner: Mock, docker_run: Mock
@@ -983,7 +1008,12 @@ def describe_session() -> None:
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
         assert not (scratch / "home").exists()
         lockdown.assert_called_once_with(
-            ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None, credential=None
+            ("api.anthropic.com", "registry.npmjs.org"),
+            scratch,
+            TOKEN,
+            None,
+            credential=None,
+            labels={},
         )
 
     async def it_holds_the_session_then_tears_down_in_order(talker: Mock, steps: list[str]) -> None:
@@ -1039,6 +1069,16 @@ def describe_session() -> None:
             assert options["name"] == AGENT
             assert options["labels"] == {"botbox.run": TOKEN}
             assert "rm" not in options
+
+        async def it_merges_caller_labels_into_the_session_container(
+            talker: Mock, hold_session: Mock
+        ) -> None:
+            async with Botbox(talker, labels={"test.run": "one"}).session():
+                pass
+            assert session_options(hold_session)["labels"] == {
+                "test.run": "one",
+                "botbox.run": TOKEN,
+            }
 
         @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
         async def it_runs_the_agent_as_the_host_user(
@@ -1247,7 +1287,7 @@ def describe_session() -> None:
             options = session_options(hold_session)
             assert (options["scratch"], options["output"]) == (scratch, tmp_path)
             lockdown.assert_called_once_with(
-                ("api.anthropic.com",), scratch, TOKEN, tmp_path, credential=None
+                ("api.anthropic.com",), scratch, TOKEN, tmp_path, credential=None, labels={}
             )
             transcripts = FakeMount(
                 "bind", str(tmp_path / "transcripts"), "/home/user/.claude/projects"
@@ -1330,7 +1370,7 @@ def describe_run_output() -> None:
     ) -> None:
         await Botbox(runner).run("true", output=tmp_path / "output")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output", credential=None
+            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output", credential=None, labels={}
         )
 
     @pytest.mark.usefixtures("file_run")
@@ -1526,5 +1566,5 @@ def describe_credential_injection() -> None:
     ) -> None:
         injector.credential_source = None
         await run_and_talk(Botbox(injector), how)
-        assert lockdown.call_args.kwargs == {"credential": None}
+        assert lockdown.call_args.kwargs == {"credential": None, "labels": {}}
         credentials.following.assert_not_called()

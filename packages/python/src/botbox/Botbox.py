@@ -2,7 +2,7 @@ import asyncio
 import os
 import signal
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -54,6 +54,7 @@ class Botbox:
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
         timeout: float | None = None,
+        labels: Mapping[str, str] | None = None,
     ) -> None:
         if os.getuid() == 0:
             raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
@@ -63,6 +64,9 @@ class Botbox:
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
         self.timeout = check_timeout(timeout)
+        if labels is not None and "botbox.run" in labels:
+            raise ValueError("botbox.run is reserved for botbox cleanup")
+        self.labels = dict(labels or {})
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -178,7 +182,12 @@ class Botbox:
                 async with (
                     deadline,
                     lockdown(
-                        allow, Path(scratch.name), token, output, credential=credential
+                        allow,
+                        Path(scratch.name),
+                        token,
+                        output,
+                        credential=credential,
+                        labels=self.labels,
                     ) as jail,
                     self._following(jail, source, credential),
                 ):
@@ -248,7 +257,12 @@ class Botbox:
                 async with (
                     deadline,
                     lockdown(
-                        allow, Path(scratch.name), token, output, credential=credential
+                        allow,
+                        Path(scratch.name),
+                        token,
+                        output,
+                        credential=credential,
+                        labels=self.labels,
                     ) as jail,
                     self._following(jail, source, credential),
                 ):
@@ -384,7 +398,7 @@ class Botbox:
         source = self._credential_source()
         injected = {} if jail.credentials is None or source is None else source.env
         return {
-            "labels": {"botbox.run": token},
+            "labels": {**self.labels, "botbox.run": token},
             "env": {
                 "HOME": agent.home,
                 **({HOME_BYTES_ENV: str(len(home))} if home else {}),
