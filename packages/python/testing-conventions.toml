@@ -76,8 +76,8 @@ reason = "* -> / only lets the internal caller pass scratch and output by positi
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["319"]
-reason = "* -> / on the private _attach only widens how its one caller may pass keywords"
+lines = ["319", "397"]
+reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords"
 
 [[python.exempt]]
 path = "src/botbox/write.py"
