@@ -204,10 +204,13 @@ def describe_credential_proxy() -> None:
             volume=VOLUME,  # type: ignore[arg-type]
             token="t",
             log=log,
-            labels={"test.run": "one"},
+            labels={"test.run": "/tmp/runs/2026-10-27T14:38:00-ab12"},
         ):
             pass
-        assert client.options["labels"] == {"test.run": "one", "botbox.run": "t"}
+        assert client.options["labels"] == {
+            "test.run": "/tmp/runs/2026-10-27T14:38:00-ab12",
+            "botbox.run": "t",
+        }
 
     async def it_writes_the_secret_then_execs_envoy_on_the_config(
         log: Path, client: Client

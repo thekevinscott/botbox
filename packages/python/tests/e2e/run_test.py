@@ -199,7 +199,7 @@ def describe_run() -> None:
         assert runs.leftovers() == []
 
     async def it_labels_all_three_live_containers(runs: Runs) -> None:
-        run_id = uuid4().hex
+        run_id = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
         task = asyncio.create_task(
             Botbox(ClaudeAgent(), labels={"test.run": run_id}).run("sleep 600")
         )

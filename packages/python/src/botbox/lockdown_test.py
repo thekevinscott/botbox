@@ -184,6 +184,7 @@ def allowlist(image: Image) -> str:
     return str(image.options["env"]["BOTBOX_FILTER"])
 
 
+LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
 LABELS = {"botbox.run": TOKEN}
 
 
@@ -252,9 +253,9 @@ def describe_lockdown() -> None:
     async def it_merges_caller_labels_on_the_proxy_and_volume(
         scratch: Path, image: Image, steps: list[str]
     ) -> None:
-        async with lockdown(ALLOW, scratch, TOKEN, labels={"test.run": "one"}):
+        async with lockdown(ALLOW, scratch, TOKEN, labels={"test.run": LABEL_VALUE}):
             pass
-        expected = {"test.run": "one", "botbox.run": TOKEN}
+        expected = {"test.run": LABEL_VALUE, "botbox.run": TOKEN}
         assert image.options["labels"] == expected
         assert f"create {VOLUME} {expected}" in steps
 
