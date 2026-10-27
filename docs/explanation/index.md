@@ -153,9 +153,8 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 ## pi
 
 - **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
-- **Command:** `pi -p <prompt> --mode json --provider <provider>`, plus `--model` when set.
-- **Session:** `pi --mode rpc --provider <provider>`. Each message goes in as a `prompt` command. A turn ends at the `agent_end` event.
-- **Update events:** both commands pipe pi's output through `sed` in the container to drop `message_update` and `tool_execution_update`. Each one resends the whole partial message or tool output so far, so a long turn's output would grow with its square. `message_end` and `tool_execution_end` carry the final versions.
+- **Command:** `pi -p <prompt> --mode json`, plus `--provider <provider> --model <model>` when a model is set. pi rejects `--provider` without `--model`.
+- **Session:** `pi --mode rpc`, with the same flags. Each message goes in as a `prompt` command. A turn ends at the `agent_settled` event, since retries and compaction can follow `agent_end`.
 - **Credentials:** on `openrouter`, `.pi/agent/auth.json` holds a placeholder key and `.pi/agent/models.json` sets the provider's `baseUrl` to the credential proxy, which adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` on its way to `openrouter.ai`. The key is `api_key`, or the literal `openrouter` key in the host's `auth.json`, reread every 2 seconds as for Claude. For any other provider, `auth.json`, and `models.json` if present, are copied into `.pi/agent/`.
 - **Hosts:** none for `openrouter`, since the credential proxy carries the traffic. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.

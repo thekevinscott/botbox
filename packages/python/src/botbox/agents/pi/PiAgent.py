@@ -16,25 +16,6 @@ MODELS = "models.json"
 AGENT_DIR = ".pi/agent"
 TOOL_TIMEOUT_EXTENSION = "/usr/local/lib/botbox/tool-timeout.ts"
 
-# Each update resends the whole partial message, so a turn's output grows with its square.
-# message_end and tool_execution_end carry the final versions. pi writes `type` first.
-DROP_UPDATES = shlex.join(
-    [
-        "sed",
-        "-u",
-        "-e",
-        '/^{"type":"message_update"/d',
-        "-e",
-        '/^{"type":"tool_execution_update"/d',
-    ]
-)
-
-
-def drop_updates(command: str) -> str:
-    """`command` with pi's streaming update events dropped inside the container."""
-    # Not grep -v: it exits 1 on empty output, which pipefail would report as a failure.
-    return "exec bash -o pipefail -c " + shlex.quote(f"{command} | {DROP_UPDATES}")
-
 
 def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) -> tuple[str, ...]:
     if not staged:
@@ -98,15 +79,16 @@ class PiAgent:
             self.credential_source = None
 
     def command(self, prompt: str) -> str:
-        return drop_updates(self._pi(f"-p {shlex.quote(prompt)} --mode json"))
+        return self._pi(f"-p {shlex.quote(prompt)} --mode json")
 
     def session_command(self) -> str:
-        return drop_updates(self._pi("--mode rpc"))
+        return self._pi("--mode rpc")
 
     def _pi(self, mode: str) -> str:
-        command = f"pi {mode} --provider {shlex.quote(self.provider)}"
+        command = f"pi {mode}"
+        # pi 1.0 rejects --provider without --model; before, it ignored it and picked the default.
         if self.model is not None:
-            command += f" --model {shlex.quote(self.model)}"
+            command += f" --provider {shlex.quote(self.provider)} --model {shlex.quote(self.model)}"
         if self.tool_timeout:
             command += f" -e {TOOL_TIMEOUT_EXTENSION}"
         return with_env(self.env, command)
@@ -115,7 +97,7 @@ class PiAgent:
         return json.dumps({"type": "prompt", "message": message})
 
     def turn_ended(self, event: dict[str, Any]) -> bool:
-        return bool(event.get("type") == "agent_end")
+        return bool(event.get("type") == "agent_settled")
 
     def stage_auth(self, home: HomeFiles) -> None:
         if self.credential_source is not None:

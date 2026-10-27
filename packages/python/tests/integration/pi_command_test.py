@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -17,11 +18,6 @@ FAKE_PI = """\
 import json, os, sys
 print(json.dumps({"type": "argv", "argv": sys.argv[1:],
                   "tool_timeout": os.environ.get("BOTBOX_TOOL_TIMEOUT")}), flush=True)
-for line in sys.stdin:
-    print('{"type":"message_update","message":{}}', flush=True)
-    print('{"type":"tool_execution_update","partialResult":{}}', flush=True)
-    print(json.dumps({"type": "agent_end", "got": line.strip()}), flush=True)
-sys.exit(int(sys.argv[sys.argv.index("--provider") + 1] == "fail"))
 """
 
 
@@ -48,7 +44,7 @@ def provider(home: Path, name: str) -> PiAgent:
     (home / "models.json").write_text(
         json.dumps({"providers": {name: {"baseUrl": "https://models.example"}}})
     )
-    return PiAgent(name, host_home=home)
+    return PiAgent(name, "m", host_home=home)
 
 
 def run(command: str, stdin: str = "") -> tuple[list[Any], int]:
@@ -65,13 +61,13 @@ def argv(command: str) -> list[str]:
 def describe_quoting() -> None:
     def it_hands_pi_the_prompt_intact() -> None:
         assert argv(PiAgent("openrouter").command("it's $HOME")) == (
-            ["-p", "it's $HOME", "--mode", "json", "--provider", "openrouter"]
+            ["-p", "it's $HOME", "--mode", "json"]
         )
 
     def it_hands_pi_the_provider_intact(home: Path) -> None:
         agent = provider(home, "a b; id")
-        assert argv(agent.command("hi"))[-1] == "a b; id"
-        assert argv(agent.session_command())[-1] == "a b; id"
+        assert argv(agent.command("hi"))[-3] == "a b; id"
+        assert argv(agent.session_command())[-3] == "a b; id"
 
     def it_hands_pi_the_model_intact() -> None:
         agent = PiAgent("openrouter", "a b; id")
@@ -79,30 +75,16 @@ def describe_quoting() -> None:
         assert argv(agent.session_command())[-2:] == ["--model", "a b; id"]
 
 
-def describe_update_events() -> None:
-    def it_drops_them_and_keeps_the_rest() -> None:
-        events, code = run(PiAgent("openrouter").session_command(), "go\n")
-        assert [event["type"] for event in events] == ["argv", "agent_end"]
-        assert code == 0
+def describe_appended_flags() -> None:
+    def it_hands_pi_flags_a_subclass_appends_to_the_session_command() -> None:
+        class Terse(PiAgent):
+            def session_command(self) -> str:
+                return super().session_command() + " --append-system-prompt " + shlex.quote("X Y")
 
-    def it_keeps_pis_exit_code(home: Path) -> None:
-        _, code = run(provider(home, "fail").command("hi"))
-        assert code == 1
-
-    def it_passes_each_line_on_as_pi_prints_it() -> None:
-        with subprocess.Popen(
-            ["sh", "-c", PiAgent("openrouter").session_command()],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            text=True,
-        ) as pi:
-            assert pi.stdin is not None
-            assert pi.stdout is not None
-            assert json.loads(pi.stdout.readline())["type"] == "argv"
-            pi.stdin.write("go\n")
-            pi.stdin.flush()
-            assert json.loads(pi.stdout.readline()) == {"type": "agent_end", "got": "go"}
-            pi.stdin.close()
+        assert argv(Terse("openrouter", "m").session_command())[-2:] == [
+            "--append-system-prompt",
+            "X Y",
+        ]
 
 
 def describe_tool_timeout() -> None:
