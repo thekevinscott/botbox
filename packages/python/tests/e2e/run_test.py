@@ -18,6 +18,7 @@ from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from conftest import docker_lines
@@ -195,6 +196,26 @@ def describe_run() -> None:
         result = await Botbox(box.agent, memory="64m").run(command, output=output)
         assert result == RunResult(0)
         assert (output / "stdout.txt").read_text() == "child:137\nsurvived\n"
+        assert runs.leftovers() == []
+
+    async def it_labels_all_three_live_containers(runs: Runs) -> None:
+        run_id = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
+        task = asyncio.create_task(
+            Botbox(ClaudeAgent(), labels={"test.run": run_id}).run("sleep 600")
+        )
+        try:
+            await runs.started()
+            [token] = runs.tokens
+            names = docker_lines(
+                "ps", "--filter", f"label=test.run={run_id}", "--format", "{{.Names}}"
+            )
+            assert set(names) == {
+                f"botbox-agent-{token}",
+                f"botbox-proxy-{token}",
+                f"botbox-credentials-{token}",
+            }
+        finally:
+            await cancelled(task)
         assert runs.leftovers() == []
 
     async def it_returns_only_the_exit_code_without_output(box: Botbox, runs: Runs) -> None:

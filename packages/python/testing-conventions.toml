@@ -1,13 +1,13 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["72-73", "105"]
+lines = ["79-80", "112"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["58"]
+lines = ["61"]
 reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 
 [[python.exempt]]
@@ -76,7 +76,7 @@ reason = "* -> / only lets the internal caller pass scratch and output by positi
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["299"]
+lines = ["316"]
 reason = "* -> / on the private _attach only widens how its one caller may pass keywords"
 
 [[python.exempt]]
@@ -93,5 +93,5 @@ reason = "#271 docstring-only note. Behavior unchanged. Remove for the next beha
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["342"]
+lines = ["359"]
 reason = "or -> and is equivalent: credential is None exactly when source is None"

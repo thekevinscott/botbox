@@ -10,6 +10,7 @@ Botbox(
     allow: Sequence[str] = (),
     timeout: float | None = None,
     memory: str | None = None,
+    labels: Mapping[str, str] | None = None,
 )
 ```
 
@@ -20,6 +21,7 @@ Botbox(
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 | `timeout`    | Seconds each [`run()`](./run) and [`session()`](./session) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
 | `memory`     | Agent container memory limit, such as `"16g"`. `None` leaves it uncapped. Swap is disabled when a limit is set. |
+| `labels`     | Docker labels added to each run's agent, proxy, credential proxy and socket volume. `botbox.run` is reserved and raises `ValueError`. Images are not labelled. |
 
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
 

@@ -197,6 +197,21 @@ def describe_credential_proxy() -> None:
         }
         assert client.options["stdout"] is client.options["stderr"]
 
+    async def it_merges_caller_labels_with_the_run_token(log: Path, client: Client) -> None:
+        async with credential_proxy(
+            Credential(INJECTION, "Bearer one"),  # type: ignore[arg-type]
+            proxy=PROXY,  # type: ignore[arg-type]
+            volume=VOLUME,  # type: ignore[arg-type]
+            token="t",
+            log=log,
+            labels={"test.run": "/tmp/runs/2026-10-27T14:38:00-ab12"},
+        ):
+            pass
+        assert client.options["labels"] == {
+            "test.run": "/tmp/runs/2026-10-27T14:38:00-ab12",
+            "botbox.run": "t",
+        }
+
     async def it_writes_the_secret_then_execs_envoy_on_the_config(
         log: Path, client: Client
     ) -> None:
