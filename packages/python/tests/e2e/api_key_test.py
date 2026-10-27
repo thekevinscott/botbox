@@ -8,14 +8,16 @@ output for the key.
 import asyncio
 import json
 import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from conftest import API_KEY, docker_lines, leaked, transcripts
 
-from botbox import Botbox, ClaudeAgent, DockerException, RunResult
+from botbox import Botbox, ClaudeAgent, DockerException, HomeFiles, RunResult
 
 
 @pytest.fixture(scope="module")
@@ -49,20 +51,23 @@ def listing_output(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.fixture(scope="module")
 def listing(agent: ClaudeAgent, listing_output: Path) -> RunResult:
-    """The staged home and the key file's mode, before any CLI runs."""
-    command = "find . -mindepth 1 | sort; stat -c %a .claude/api_key"
+    """The staged files and the key file's mode, before any CLI runs."""
+    command = "find .claude -mindepth 1 | sort; stat -c %a .claude/api_key"
     return asyncio.run(Botbox(agent).run(command, output=listing_output))
 
 
 @pytest.fixture(scope="module")
 def config(agent: ClaudeAgent, tmp_path_factory: pytest.TempPathFactory) -> str:
-    """The agent container's `docker inspect`, taken mid-run: the container is gone after."""
-    before = set(docker_lines("ps", "-a", "--format", "{{.Names}}"))
+    """The agent container's `docker inspect`, taken mid-run: the container is gone after.
+
+    Its temp directory, botbox-<token>-*, is the only one in a temp dir of its own.
+    """
     output = tmp_path_factory.mktemp("config_output")
-    with ThreadPoolExecutor(1) as pool:
+    temp = tmp_path_factory.mktemp("tmp")
+    with patch.object(tempfile, "tempdir", str(temp)), ThreadPoolExecutor(1) as pool:
         run = pool.submit(asyncio.run, Botbox(agent).run("sleep 5", output=output))
         deadline = time.monotonic() + 120
-        while not (started := agents() - before) and time.monotonic() < deadline:
+        while not (started := agents(temp)) and time.monotonic() < deadline:
             time.sleep(0.1)
         (name,) = started
         out = subprocess.run(
@@ -72,10 +77,16 @@ def config(agent: ClaudeAgent, tmp_path_factory: pytest.TempPathFactory) -> str:
     return out
 
 
-def agents() -> set[str]:
-    return {
-        n for n in docker_lines("ps", "--format", "{{.Names}}") if n.startswith("botbox-agent-")
-    }
+def staged_size(agent: ClaudeAgent) -> int:
+    files = HomeFiles()
+    agent.stage_auth(files)
+    return len(files.archive())
+
+
+def agents(temp: Path) -> set[str]:
+    """The running agent containers of the runs whose temp directories are in `temp`."""
+    names = {f"botbox-agent-{p.name.split('-')[1]}" for p in temp.iterdir()}
+    return names & set(docker_lines("ps", "--format", "{{.Names}}"))
 
 
 def describe_an_api_key_session() -> None:
@@ -84,10 +95,9 @@ def describe_an_api_key_session() -> None:
     def it_stages_the_key_and_its_helper_only(listing: RunResult, listing_output: Path) -> None:
         assert listing.exit_code == 0, (listing_output / "stderr.txt").read_text()
         assert (listing_output / "stdout.txt").read_text().split() == [
-            "./.claude",
-            "./.claude/api_key",
-            "./.claude/projects",
-            "./.claude/settings.json",
+            ".claude/api_key",
+            ".claude/projects",
+            ".claude/settings.json",
             "600",
         ]
 
@@ -129,12 +139,21 @@ def describe_an_api_key_session() -> None:
         leaked = API_KEY in config
         assert not leaked
 
+    def it_keeps_the_staged_files_out_of_the_container_config(
+        agent: ClaudeAgent, config: str
+    ) -> None:
+        [container] = json.loads(config)
+        assert "sk-ant-api03-botbox-placeholder" not in config
+        assert [e for e in container["Config"]["Env"] if e.startswith("BOTBOX_HOME")] == [
+            f"BOTBOX_HOME_BYTES={staged_size(agent)}"
+        ]
+
     def it_keeps_the_key_out_of_a_refused_container(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=API_KEY)
         output = tmp_path / "output"
         with pytest.raises(DockerException) as refused:
             asyncio.run(
-                Botbox(agent).run("true", mounts=[(tmp_path, "/home/user", "rw")], output=output)
+                Botbox(agent).run("true", mounts=[(tmp_path, "/run/botbox", "rw")], output=output)
             )
         assert refused.value.return_code == 125
         stderr = (output / "stderr.txt").read_text()

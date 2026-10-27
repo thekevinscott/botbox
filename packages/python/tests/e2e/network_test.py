@@ -9,10 +9,12 @@ admitted everything would still pass every direct one.
 import asyncio
 import secrets
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from conftest import docker_lines, run_probes
@@ -150,39 +152,34 @@ def describe_allow() -> None:
         assert 'Established connection to host "example.com"' in proxy
 
 
-class TokenAgent(ClaudeAgent):
-    """Records its run's token: the temp home's parent, botbox-<token>-*, names it."""
-
-    token: str
-
-    def stage_auth(self, home: Path) -> None:
-        super().stage_auth(home)
-        self.token = home.parent.name.split("-")[1]
-
-
 @pytest.fixture(scope="module")
-def other_run() -> Iterator[str]:
+def other_run(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Another run's proxy, live, admitting example.com: its address on the default bridge.
 
     The session is held open on a thread of its own, with its own event loop, for the module.
+    Its temp directory, botbox-<token>-*, is the only one in a temp dir of its own.
     """
-    agent = TokenAgent()
+    temp = tmp_path_factory.mktemp("tmp")
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(agent, allow=["example.com"]).session():
+        async with Botbox(ClaudeAgent(), allow=["example.com"]).session():
             up.set()
             await asyncio.to_thread(done.wait)
 
     holder = threading.Thread(target=asyncio.run, args=(hold(),))
-    holder.start()
+    with patch.object(tempfile, "tempdir", str(temp)):
+        holder.start()
+        started = up.wait(120)
     try:
-        assert up.wait(120)
+        assert started
+        [scratch] = temp.iterdir()
+        token = scratch.name.split("-")[1]
         (ip,) = docker_lines(
             "inspect",
             "-f",
             "{{.NetworkSettings.Networks.bridge.IPAddress}}",
-            f"botbox-proxy-{agent.token}",
+            f"botbox-proxy-{token}",
         )
         yield ip
     finally:

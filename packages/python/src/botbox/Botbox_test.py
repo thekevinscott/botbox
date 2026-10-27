@@ -366,13 +366,30 @@ def scratch(tmp_path: Path) -> Path:
     return scratch
 
 
-@pytest.fixture
-def open_umask() -> Iterator[None]:
-    previous = os.umask(0)
-    try:
-        yield
-    finally:
-        os.umask(previous)
+ARCHIVE = b"the staged home"
+SIZE_ENV = "BOTBOX_HOME_BYTES"
+
+
+def staged() -> bytes:
+    return ARCHIVE
+
+
+def staged_env() -> dict[str, str]:
+    """The env that tells the relay how much of its stdin is the staged archive."""
+    return {SIZE_ENV: str(len(ARCHIVE))}
+
+
+@pytest.fixture(autouse=True)
+def home_files() -> Iterator[Mock]:
+    with patch("botbox.Botbox.HomeFiles", autospec=True) as m:
+        m.return_value.archive.return_value = ARCHIVE
+        yield m
+
+
+@pytest.fixture(autouse=True)
+def send_home() -> Iterator[AsyncMock]:
+    with patch("botbox.Botbox.send_home", autospec=True) as m:
+        yield m
 
 
 @pytest.fixture
@@ -380,7 +397,7 @@ def runner() -> Mock:
     """An agent that runs: its home, credentials, hosts and transcripts."""
     agent = Mock(image="an-agent:latest", home="/home/user", allow=("api.anthropic.com",))
     agent.sessions_dir = ".claude/projects"
-    agent.stage_auth.side_effect = lambda home: (home / ".credentials").write_text("token")
+    agent.stage_auth.side_effect = lambda home: home.write(".credentials", "token")
     return agent
 
 
@@ -395,7 +412,7 @@ def uuid4() -> Iterator[Mock]:
 def temporary_directory(scratch: Path, steps: list[str]) -> Iterator[Mock]:
     with patch("botbox.Botbox.TemporaryDirectory", autospec=True) as m:
         m.return_value.name = str(scratch)
-        m.return_value.cleanup.side_effect = lambda: steps.append("remove temp home")
+        m.return_value.cleanup.side_effect = lambda: steps.append("remove temp directory")
         yield m
 
 
@@ -576,17 +593,28 @@ def describe_run() -> None:
         await Botbox(runner).run("true")
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
 
-    async def it_stages_the_credentials_into_a_fresh_home(runner: Mock, scratch: Path) -> None:
-        await Botbox(runner).run("true")
-        runner.stage_auth.assert_called_once_with(scratch / "home")
-        assert (scratch / "home" / ".credentials").read_text() == "token"
-
-    @pytest.mark.usefixtures("open_umask")
-    async def it_keeps_the_home_to_its_owner_whatever_the_umask(
-        runner: Mock, scratch: Path
+    async def it_sends_the_staged_credentials_on_the_agents_stdin_then_closes_it(
+        runner: Mock, docker_run: Mock, send_home: AsyncMock, home_files: Mock
     ) -> None:
         await Botbox(runner).run("true")
-        assert (scratch / "home").stat().st_mode & 0o777 == 0o700
+        runner.stage_auth.assert_called_once_with(home_files.return_value)
+        assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.PIPE
+        stdin = send_home.call_args.args[0]
+        send_home.assert_called_once_with(stdin, staged())
+        stdin.close.assert_called_once_with()
+
+    async def it_gives_the_agent_no_stdin_with_nothing_staged(
+        runner: Mock, docker_run: Mock, send_home: AsyncMock, home_files: Mock
+    ) -> None:
+        home_files.return_value.archive.return_value = b""
+        await Botbox(runner).run("true")
+        assert docker_run.call_args.kwargs["stdin"] == asyncio.subprocess.DEVNULL
+        assert SIZE_ENV not in docker_run.call_args.kwargs["env"]
+        send_home.assert_not_called()
+
+    async def it_makes_no_home_on_the_host(runner: Mock, scratch: Path) -> None:
+        await Botbox(runner).run("true")
+        assert not (scratch / "home").exists()
 
     async def it_locks_down_with_the_agents_hosts_and_the_boxs(
         runner: Mock, lockdown: Mock, scratch: Path
@@ -607,8 +635,8 @@ def describe_run() -> None:
             f"warned: remove its agent container {AGENT}",
             "stop proxy",
             "settle",
-            "remove temp home",
-            "warned: remove its temp home",
+            "remove temp directory",
+            "warned: remove its temp directory",
         ]
 
     async def it_reads_the_exit_code_with_the_container_client_and_stderr(
@@ -657,7 +685,6 @@ def describe_run() -> None:
             await Botbox(runner).run("true")
             options = docker_run.call_args.kwargs
             assert "rm" not in options
-            assert "stdin" not in options
             assert options["stdout"] is not options["stderr"]
 
         @pytest.mark.parametrize(("uid", "gid"), [(1003, 1005), (2456, 3456)])
@@ -682,15 +709,15 @@ def describe_run() -> None:
             assert options["log_driver"] == "none"
             assert options["env"] == {
                 "HOME": "/home/user",
+                **staged_env(),
                 "HTTPS_PROXY": "http://127.0.0.1:41893",
             }
 
-        async def it_mounts_the_home_the_proxy_volume_and_the_callers_mounts(
-            runner: Mock, docker_run: Mock, scratch: Path
+        async def it_mounts_the_proxy_volume_and_the_callers_mounts(
+            runner: Mock, docker_run: Mock
         ) -> None:
             await Botbox(runner).run("true")
             assert docker_run.call_args.kwargs["mounts"] == [
-                FakeMount("bind", str(scratch / "home"), "/home/user"),
                 FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
                 FakeMount("bind", "/src", "/home/user/src", read_only=True),
             ]
@@ -713,7 +740,7 @@ def describe_run() -> None:
                 await Botbox(runner).run("true", output=output)
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
-            assert steps[-1] == "warned: remove its temp home"
+            assert steps[-1] == "warned: remove its temp directory"
 
         async def it_lets_other_errors_through_after_tearing_down(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -728,18 +755,18 @@ def describe_run() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
 
-        async def it_removes_the_temp_home_when_staging_fails(
-            runner: Mock, lockdown: Mock, steps: list[str], output: Path
+        async def it_builds_and_starts_nothing_when_staging_fails(
+            runner: Mock, docker_build: Mock, temporary_directory: Mock, output: Path
         ) -> None:
             runner.stage_auth.side_effect = PermissionError("no credentials")
             with pytest.raises(PermissionError):
                 await Botbox(runner).run("true", output=output)
-            lockdown.assert_not_called()
-            assert steps[-1] == "warned: remove its temp home"
+            docker_build.assert_not_called()
+            temporary_directory.assert_not_called()
 
         async def it_tears_down_when_cancelled_mid_run(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -766,8 +793,8 @@ def describe_run() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
 
     def describe_timeout() -> None:
@@ -808,8 +835,8 @@ def describe_run() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
 
         async def it_takes_the_calls_timeout_over_the_boxs(
@@ -936,14 +963,6 @@ def describe_session() -> None:
             async with Botbox(talker).session(()):  # type: ignore[call-arg]
                 pass
 
-    @pytest.mark.usefixtures("open_umask")
-    async def it_keeps_the_home_to_its_owner_whatever_the_umask(
-        talker: Mock, scratch: Path
-    ) -> None:
-        async with Botbox(talker).session():
-            pass
-        assert (scratch / "home").stat().st_mode & 0o777 == 0o700
-
     async def it_checks_the_mounts_before_building(
         talker: Mock, bind_mounts: Mock, docker_build: Mock
     ) -> None:
@@ -956,13 +975,13 @@ def describe_session() -> None:
         )
         docker_build.assert_not_called()
 
-    async def it_stages_a_home_named_after_the_run_token_and_locks_it_down(
+    async def it_names_its_temp_directory_after_the_run_token_and_locks_it_down(
         talker: Mock, temporary_directory: Mock, lockdown: Mock, scratch: Path
     ) -> None:
         async with Botbox(talker, allow=["registry.npmjs.org"]).session():
             pass
         temporary_directory.assert_called_once_with(prefix=f"botbox-{TOKEN}-")
-        assert (scratch / "home" / ".credentials").read_text() == "token"
+        assert not (scratch / "home").exists()
         lockdown.assert_called_once_with(
             ("api.anthropic.com", "registry.npmjs.org"), scratch, TOKEN, None, credential=None
         )
@@ -982,8 +1001,8 @@ def describe_session() -> None:
             f"warned: remove its agent container {AGENT}",
             "stop proxy",
             "settle",
-            "remove temp home",
-            "warned: remove its temp home",
+            "remove temp directory",
+            "warned: remove its temp directory",
         ]
 
     async def it_reads_the_exit_code_with_the_command_client_and_stderr(
@@ -994,6 +1013,7 @@ def describe_session() -> None:
         [container, client, stderr] = agent_exit.call_args.args
         assert (container.name, client, stderr) == (AGENT, 3, "err\n")
         assert hold_session.call_args.args[0] is talker
+        assert hold_session.call_args.kwargs["home"] == staged()
 
     def describe_the_agent_container() -> None:
         async def it_runs_the_session_command_attached_through_the_relay(
@@ -1030,9 +1050,7 @@ def describe_session() -> None:
                 pass
             assert session_options(hold_session)["user"] == f"{uid}:{gid}"
 
-        async def it_is_locked_down_like_a_run(
-            talker: Mock, hold_session: Mock, scratch: Path
-        ) -> None:
+        async def it_is_locked_down_like_a_run(talker: Mock, hold_session: Mock) -> None:
             async with Botbox(talker).session(workdir="/home/user/src"):
                 pass
             options = session_options(hold_session)
@@ -1044,11 +1062,11 @@ def describe_session() -> None:
             assert options["log_driver"] == "none"
             assert options["env"] == {
                 "HOME": "/home/user",
+                **staged_env(),
                 "HTTPS_PROXY": "http://127.0.0.1:41893",
             }
             assert options["workdir"] == "/home/user/src"
             assert options["mounts"] == [
-                FakeMount("bind", str(scratch / "home"), "/home/user"),
                 FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
                 FakeMount("bind", "/src", "/home/user/src", read_only=True),
             ]
@@ -1064,7 +1082,7 @@ def describe_session() -> None:
                     pass
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
-            assert steps[-1] == "warned: remove its temp home"
+            assert steps[-1] == "warned: remove its temp directory"
             assert held.result.exit_code == -1
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
@@ -1082,8 +1100,8 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
             assert held.result.exit_code == -1
 
@@ -1111,8 +1129,8 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
             assert held.result.exit_code == -1
 
@@ -1126,7 +1144,7 @@ def describe_session() -> None:
                 async with Botbox(talker).session():
                     pass
             assert f"remove {AGENT}" in steps
-            assert steps[-1] == "warned: remove its temp home"
+            assert steps[-1] == "warned: remove its temp directory"
 
         async def it_removes_no_container_when_the_lockdown_fails(
             talker: Mock, lockdown: Mock, hold_session: Mock, steps: list[str]
@@ -1137,17 +1155,17 @@ def describe_session() -> None:
                     pass
             hold_session.assert_not_called()
             assert not [step for step in steps if step.startswith("remove botbox-agent")]
-            assert steps[-1] == "warned: remove its temp home"
+            assert steps[-1] == "warned: remove its temp directory"
 
-        async def it_removes_the_temp_home_when_staging_fails(
-            talker: Mock, lockdown: Mock, steps: list[str]
+        async def it_builds_and_starts_nothing_when_staging_fails(
+            talker: Mock, docker_build: Mock, temporary_directory: Mock
         ) -> None:
             talker.stage_auth.side_effect = PermissionError("no credentials")
             with pytest.raises(PermissionError):
                 async with Botbox(talker).session():
                     pass
-            lockdown.assert_not_called()
-            assert steps[-1] == "warned: remove its temp home"
+            docker_build.assert_not_called()
+            temporary_directory.assert_not_called()
 
     def describe_timeout() -> None:
         async def it_raises_a_timeout_holding_what_the_session_left(
@@ -1168,8 +1186,8 @@ def describe_session() -> None:
                 f"warned: remove its agent container {AGENT}",
                 "stop proxy",
                 "settle",
-                "remove temp home",
-                "warned: remove its temp home",
+                "remove temp directory",
+                "warned: remove its temp directory",
             ]
 
         async def it_times_the_whole_block_not_each_step(talker: Mock) -> None:
@@ -1235,7 +1253,6 @@ def describe_session() -> None:
                 "bind", str(tmp_path / "transcripts"), "/home/user/.claude/projects"
             )
             assert options["mounts"][-1] == transcripts
-            assert (scratch / "home" / ".claude" / "projects").is_dir()
 
         async def it_leaves_only_the_exit_code_in_the_result(
             talker: Mock, agent_exit: Mock, tmp_path: Path
@@ -1295,33 +1312,17 @@ def describe_run_output() -> None:
         assert (scratch / "stdout.txt").read_bytes() == b"out\xff\n"
         assert agent_exit.call_args.args[2] == "err\n"
 
-    async def it_mounts_transcripts_over_the_sessions_dir_after_staging(
-        runner: Mock, file_run: Mock, scratch: Path, output: Path
+    async def it_mounts_transcripts_over_the_sessions_dir(
+        runner: Mock, file_run: Mock, output: Path
     ) -> None:
-        home = scratch / "home"
-
-        async def attached(*_command: str, name: str, **_: Any) -> Mock:
-            assert (home / ".credentials").read_text() == "token"
-            assert (home / ".claude" / "projects").is_dir()
-            return exited(name, 0)
-
-        file_run.side_effect = attached
         await Botbox(runner).run("true", output=output)
         assert file_run.call_args.kwargs["mounts"] == [
-            FakeMount("bind", str(home), "/home/user"),
             FakeMount("volume", "botbox-run-0123456789ab", "/run/botbox", read_only=True),
             FakeMount("bind", "/src", "/home/user/src", read_only=True),
             FakeMount("bind", str(output / "transcripts"), "/home/user/.claude/projects"),
         ]
         files = {p.name for p in output.iterdir()}
         assert files == {"stderr.txt", "stdout.txt", "proxy.log", "transcripts"}
-
-    @pytest.mark.usefixtures("file_run")
-    async def it_mounts_over_a_sessions_dir_that_staging_made(runner: Mock, output: Path) -> None:
-        runner.stage_auth.side_effect = lambda home: (home / ".claude" / "projects").mkdir(
-            parents=True
-        )
-        assert (await Botbox(runner).run("true", output=output)).exit_code == 3
 
     @pytest.mark.usefixtures("file_run")
     async def it_logs_the_proxy_into_the_output(
@@ -1508,6 +1509,7 @@ def describe_credential_injection() -> None:
         await run_and_talk(Botbox(injector), how)
         assert agent_env(how, docker_run, hold_session) == {
             "HOME": "/home/user",
+            **staged_env(),
             "HTTPS_PROXY": "http://127.0.0.1:41893",
             "ANTHROPIC_BASE_URL": "http://proxy",
         }

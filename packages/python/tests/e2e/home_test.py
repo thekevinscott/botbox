@@ -1,4 +1,4 @@
-"""The per-run temporary home a real run mounts at the agent's home path."""
+"""The agent's home, which lives in its container and nowhere on the host."""
 
 from pathlib import Path
 
@@ -12,6 +12,7 @@ PROBES = {
     "pwd": "pwd",
     "credentials": "test -s ~/.claude/.credentials.json && echo present || echo missing",
     "writable": "touch ~/scratch && echo written || echo refused",
+    "mounted": "awk '$5 == \"/home/user\"' /proc/self/mountinfo | wc -l",
 }
 
 
@@ -39,6 +40,9 @@ def describe_the_home() -> None:
 
     def it_is_writable_by_the_agent(report: dict[str, str]) -> None:
         assert report["writable"] == "written"
+
+    def it_is_no_mount(report: dict[str, str]) -> None:
+        assert report["mounted"] == "0"
 
     def it_is_gone_from_the_host_after_the_run(
         session: tuple[dict[str, str], set[str], set[str]],

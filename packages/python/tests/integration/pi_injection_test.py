@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from staged_home_test import staged_home
 
 from botbox import InjectingAgent, PiAgent
 
@@ -32,14 +33,12 @@ def pi_home(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def home(tmp_path: Path) -> Path:
-    staged = tmp_path / "home"
-    staged.mkdir()
-    return staged
+    return tmp_path / "home"
 
 
 def describe_a_pi_agent_on_openrouter() -> None:
     def it_stages_a_home_that_holds_no_real_key(pi_home: Path, home: Path) -> None:
-        PiAgent("openrouter", host_home=pi_home).stage_auth(home)
+        staged_home(PiAgent("openrouter", host_home=pi_home), home)
         staged = home / ".pi" / "agent"
         for name in ("auth.json", "models.json"):
             text = (staged / name).read_text()
@@ -65,7 +64,7 @@ def describe_a_pi_agent_on_openrouter() -> None:
         agent = PiAgent("openrouter", api_key="sk-or-v1-given", host_home=tmp_path / "missing")
         assert agent.credential_source is not None
         assert agent.credential_source.read().secret == "Bearer sk-or-v1-given"
-        agent.stage_auth(home)
+        staged_home(agent, home)
         assert "sk-or-v1-given" not in (home / ".pi" / "agent" / "auth.json").read_text()
 
     def it_refuses_a_host_key_that_is_a_command(pi_home: Path) -> None:
@@ -83,6 +82,6 @@ def describe_a_pi_agent_on_a_custom_provider() -> None:
         agent = PiAgent("ollama", host_home=pi_home)
         assert agent.credential_source is None
         assert agent.allow == ("models.example",)
-        agent.stage_auth(home)
+        staged_home(agent, home)
         staged = home / ".pi" / "agent"
         assert (staged / "auth.json").read_text() == (pi_home / "auth.json").read_text()

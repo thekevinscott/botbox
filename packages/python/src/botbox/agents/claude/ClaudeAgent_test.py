@@ -1,11 +1,15 @@
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 import pytest
 
 from botbox.agents.claude.ClaudeAgent import ClaudeAgent
+
+if TYPE_CHECKING:
+    from botbox.agents.HomeFiles import HomeFiles
 
 
 class Login:
@@ -51,11 +55,19 @@ def agent(claude_home: Path) -> ClaudeAgent:
     return ClaudeAgent(host_home=claude_home)
 
 
+class Home:
+    """Stands in for `HomeFiles`: keeps each write as `HomeFiles.files` does."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, tuple[bytes, int]] = {}
+
+    def write(self, path: str, content: str | bytes, *, mode: int = 0o644) -> None:
+        self.files[path] = (content.encode() if isinstance(content, str) else content, mode)
+
+
 @pytest.fixture
-def home(tmp_path: Path) -> Path:
-    staged = tmp_path / "home"
-    staged.mkdir()
-    return staged
+def home() -> "HomeFiles":
+    return cast("HomeFiles", Home())
 
 
 def describe_the_container() -> None:
@@ -105,40 +117,31 @@ def describe_host_home() -> None:
 
 def describe_stage_auth() -> None:
     def it_stages_a_placeholder_login_where_claude_looks_for_one(
-        agent: ClaudeAgent, home: Path
+        agent: ClaudeAgent, home: "HomeFiles"
     ) -> None:
         agent.stage_auth(home)
-        staged = (home / ".claude" / ".credentials.json").read_text()
-        assert staged == "placeholder of .credentials.json"
+        assert home.files[".claude/.credentials.json"][0] == b"placeholder of .credentials.json"
 
-    def it_makes_the_placeholder_readable_by_its_owner_only(agent: ClaudeAgent, home: Path) -> None:
-        agent.stage_auth(home)
-        assert (home / ".claude" / ".credentials.json").stat().st_mode & 0o777 == 0o600
-
-    def it_stages_nothing_else(agent: ClaudeAgent, home: Path) -> None:
-        agent.stage_auth(home)
-        assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
-            ".claude",
-            ".claude/.credentials.json",
-        ]
-
-    def it_leaves_the_host_file_untouched_when_the_container_rewrites_it(
-        agent: ClaudeAgent, claude_home: Path, home: Path
+    def it_makes_the_placeholder_readable_by_its_owner_only(
+        agent: ClaudeAgent, home: "HomeFiles"
     ) -> None:
         agent.stage_auth(home)
-        (home / ".claude" / ".credentials.json").write_text('{"token": "refreshed"}')
-        assert (claude_home / ".credentials.json").read_text() == '{"token": "t"}'
+        assert home.files[".claude/.credentials.json"][1] == 0o600
+
+    def it_stages_nothing_else(agent: ClaudeAgent, home: "HomeFiles") -> None:
+        agent.stage_auth(home)
+        assert list(home.files) == [".claude/.credentials.json"]
 
     def it_writes_no_file_when_there_is_no_placeholder(
-        agent: ClaudeAgent, claude_home: Path, home: Path
+        agent: ClaudeAgent, claude_home: Path, home: "HomeFiles"
     ) -> None:
         (claude_home / ".credentials.json").unlink()
         with pytest.raises(FileNotFoundError):
             agent.stage_auth(home)
-        assert not (home / ".claude" / ".credentials.json").exists()
+        assert home.files == {}
 
     def it_raises_when_the_host_has_no_credentials(
-        agent: ClaudeAgent, claude_home: Path, home: Path
+        agent: ClaudeAgent, claude_home: Path, home: "HomeFiles"
     ) -> None:
         (claude_home / ".credentials.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"\.credentials\.json"):
@@ -155,35 +158,22 @@ def describe_api_key() -> None:
             ClaudeAgent(None, None, "sk-test")  # type: ignore[call-arg]
 
     def it_stages_a_placeholder_key_and_a_helper_that_reads_it(
-        keyed: ClaudeAgent, home: Path
+        keyed: ClaudeAgent, home: "HomeFiles"
     ) -> None:
         keyed.stage_auth(home)
-        assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
-            ".claude",
-            ".claude/api_key",
-            ".claude/settings.json",
-        ]
-        assert (home / ".claude" / "api_key").read_text() == "placeholder key"
-        assert json.loads((home / ".claude" / "settings.json").read_text()) == {
+        assert list(home.files) == [".claude/api_key", ".claude/settings.json"]
+        assert home.files[".claude/api_key"][0] == b"placeholder key"
+        assert json.loads(home.files[".claude/settings.json"][0]) == {
             "apiKeyHelper": "cat /home/user/.claude/api_key"
         }
 
-    def it_makes_the_key_readable_by_its_owner_only(keyed: ClaudeAgent, home: Path) -> None:
+    def it_makes_the_key_readable_by_its_owner_only(keyed: ClaudeAgent, home: "HomeFiles") -> None:
         keyed.stage_auth(home)
-        assert (home / ".claude" / "api_key").stat().st_mode & 0o777 == 0o600
+        assert home.files[".claude/api_key"][1] == 0o600
 
-    def it_stages_no_credentials_file(keyed: ClaudeAgent, home: Path) -> None:
-        keyed.stage_auth(home)
-        assert not (home / ".claude" / ".credentials.json").exists()
-
-    def it_needs_no_host_credentials(tmp_path: Path, home: Path) -> None:
+    def it_needs_no_host_credentials(tmp_path: Path, home: "HomeFiles") -> None:
         ClaudeAgent(api_key="sk-test", host_home=tmp_path / "missing").stage_auth(home)
-        assert (home / ".claude" / "api_key").exists()
-
-    def it_stages_no_key_without_one(agent: ClaudeAgent, home: Path) -> None:
-        agent.stage_auth(home)
-        assert not (home / ".claude" / "api_key").exists()
-        assert not (home / ".claude" / "settings.json").exists()
+        assert ".claude/api_key" in home.files
 
 
 def describe_command() -> None:

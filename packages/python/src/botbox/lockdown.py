@@ -30,6 +30,8 @@ RELAY = "/usr/local/bin/botbox-relay"
 RELAY_PORT = 41893
 # Tells the relay the run asked for injection, so a missing credential socket is an error.
 CREDENTIALS_ENV = "BOTBOX_CREDENTIALS"
+# The relay reads this many bytes of its stdin as the staged home, and hands the rest on.
+HOME_BYTES_ENV = "BOTBOX_HOME_BYTES"
 
 
 class Lockdown:

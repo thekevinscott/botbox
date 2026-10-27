@@ -1,7 +1,7 @@
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +10,7 @@ from botbox.agents.codex.CodexAgent import CodexAgent
 
 if TYPE_CHECKING:
     from botbox.agents.agent import Agent
+    from botbox.agents.HomeFiles import HomeFiles
 
 MODULE = f"{__package__}.CodexAgent"
 
@@ -63,19 +64,27 @@ def agent(codex_home: Path) -> CodexAgent:
     return CodexAgent(host_home=codex_home)
 
 
+class Home:
+    """Stands in for `HomeFiles`: keeps each write as `HomeFiles.files` does."""
+
+    def __init__(self) -> None:
+        self.files: dict[str, tuple[bytes, int]] = {}
+
+    def write(self, path: str, content: str | bytes, *, mode: int = 0o644) -> None:
+        self.files[path] = (content.encode() if isinstance(content, str) else content, mode)
+
+
 @pytest.fixture
-def home(tmp_path: Path) -> Path:
-    staged = tmp_path / "home"
-    staged.mkdir()
-    return staged
+def home() -> "HomeFiles":
+    return cast("HomeFiles", Home())
 
 
-def staged(home: Path) -> str:
-    return (home / ".codex" / "auth.json").read_text()
+def staged(home: "HomeFiles") -> str:
+    return home.files[".codex/auth.json"][0].decode()
 
 
-def config(home: Path) -> dict[str, object]:
-    return tomllib.loads((home / ".codex" / "config.toml").read_text())
+def config(home: "HomeFiles") -> dict[str, object]:
+    return tomllib.loads(home.files[".codex/config.toml"][0].decode())
 
 
 def describe_the_container() -> None:
@@ -130,23 +139,21 @@ def describe_host_home() -> None:
 
 
 def describe_stage_auth() -> None:
-    def it_stages_the_login_and_config_where_codex_looks(agent: CodexAgent, home: Path) -> None:
+    def it_stages_the_login_and_config_where_codex_looks(
+        agent: CodexAgent, home: "HomeFiles"
+    ) -> None:
         agent.stage_auth(home)
-        assert [p.relative_to(home).as_posix() for p in sorted(home.rglob("*"))] == [
-            ".codex",
-            ".codex/auth.json",
-            ".codex/config.toml",
-        ]
+        assert list(home.files) == [".codex/auth.json", ".codex/config.toml"]
 
-    def it_stages_a_placeholder_of_the_host_login(agent: CodexAgent, home: Path) -> None:
+    def it_stages_a_placeholder_of_the_host_login(agent: CodexAgent, home: "HomeFiles") -> None:
         agent.stage_auth(home)
         assert staged(home) == "placeholder of auth.json"
 
-    def it_makes_the_login_readable_by_its_owner_only(agent: CodexAgent, home: Path) -> None:
+    def it_makes_the_login_readable_by_its_owner_only(agent: CodexAgent, home: "HomeFiles") -> None:
         agent.stage_auth(home)
-        assert (home / ".codex" / "auth.json").stat().st_mode & 0o777 == 0o600
+        assert home.files[".codex/auth.json"][1] == 0o600
 
-    def it_points_codex_at_the_proxy(agent: CodexAgent, home: Path) -> None:
+    def it_points_codex_at_the_proxy(agent: CodexAgent, home: "HomeFiles") -> None:
         agent.stage_auth(home)
         assert config(home) == {
             "model_provider": "botbox",
@@ -162,12 +169,12 @@ def describe_stage_auth() -> None:
         }
 
     def it_raises_when_the_host_has_no_login(
-        agent: CodexAgent, codex_home: Path, home: Path
+        agent: CodexAgent, codex_home: Path, home: "HomeFiles"
     ) -> None:
         (codex_home / "auth.json").unlink()
         with pytest.raises(FileNotFoundError, match=r"auth\.json"):
             agent.stage_auth(home)
-        assert not (home / ".codex").exists()
+        assert home.files == {}
 
 
 def describe_api_key() -> None:
@@ -179,11 +186,11 @@ def describe_api_key() -> None:
         with pytest.raises(TypeError):
             CodexAgent(None, None, "sk-test")  # type: ignore[call-arg]
 
-    def it_stages_a_placeholder_key(keyed: CodexAgent, home: Path) -> None:
+    def it_stages_a_placeholder_key(keyed: CodexAgent, home: "HomeFiles") -> None:
         keyed.stage_auth(home)
         assert staged(home) == "placeholder key"
 
-    def it_points_codex_at_the_proxys_api(keyed: CodexAgent, home: Path) -> None:
+    def it_points_codex_at_the_proxys_api(keyed: CodexAgent, home: "HomeFiles") -> None:
         keyed.stage_auth(home)
         provider = config(home)["model_providers"]
         assert provider == {

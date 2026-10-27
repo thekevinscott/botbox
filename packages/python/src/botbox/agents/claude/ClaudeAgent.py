@@ -7,6 +7,7 @@ from typing import Any
 
 from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
 from botbox.agents.claude.ClaudeLogin import ClaudeLogin
+from botbox.agents.HomeFiles import HomeFiles
 from botbox.agents.with_env import with_env
 
 CREDENTIALS = ".credentials.json"
@@ -81,17 +82,10 @@ class ClaudeAgent:
     def turn_ended(self, event: dict[str, Any]) -> bool:
         return bool(event.get("type") == "result")
 
-    def stage_auth(self, home: Path) -> None:
-        destination = home / ".claude"
-        destination.mkdir()
+    def stage_auth(self, home: HomeFiles) -> None:
         if self.api_key is None:
-            placeholder = self.login.placeholder()
-            login = destination / CREDENTIALS
-            login.touch(mode=0o600)
-            login.write_text(placeholder)
+            home.write(f".claude/{CREDENTIALS}", self.login.placeholder(), mode=0o600)
             return
-        key = destination / API_KEY
-        key.touch(mode=0o600)
-        key.write_text(ClaudeApiKey.placeholder)
+        home.write(f".claude/{API_KEY}", ClaudeApiKey.placeholder, mode=0o600)
         helper = f"cat {self.home}/.claude/{API_KEY}"
-        (destination / "settings.json").write_text(json.dumps({"apiKeyHelper": helper}))
+        home.write(".claude/settings.json", json.dumps({"apiKeyHelper": helper}))

@@ -14,6 +14,15 @@ fi
 if ! whoami >/dev/null 2>&1 && [ -w /etc/passwd ]; then
     echo "user:x:$(id -u):$(id -g):user:/home/user:/bin/sh" >>/etc/passwd
 fi
+# The agent's staged files: a tar.gz of this many bytes at the head of stdin. GNU head reads
+# no further, so the rest of stdin is the command's.
+if [ -n "${BOTBOX_HOME_BYTES:-}" ]; then
+    if ! head -c "$BOTBOX_HOME_BYTES" | tar -xz -m -C "$HOME"; then
+        echo "botbox-relay: could not write the agent's files into $HOME" >&2
+        exit 1
+    fi
+    unset BOTBOX_HOME_BYTES
+fi
 # The subshell orphans socat, so the command's shell never waits on it.
 (socat TCP-LISTEN:41893,bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:/run/botbox/proxy.sock &)
 if [ -n "${BOTBOX_CREDENTIALS:-}" ]; then

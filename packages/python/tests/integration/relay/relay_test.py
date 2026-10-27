@@ -14,7 +14,8 @@ import pytest_asyncio
 from relay_harness_test import Proxy, Relay, serving, uncovered_lines
 
 from adocker import Dockerfile, Image, Mount, Volume
-from botbox.lockdown import CREDENTIALS_ENV, PROXY_USER, RELAY_DIR
+from botbox import HomeFiles
+from botbox.lockdown import CREDENTIALS_ENV, HOME_BYTES_ENV, PROXY_USER, RELAY_DIR
 
 HERE = Path(__file__).parent
 KCOV = os.environ.get("BOTBOX_RELAY_KCOV") == "1"
@@ -148,3 +149,45 @@ async def test_execs_the_command_with_its_arguments(relay: Relay, proxy: Proxy) 
     result = await relay.run(proxy, "sh", "-c", 'echo "$0 $1"; exit 7', "a b", "c", user=AGENT)
     assert result.code == 7
     assert result.stdout == "a b c\n"
+
+
+def staged() -> tuple[dict[str, str], bytes]:
+    home = HomeFiles()
+    home.write(".claude/.credentials.json", "placeholder", mode=0o600)
+    archive = home.archive()
+    return {HOME_BYTES_ENV: str(len(archive))}, archive
+
+
+async def test_writes_the_staged_files_into_home(relay: Relay, proxy: Proxy) -> None:
+    show = "stat -c '%a %u %n' .claude/.credentials.json; cat .claude/.credentials.json"
+    size, archive = staged()
+    env = {"HOME": "/tmp", **size}
+    result = await relay.run(proxy, "sh", "-c", f"cd && {show}", user=AGENT, env=env, stdin=archive)
+    assert result.code == 0, result.stderr
+    assert result.stdout == "600 4242 .claude/.credentials.json\nplaceholder"
+
+
+async def test_hands_the_rest_of_stdin_to_the_command(relay: Relay, proxy: Proxy) -> None:
+    size, archive = staged()
+    env = {"HOME": "/tmp", **size}
+    stdin = archive + b"first\nsecond\n"
+    result = await relay.run(proxy, "cat", user=AGENT, env=env, stdin=stdin)
+    assert result.code == 0, result.stderr
+    assert result.stdout == "first\nsecond\n"
+
+
+async def test_keeps_the_archive_size_out_of_the_commands_env(relay: Relay, proxy: Proxy) -> None:
+    size, archive = staged()
+    env = {"HOME": "/tmp", **size}
+    command = ("sh", "-c", "env | grep -c BOTBOX_HOME")
+    result = await relay.run(proxy, *command, user=AGENT, env=env, stdin=archive)
+    assert result.stdout == "0\n"
+
+
+async def test_fails_when_home_is_not_writable(relay: Relay, proxy: Proxy) -> None:
+    size, archive = staged()
+    env = {"HOME": "/usr", **size}
+    result = await relay.run(proxy, "echo", "reached", user=AGENT, env=env, stdin=archive)
+    assert result.code == 1
+    assert result.stdout == ""
+    assert result.stderr.endswith("botbox-relay: could not write the agent's files into /usr\n")

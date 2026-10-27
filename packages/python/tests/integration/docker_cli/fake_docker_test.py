@@ -18,7 +18,7 @@ LISTENING = "botbox-proxy: listening\n"
 # serves until its stdin closes; each agent does what the plan says for its command. A session
 # answers each message on its stdin with an event, a line that isn't JSON, and a result.
 FAKE_DOCKER = """
-import json, os, signal, sys, time
+import contextlib, json, os, signal, sys, time
 from pathlib import Path
 
 READY = b"botbox-proxy: listening\\n"
@@ -128,12 +128,16 @@ else:
     if agent.get("missing"):
         fail("Unable to find image 'botbox-claude:latest' locally\\n", 125)
     settle(name, "running")
-    try:
+    # The relay's share of stdin: the staged home archive, as many bytes as the env says.
+    envs = dict(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a == "--env")
+    if "BOTBOX_HOME_BYTES" in envs:
+        home = sys.stdin.buffer.read(int(envs["BOTBOX_HOME_BYTES"]))
+        (state / f"{name}.home").write_bytes(home)
+    # Without a transcripts mount, the transcript stays in the container's own home.
+    with contextlib.suppress(StopIteration):
         session = volume("/home/user/.claude/projects") / "-work"
-    except StopIteration:
-        session = volume("/home/user") / ".claude" / "projects" / "-work"
-    session.mkdir(parents=True, exist_ok=True)
-    (session / "abc.jsonl").write_text('{"type": "user"}\\n')
+        session.mkdir(parents=True, exist_ok=True)
+        (session / "abc.jsonl").write_text('{"type": "user"}\\n')
     sys.stdout.write(agent.get("stdout", ""))
     sys.stderr.write(agent.get("stderr", ""))
     sys.stdout.flush()
@@ -236,8 +240,8 @@ def token(daemon: Daemon) -> str:
     return run[run.index("--name") + 1].removeprefix("botbox-agent-")
 
 
-def homes(temp: Path) -> list[Path]:
-    """The temp homes left behind."""
+def temp_dirs(temp: Path) -> list[Path]:
+    """The temp directories left behind."""
     return [path for path in temp.iterdir() if path.is_dir()]
 
 

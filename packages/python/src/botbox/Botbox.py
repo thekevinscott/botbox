@@ -13,16 +13,17 @@ from uuid import uuid4
 from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
-from botbox.agents.agent import Agent, InjectingAgent, SessionAgent
+from botbox.agents import Agent, HomeFiles, InjectingAgent, SessionAgent
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.hold_session import hold_session
-from botbox.lockdown import RELAY, SOCKET_DIR, Lockdown, lockdown
+from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
+from botbox.send_home import send_home
 from botbox.Session import Session
 from botbox.Timeout import Timeout
 from botbox.warned import warned
@@ -138,20 +139,21 @@ class Botbox:
         warned about and dropped, and the run carries on. A path with `:` raises `ValueError`,
         since Docker can't mount it.
 
-        Mounts, `workdir` and `output` are checked before anything is built. The agent's home is
-        a fresh host temp directory with the credentials staged in. For an agent with a
-        `credential_source`, that is a placeholder, and a proxy outside the box sends the real
-        credential upstream. A host login that has already expired raises `CredentialsExpired`
-        before anything is built. botbox never refreshes it: a run that outlives it needs the
-        host's CLI to refresh it, and the new one is sent from the next request on. The temp
-        directory is removed when the run ends, so without `output` the streams, transcripts and
-        proxy log are not kept; files written to `mounts` are.
+        Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
+        is built. The agent's home is in the container, created by the image, and goes with the
+        container; the staged credentials are written into it when the container starts. For an
+        agent with a `credential_source`, that is a placeholder, and a proxy outside the box sends
+        the real credential upstream. A host login that has already expired raises
+        `CredentialsExpired` before anything is built. botbox never refreshes it: a run that
+        outlives it needs the host's CLI to refresh it, and the new one is sent from the next
+        request on. The temp directory is removed when the run ends, so without `output` the
+        streams, transcripts and proxy log are not kept; files written to `mounts` are.
         A non-zero exit is a normal result. A daemon that goes away mid-run raises
         `DockerException` with the client's stderr.
 
         Cancelling the task, or an `asyncio.timeout` firing, removes the run's containers and
-        temp home before the cancel propagates, through any number of further cancels. Both
-        containers are labelled `botbox.run=<token>`, and the temp home is named after the
+        temp directory before the cancel propagates, through any number of further cancels. Both
+        containers are labelled `botbox.run=<token>`, and the temp directory is named after the
         token. Raises `DockerException` if setup fails or the
         container never ran to its exit while the daemon was up. A teardown step that fails, or a
         container removal that takes longer than 30 seconds, is a warning, never the error.
@@ -165,12 +167,12 @@ class Botbox:
         source = self._credential_source()
         credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
+        home = self._home_files()
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         deadline = asyncio.timeout(limit)
         try:
-            home = self._stage_home(Path(scratch.name))
             allow = (*agent.allow, *self.allow)
             try:
                 async with (
@@ -185,6 +187,7 @@ class Botbox:
                         token,
                         image,
                         (RELAY, "sh", "-c", command),
+                        home=home,
                         flags=flags,
                         scratch=Path(scratch.name),
                         output=output,
@@ -194,7 +197,7 @@ class Botbox:
                     raise
                 raise Timeout(limit, RunResult(-1)) from timed_out
         finally:
-            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+            await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return RunResult(exit_code)
 
     @asynccontextmanager
@@ -209,11 +212,11 @@ class Botbox:
         """Start the agent's CLI in its session mode in the locked-down container and hold it open.
 
         The same lockdown, home, credentials and mounts as `run()`, with the container labelled
-        and its temp home named the same way. Leaving the block ends the CLI's input, waits for it
-        to exit, removes the session's containers and temp home, and leaves the `RunResult` in
-        the session's `result`. Cancelling, or an error out of the block, kills the CLI instead and
-        tears down the same way, through any number of further cancels, leaving exit code -1 if
-        none was read. Raises `TypeError` for an agent with no session mode, and
+        and its temp directory named the same way. Leaving the block ends the CLI's input, waits
+        for it to exit, removes the session's containers and temp directory, and leaves the
+        `RunResult` in the session's `result`. Cancelling, or an error out of the block, kills the
+        CLI instead and tears down the same way, through any number of further cancels, leaving
+        exit code -1 if none was read. Raises `TypeError` for an agent with no session mode, and
         `DockerException` as `run()` does.
 
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
@@ -232,6 +235,7 @@ class Botbox:
         source = self._credential_source()
         credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
+        home = self._home_files()
         image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
@@ -240,7 +244,6 @@ class Botbox:
         deadline = asyncio.timeout(limit)
         try:
             try:
-                home = self._stage_home(Path(scratch.name))
                 allow = (*agent.allow, *self.allow)
                 async with (
                     deadline,
@@ -257,6 +260,7 @@ class Botbox:
                             agent,
                             image,
                             (RELAY, "sh", "-c", command),
+                            home=home,
                             scratch=Path(scratch.name),
                             output=output,
                             name=name,
@@ -276,7 +280,9 @@ class Botbox:
                     if live is not None:
                         live.result = RunResult(exit_code)
                 finally:
-                    await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp home"))
+                    await settle(
+                        warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory")
+                    )
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
@@ -291,11 +297,13 @@ class Botbox:
         image: str,
         command: Sequence[str],
         *,
+        home: bytes,
         flags: dict[str, Any],
         scratch: Path,
         output: Path | None,
     ) -> int:
-        """Run attached, writing to `scratch` and `output`, then remove the agent container."""
+        """Run attached, with `home` on its stdin, writing to `scratch` and `output`, then
+        remove the agent container."""
         name = f"botbox-agent-{token}"
         container = Container(name)
         also = [] if output is None else [output]
@@ -305,8 +313,17 @@ class Botbox:
                 write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
             ):
                 container = await Image(image).run(
-                    *command, name=name, stdout=out, stderr=err, **flags
+                    *command,
+                    name=name,
+                    stdin=asyncio.subprocess.PIPE if home else asyncio.subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    **flags,
                 )
+                if home:
+                    stdin = cast("asyncio.StreamWriter", container.stdin)
+                    await send_home(stdin, home)
+                    stdin.close()
                 client = await container.wait()
             exit_code = await agent_exit(container, client, last_stderr(scratch))
         finally:
@@ -326,15 +343,11 @@ class Botbox:
             return nullcontext()
         return jail.credentials.following(source, credential.secret)
 
-    def _stage_home(self, scratch: Path) -> Path:
-        """Make the agent's home in `scratch` and stage its credentials there."""
-        home = scratch / "home"
-        # Owner-only, so an agent under another uid can't leave files the host can't delete.
-        home.mkdir(mode=0o700)
+    def _home_files(self) -> bytes:
+        """The agent's staged credentials and config, as the archive the relay unpacks."""
+        home = HomeFiles()
         self.agent.stage_auth(home)
-        # Docker would create the mount point root-owned.
-        (home / self.agent.sessions_dir).mkdir(parents=True, exist_ok=True)
-        return home
+        return home.archive()
 
     def _prepare_output(
         self, output: str | Path | None, volumes: list[tuple[str, str, str]]
@@ -357,7 +370,7 @@ class Botbox:
     def _lockdown_flags(
         self,
         token: str,
-        home: Path,
+        home: bytes,
         jail: Lockdown,
         volumes: list[tuple[str, str, str]],
         workdir: str | Path | None,
@@ -372,9 +385,13 @@ class Botbox:
         injected = {} if jail.credentials is None or source is None else source.env
         return {
             "labels": {"botbox.run": token},
-            "env": {"HOME": agent.home, **jail.envs, **injected},
+            "env": {
+                "HOME": agent.home,
+                **({HOME_BYTES_ENV: str(len(home))} if home else {}),
+                **jail.envs,
+                **injected,
+            },
             "mounts": [
-                DockerMount("bind", str(home), agent.home),
                 jail.volume.mount(SOCKET_DIR, read_only=True),
                 *(
                     DockerMount("bind", source, target, mode == "ro")

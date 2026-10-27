@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
+from staged_home_test import staged_home
 
 from botbox import ClaudeAgent, CredentialsExpired, InjectingAgent
 
@@ -31,10 +32,7 @@ def describe_a_claude_agent_on_the_host_login() -> None:
     def it_stages_a_home_that_holds_no_real_token(tmp_path: Path) -> None:
         host_login(tmp_path / "claude", time.time() + 3600)
         agent = ClaudeAgent(host_home=tmp_path / "claude")
-        home = tmp_path / "home"
-        home.mkdir()
-        agent.stage_auth(home)
-        staged = home / ".claude" / ".credentials.json"
+        staged = staged_home(agent, tmp_path / "home") / ".claude" / ".credentials.json"
         text = staged.read_text()
         assert ACCESS not in text
         assert REFRESH not in text

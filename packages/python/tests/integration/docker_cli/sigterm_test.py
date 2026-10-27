@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from fake_docker_test import Daemon, homes
+from fake_docker_test import Daemon, temp_dirs
 
 from botbox import Botbox, ClaudeAgent
 
@@ -80,7 +80,7 @@ def describe_sigterm() -> None:
                 holder.kill()
                 await holder.wait()
         assert daemon.containers == []
-        assert homes(temp) == []
+        assert temp_dirs(temp) == []
         if moment == "session":
             assert '"said": "hang"' in (tmp_path / "output" / "stdout.txt").read_text()
 
@@ -101,4 +101,4 @@ def describe_sigterm() -> None:
                 holder.kill()
                 await holder.wait()
         assert daemon.containers == []
-        assert homes(temp) == []
+        assert temp_dirs(temp) == []
