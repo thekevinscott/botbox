@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
-  "ran_at": 1793131379,
+  "ran_at": 1793134591,
   "exit_code": 0,
-  "commit": "3acba1ff5143adf1a7b2e3cbc480c39f145e238f",
+  "commit": "6c422da824229746400ce458d837056789592553",
   "branch": "botbox-labels-env-290"
 }
