@@ -401,3 +401,37 @@ def describe_session() -> None:
         assert agent.turn_ended({"type": "turn_end"}) is False
         assert agent.turn_ended({"type": "response", "command": "prompt"}) is False
         assert agent.turn_ended({}) is False
+
+
+def describe_args() -> None:
+    def it_is_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            PiAgent("openrouter", None, None, None, 0, ["--verbose"])  # type: ignore[call-arg]
+
+    def it_defaults_to_none() -> None:
+        agent = PiAgent("openrouter")
+        assert agent.args == ()
+        assert agent.command("hi") == drop_updates("pi -p hi --mode json --provider openrouter")
+
+    def it_stores_them_as_a_tuple() -> None:
+        assert PiAgent("openrouter", args=["--verbose"]).args == ("--verbose",)
+
+    def it_appends_them_quoted_inside_the_print_mode_pipeline() -> None:
+        agent = PiAgent("openrouter", "m", args=["--append-system-prompt", "it's $HOME"])
+        assert agent.command("hi") == drop_updates(
+            "pi -p hi --mode json --provider openrouter --model m"
+            " --append-system-prompt 'it'\"'\"'s $HOME'"
+        )
+
+    def it_appends_them_quoted_inside_the_session_pipeline() -> None:
+        agent = PiAgent("openrouter", args=["--append-system-prompt", "a b; id"])
+        assert agent.session_command() == drop_updates(
+            "pi --mode rpc --provider openrouter --append-system-prompt 'a b; id'"
+        )
+
+    def it_appends_them_after_the_tool_timeout_extension() -> None:
+        agent = PiAgent("openrouter", tool_timeout=5, args=["--verbose"])
+        assert agent.session_command() == drop_updates(
+            "BOTBOX_TOOL_TIMEOUT=5 pi --mode rpc --provider openrouter"
+            " -e /usr/local/lib/botbox/tool-timeout.ts --verbose"
+        )

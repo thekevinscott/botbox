@@ -9,15 +9,17 @@ PiAgent(
     *,
     api_key: str | None = None,
     tool_timeout: float = 0,
+    args: Sequence[str] = (),
 )
 ```
 
-| Option         | Default       | Meaning                                                  |
-| -------------- | ------------- | -------------------------------------------------------- |
-| `provider`     | required      | passed as `--provider`                                   |
-| `model`        | the CLI's own | passed as `--model`                                      |
-| `api_key`      | `None`        | a key for `provider`, instead of the host login          |
-| `tool_timeout` | `0`, no limit | seconds per bash call; see [Tool timeout](#tool-timeout) |
+| Option         | Default       | Meaning                                                     |
+| -------------- | ------------- | ----------------------------------------------------------- |
+| `provider`     | required      | passed as `--provider`                                      |
+| `model`        | the CLI's own | passed as `--model`                                         |
+| `api_key`      | `None`        | a key for `provider`, instead of the host login             |
+| `tool_timeout` | `0`, no limit | seconds per bash call; see [Tool timeout](#tool-timeout)    |
+| `args`         | `()`          | extra pi arguments; see [Extra arguments](#extra-arguments) |
 
 `provider` comes first because it decides which host the proxy admits.
 
@@ -47,5 +49,13 @@ With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The 
 ## Tool timeout
 
 pi's bash tool has no timeout unless the model asks for one. `tool_timeout` caps every bash call at that many seconds, whatever the model asks for. A call that runs out has its process tree killed, and the model gets "Command timed out after N seconds" and carries on. botbox does this with a pi extension baked into the image, loaded with `-e` only when `tool_timeout` is set.
+
+## Extra arguments
+
+`args` go to pi after botbox's own flags, in both `command()` and `session_command()`. Each one is shell-quoted.
+
+```python
+agent = PiAgent("openrouter", args=["--append-system-prompt", "Answer in French."])
+```
 
 What runs in the container: [How It Works](../explanation/#pi).

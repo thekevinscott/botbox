@@ -1,6 +1,6 @@
 import json
 import shlex
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -68,8 +68,10 @@ class PiAgent:
     credential_source: OpenRouterKey | None
     """The OpenRouter key, which the proxy sends upstream, or None for a custom provider, whose
     credentials are copied in."""
+    args: tuple[str, ...]
+    """Extra pi arguments, e.g. `["--append-system-prompt", text]`."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         provider: str,
         model: str | None = None,
@@ -77,6 +79,7 @@ class PiAgent:
         api_key: str | None = None,
         host_home: Path | None = None,
         tool_timeout: float = 0,
+        args: Sequence[str] = (),
     ) -> None:
         if tool_timeout < 0:
             raise ValueError(f"tool_timeout is in seconds and must be 0 or more: {tool_timeout!r}")
@@ -84,6 +87,7 @@ class PiAgent:
         self.model = model
         self.api_key = api_key
         self.tool_timeout = tool_timeout
+        self.args = tuple(args)
         self.env: Mapping[str, str] = (
             {"BOTBOX_TOOL_TIMEOUT": f"{tool_timeout:g}"} if tool_timeout else {}
         )
@@ -109,6 +113,8 @@ class PiAgent:
             command += f" --model {shlex.quote(self.model)}"
         if self.tool_timeout:
             command += f" -e {TOOL_TIMEOUT_EXTENSION}"
+        if self.args:
+            command += " " + shlex.join(self.args)
         return with_env(self.env, command)
 
     def encode(self, message: str) -> str:

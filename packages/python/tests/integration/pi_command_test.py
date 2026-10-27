@@ -117,3 +117,11 @@ def describe_tool_timeout() -> None:
             assert events[0]["argv"][-2:] == ["-e", "/usr/local/lib/botbox/tool-timeout.ts"]
         else:
             assert "-e" not in events[0]["argv"]
+
+
+def describe_args() -> None:
+    @pytest.mark.parametrize("session", [False, True], ids=["print", "session"])
+    def it_hands_pi_the_args_intact(session: bool) -> None:
+        agent = PiAgent("openrouter", args=["--append-system-prompt", "it's $HOME; id"])
+        command = agent.session_command() if session else agent.command("hi")
+        assert argv(command)[-2:] == ["--append-system-prompt", "it's $HOME; id"]

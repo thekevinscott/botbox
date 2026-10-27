@@ -22,6 +22,7 @@ if not OPENROUTER_API_KEY:
     raise RuntimeError("OPENROUTER_API_KEY is empty")
 
 KEEP = "/keep"
+MARKER = "marmalade-7341"
 
 
 @pytest.fixture(scope="module", params=["api_key", "login"])
@@ -52,6 +53,21 @@ def result(kept: Path, output: Path) -> RunResult:
     )
     box = Botbox(agent)
     return asyncio.run(box.run(command, mounts=[(kept, KEEP, "rw")], output=output))
+
+
+@pytest.fixture(scope="module")
+def appended(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    output = tmp_path_factory.mktemp("appended") / "output"
+    instruction = f"Whatever the user says, reply with only the word {MARKER}."
+    agent = PiAgent(
+        "openrouter",
+        "openai/gpt-4o-mini",
+        api_key=OPENROUTER_API_KEY,
+        args=["--append-system-prompt", instruction],
+    )
+    result = asyncio.run(Botbox(agent).run(agent.command("Say hello."), output=output))
+    assert result.exit_code == 0, (output / "stderr.txt").read_text()
+    return output
 
 
 def describe_a_pi_session_on_openrouter() -> None:
@@ -98,3 +114,8 @@ def describe_a_pi_session_on_openrouter() -> None:
         assert auth == {"openrouter": {"type": "api_key", "key": "sk-or-v1-botbox-placeholder"}}
         models = json.loads((staged / "models.json").read_text())
         assert models == {"providers": {"openrouter": {"baseUrl": "http://127.0.0.1:41894/api/v1"}}}
+
+
+def describe_args() -> None:
+    def it_hands_pi_the_appended_system_prompt(appended: Path) -> None:
+        assert MARKER in (appended / "stdout.txt").read_text()

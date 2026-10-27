@@ -1,0 +1,1 @@
+**Added**: `PiAgent(args=[...])` passes extra arguments to pi, such as `["--append-system-prompt", text]`. They go inside the filtered pipeline in both `command()` and `session_command()`, each shell-quoted. Flags appended to the returned command string landed after the `bash -c` script, so pi never saw them.
