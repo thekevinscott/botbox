@@ -184,6 +184,19 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
+    async def it_kills_an_over_limit_child_and_keeps_the_run_alive(
+        box: Botbox, runs: Runs, output: Path
+    ) -> None:
+        command = (
+            "node -e 'Buffer.alloc(128 * 1024 * 1024, 1)' "
+            ">/dev/null 2>&1; child=$?; echo child:$child; "
+            'test "$child" -eq 137 && echo survived'
+        )
+        result = await Botbox(box.agent, memory="64m").run(command, output=output)
+        assert result == RunResult(0)
+        assert (output / "stdout.txt").read_text() == "child:137\nsurvived\n"
+        assert runs.leftovers() == []
+
     async def it_returns_only_the_exit_code_without_output(box: Botbox, runs: Runs) -> None:
         assert await box.run("echo out; echo err >&2; exit 5") == RunResult(5)
         assert len(runs.tokens) == 1
