@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/pi_test.py tests/e2e/pi_openrouter_test.py tests/e2e/pi_tool_timeout_test.py tests/e2e/user_test.py tests/e2e/session_test.py -k \"not claude and not Claude and not codex and not Codex\"",
-  "ran_at": 1793063416,
+  "ran_at": 1793063630,
   "exit_code": 0,
-  "commit": "7069650d632d0eccafd99a65dd90d51cc20d6c27",
+  "commit": "4d02793da6bd343e9f334ae1a32bcc1f117ffc04",
   "branch": "pi-bump"
 }
