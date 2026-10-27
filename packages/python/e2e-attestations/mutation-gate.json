@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -rs tests/e2e/credential_proxy_test.py",
+  "ran_at": 1793061381,
+  "exit_code": 0,
+  "commit": "fa75632d8ffc95f605bb2f3db2b2fdf15b687fa4",
+  "branch": "mutation-gate"
+}
