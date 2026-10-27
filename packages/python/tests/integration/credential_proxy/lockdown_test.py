@@ -34,12 +34,13 @@ async def test_lockdown_starts_the_credential_sidecar(tmp_path: Path) -> None:
 
 async def test_lockdown_labels_its_containers_and_volume(tmp_path: Path) -> None:
     token = uuid4().hex[:12]
-    labels = {"test.run": token}
+    value = f"/tmp/runs/2026-10-27T14:38:00-{token}"
+    labels = {"test.run": value}
     async with lockdown((), tmp_path, token, credential=CREDENTIAL, labels=labels) as jail:
         assert jail.credentials is not None
         for name in (jail.proxy.name, jail.credentials.container.name):
             found = subprocess.run(
-                ["docker", "ps", "--filter", f"label=test.run={token}", "--format", "{{.Names}}"],
+                ["docker", "ps", "--filter", f"label=test.run={value}", "--format", "{{.Names}}"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -51,7 +52,7 @@ async def test_lockdown_labels_its_containers_and_volume(tmp_path: Path) -> None
                 "volume",
                 "ls",
                 "--filter",
-                f"label=test.run={token}",
+                f"label=test.run={value}",
                 "--format",
                 "{{.Name}}",
             ],

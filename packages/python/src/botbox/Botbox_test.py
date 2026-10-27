@@ -11,6 +11,8 @@ import pytest
 
 from botbox.Botbox import Botbox
 
+LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
+
 
 @dataclass(frozen=True)
 class FakeMount:
@@ -136,10 +138,10 @@ def describe_botbox() -> None:
         assert Botbox(agent, timeout=30).timeout == 30
 
     def it_copies_caller_labels(agent: Mock) -> None:
-        labels = {"test.run": "one"}
+        labels = {"test.run": LABEL_VALUE}
         box = Botbox(agent, labels=labels)
         labels["test.run"] = "two"
-        assert box.labels == {"test.run": "one"}
+        assert box.labels == {"test.run": LABEL_VALUE}
 
     def it_reserves_the_cleanup_label(agent: Mock) -> None:
         with pytest.raises(ValueError, match=r"botbox\.run"):
@@ -697,12 +699,12 @@ def describe_run() -> None:
         async def it_merges_caller_labels_into_the_agent_container(
             runner: Mock, docker_run: Mock, lockdown: Mock
         ) -> None:
-            await Botbox(runner, labels={"test.run": "one"}).run("true")
+            await Botbox(runner, labels={"test.run": LABEL_VALUE}).run("true")
             assert docker_run.call_args.kwargs["labels"] == {
-                "test.run": "one",
+                "test.run": LABEL_VALUE,
                 "botbox.run": TOKEN,
             }
-            assert lockdown.call_args.kwargs["labels"] == {"test.run": "one"}
+            assert lockdown.call_args.kwargs["labels"] == {"test.run": LABEL_VALUE}
 
         async def it_does_not_remove_itself_and_reads_nothing(
             runner: Mock, docker_run: Mock
@@ -1073,10 +1075,10 @@ def describe_session() -> None:
         async def it_merges_caller_labels_into_the_session_container(
             talker: Mock, hold_session: Mock
         ) -> None:
-            async with Botbox(talker, labels={"test.run": "one"}).session():
+            async with Botbox(talker, labels={"test.run": LABEL_VALUE}).session():
                 pass
             assert session_options(hold_session)["labels"] == {
-                "test.run": "one",
+                "test.run": LABEL_VALUE,
                 "botbox.run": TOKEN,
             }
 
