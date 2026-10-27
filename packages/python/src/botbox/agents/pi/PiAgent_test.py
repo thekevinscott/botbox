@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.agents.pi.PiAgent import PiAgent, drop_updates
+from botbox.agents.pi.PiAgent import PiAgent
 
 if TYPE_CHECKING:
     from botbox.agents.HomeFiles import HomeFiles
@@ -285,55 +285,42 @@ def describe_api_key() -> None:
         assert "sk-or-test" not in repr(keyed)
 
 
-def describe_drop_updates() -> None:
-    def it_pipes_the_command_through_an_unbuffered_sed_under_pipefail() -> None:
-        assert shlex.split(drop_updates("pi --mode rpc")) == [
-            "exec",
-            "bash",
-            "-o",
-            "pipefail",
-            "-c",
-            'pi --mode rpc | sed -u -e \'/^{"type":"message_update"/d\''
-            ' -e \'/^{"type":"tool_execution_update"/d\'',
-        ]
-
-
 def describe_command() -> None:
-    def it_runs_pi_in_print_mode_with_json_output_against_the_provider() -> None:
-        assert PiAgent(provider="openrouter").command("Fix the tests") == drop_updates(
-            "pi -p 'Fix the tests' --mode json --provider openrouter"
+    def it_runs_pi_in_print_mode_with_json_output() -> None:
+        assert PiAgent(provider="openrouter").command("Fix the tests") == (
+            "pi -p 'Fix the tests' --mode json"
         )
 
     def it_passes_a_custom_provider_through(custom_home: Path) -> None:
-        assert PiAgent("ollama", host_home=custom_home).command("hi") == drop_updates(
-            "pi -p hi --mode json --provider ollama"
+        assert PiAgent("ollama", "m", host_home=custom_home).command("hi") == (
+            "pi -p hi --mode json --provider ollama --model m"
         )
 
     def it_shell_quotes_the_provider(tmp_path: Path) -> None:
         (tmp_path / "models.json").write_text(
             json.dumps({"providers": {"a b; id": {"baseUrl": "https://models.example"}}})
         )
-        agent = PiAgent("a b; id", host_home=tmp_path)
-        assert agent.command("hi") == drop_updates("pi -p hi --mode json --provider 'a b; id'")
-        assert agent.session_command() == drop_updates("pi --mode rpc --provider 'a b; id'")
+        agent = PiAgent("a b; id", "m", host_home=tmp_path)
+        assert agent.command("hi") == "pi -p hi --mode json --provider 'a b; id' --model m"
+        assert agent.session_command() == "pi --mode rpc --provider 'a b; id' --model m"
 
     def it_shell_quotes_the_prompt() -> None:
-        assert PiAgent(provider="openrouter").command("it's $HOME") == drop_updates(
-            "pi -p 'it'\"'\"'s $HOME' --mode json --provider openrouter"
+        assert PiAgent(provider="openrouter").command("it's $HOME") == (
+            "pi -p 'it'\"'\"'s $HOME' --mode json"
         )
 
     def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == drop_updates(
+        assert PiAgent("openrouter", "qwen/qwen3-coder").command("hi") == (
             "pi -p hi --mode json --provider openrouter --model qwen/qwen3-coder"
         )
 
     def it_takes_the_model_by_keyword() -> None:
-        assert PiAgent(provider="openrouter", model="m").command("hi") == drop_updates(
+        assert PiAgent(provider="openrouter", model="m").command("hi") == (
             "pi -p hi --mode json --provider openrouter --model m"
         )
 
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").command("hi") == drop_updates(
+        assert PiAgent("openrouter", "a b; id").command("hi") == (
             "pi -p hi --mode json --provider openrouter --model 'a b; id'"
         )
 
@@ -343,13 +330,12 @@ def describe_tool_timeout() -> None:
         assert PiAgent("openrouter", tool_timeout=2.5).env == {"BOTBOX_TOOL_TIMEOUT": "2.5"}
 
     def it_loads_the_extension_with_the_limit_in_print_mode() -> None:
-        assert PiAgent("openrouter", tool_timeout=30).command("hi") == drop_updates(
-            "BOTBOX_TOOL_TIMEOUT=30 pi -p hi --mode json --provider openrouter"
-            " -e /usr/local/lib/botbox/tool-timeout.ts"
+        assert PiAgent("openrouter", tool_timeout=30).command("hi") == (
+            "BOTBOX_TOOL_TIMEOUT=30 pi -p hi --mode json -e /usr/local/lib/botbox/tool-timeout.ts"
         )
 
     def it_loads_the_extension_with_the_limit_in_session_mode() -> None:
-        assert PiAgent("openrouter", "m", tool_timeout=2.5).session_command() == drop_updates(
+        assert PiAgent("openrouter", "m", tool_timeout=2.5).session_command() == (
             "BOTBOX_TOOL_TIMEOUT=2.5 pi --mode rpc --provider openrouter --model m"
             " -e /usr/local/lib/botbox/tool-timeout.ts"
         )
@@ -365,20 +351,31 @@ def describe_tool_timeout() -> None:
 
 
 def describe_session() -> None:
-    def it_runs_pi_in_rpc_mode_against_the_provider() -> None:
-        assert PiAgent("openrouter").session_command() == drop_updates(
-            "pi --mode rpc --provider openrouter"
-        )
+    def it_runs_pi_in_rpc_mode() -> None:
+        assert PiAgent("openrouter").session_command() == "pi --mode rpc"
+
+    def it_leaves_the_provider_to_pi_without_a_model(custom_home: Path) -> None:
+        assert "--provider" not in PiAgent("ollama", host_home=custom_home).session_command()
 
     def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == drop_updates(
+        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
             "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
         )
 
     def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").session_command() == drop_updates(
+        assert PiAgent("openrouter", "a b; id").session_command() == (
             "pi --mode rpc --provider openrouter --model 'a b; id'"
         )
+
+    def it_ends_with_pis_argv_so_a_subclass_can_append_flags() -> None:
+        class Terse(PiAgent):
+            def session_command(self) -> str:
+                return super().session_command() + " --append-system-prompt " + shlex.quote("X Y")
+
+        assert shlex.split(Terse("openrouter", "m").session_command()) == [
+            *["pi", "--mode", "rpc", "--provider", "openrouter", "--model", "m"],
+            *["--append-system-prompt", "X Y"],
+        ]
 
     def it_encodes_a_message_as_a_prompt_command() -> None:
         assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {
@@ -389,15 +386,16 @@ def describe_session() -> None:
     def it_encodes_on_one_line() -> None:
         assert "\n" not in PiAgent("openrouter").encode("two\nlines")
 
-    def it_ends_the_turn_when_the_agent_ends() -> None:
-        assert PiAgent("openrouter").turn_ended({"type": "agent_end", "messages": []}) is True
+    def it_ends_the_turn_when_the_agent_settles() -> None:
+        assert PiAgent("openrouter").turn_ended({"type": "agent_settled", "aborted": False}) is True
 
     def it_compares_the_event_type_by_value() -> None:
-        parsed = "".join(["agent", "_end"])
+        parsed = "".join(["agent", "_settled"])
         assert PiAgent("openrouter").turn_ended({"type": parsed}) is True
 
     def it_keeps_the_turn_open_until_then() -> None:
         agent = PiAgent("openrouter")
         assert agent.turn_ended({"type": "turn_end"}) is False
+        assert agent.turn_ended({"type": "agent_end", "willRetry": True}) is False
         assert agent.turn_ended({"type": "response", "command": "prompt"}) is False
         assert agent.turn_ended({}) is False

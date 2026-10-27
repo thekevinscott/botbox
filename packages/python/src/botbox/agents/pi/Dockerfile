@@ -5,7 +5,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/* && \
     ln -s /usr/bin/fdfind /usr/local/bin/fd
 
-RUN npm install -g @earendil-works/pi-coding-agent@0.74.0
+RUN npm install -g @earendil-works/pi-coding-agent@1.4.0
 
 RUN usermod --login user --home /home/user --move-home node && groupmod --new-name user node
 
@@ -22,3 +22,5 @@ COPY tool-timeout.ts /usr/local/lib/botbox/tool-timeout.ts
 USER user
 
 ENV PI_CODING_AGENT_DIR=/home/user/.pi/agent
+# The box can't reach pi.dev, where pi checks for a newer version and model catalog.
+ENV PI_OFFLINE=1

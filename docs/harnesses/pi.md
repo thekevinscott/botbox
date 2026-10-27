@@ -14,12 +14,12 @@ PiAgent(
 
 | Option         | Default       | Meaning                                                  |
 | -------------- | ------------- | -------------------------------------------------------- |
-| `provider`     | required      | passed as `--provider`                                   |
+| `provider`     | required      | passed as `--provider`, with `model` only                |
 | `model`        | the CLI's own | passed as `--model`                                      |
 | `api_key`      | `None`        | a key for `provider`, instead of the host login          |
 | `tool_timeout` | `0`, no limit | seconds per bash call; see [Tool timeout](#tool-timeout) |
 
-`provider` comes first because it decides which host the proxy admits.
+`provider` comes first because it decides which host the proxy admits. pi takes `--provider` only with `--model`, so with no `model` pi picks its own default model, which may belong to another provider in `auth.json`.
 
 ```python
 agent = PiAgent("openrouter", "qwen/qwen3-coder")
