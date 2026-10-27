@@ -1,7 +1,7 @@
 import asyncio
 import re
 import warnings
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
@@ -52,13 +52,14 @@ class Lockdown:
 
 
 @asynccontextmanager
-async def lockdown(
+async def lockdown(  # noqa: PLR0913
     allow: Iterable[str],
     scratch: Path,
     token: str,
     output: Path | None = None,
     *,
     credential: Credential | None = None,
+    labels: Mapping[str, str] | None = None,
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -103,7 +104,7 @@ async def lockdown(
             f"botbox could not remove its volume {volume}: {error}", RuntimeWarning, stacklevel=1
         )
 
-    labels = {"botbox.run": token}
+    labels = {**(labels or {}), "botbox.run": token}
     with write(log, *also) as sink:
         async with Volume(volume, labels=labels, on_error=unremoved) as socket:
             proxy = Container(name)
@@ -132,7 +133,12 @@ async def lockdown(
                 else:
                     credential_log = (scratch if output is None else output) / "credentials.log"
                     async with credential_proxy(
-                        credential, proxy=proxy, volume=socket, token=token, log=credential_log
+                        credential,
+                        proxy=proxy,
+                        volume=socket,
+                        token=token,
+                        log=credential_log,
+                        labels=labels,
                     ) as credentials:
                         yield Lockdown(proxy, socket, envs, credentials)
             finally:

@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
@@ -36,8 +36,14 @@ READY_SECONDS = 30
 
 
 @asynccontextmanager
-async def credential_proxy(
-    credential: Credential, *, proxy: Container, volume: Volume, token: str, log: Path
+async def credential_proxy(  # noqa: PLR0913
+    credential: Credential,
+    *,
+    proxy: Container,
+    volume: Volume,
+    token: str,
+    log: Path,
+    labels: Mapping[str, str] | None = None,
 ) -> AsyncIterator[CredentialProxy]:
     """Start an Envoy container that adds the credential's secret to requests for its upstream.
 
@@ -63,7 +69,7 @@ async def credential_proxy(
                     stdin=stdin,
                     stdout=sink,
                     stderr=sink,
-                    labels={"botbox.run": token},
+                    labels={**(labels or {}), "botbox.run": token},
                     user=USER,
                     pid=f"container:{proxy.name}",
                     network="bridge",

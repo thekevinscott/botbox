@@ -212,6 +212,7 @@ def describe_lockdown() -> None:
                 volume=net.volume,
                 token=TOKEN,
                 log=scratch / "credentials.log",
+                labels=LABELS,
             )
         assert steps.index("proxy up") < steps.index("credentials up") < steps.index("body")
         assert steps.index("credentials stopped") < steps.index("proxy stopped")
@@ -247,6 +248,15 @@ def describe_lockdown() -> None:
                 assert net.credentials is None
                 assert CREDENTIALS_ENV not in net.envs
         start.assert_not_called()
+
+    async def it_merges_caller_labels_on_the_proxy_and_volume(
+        scratch: Path, image: Image, steps: list[str]
+    ) -> None:
+        async with lockdown(ALLOW, scratch, TOKEN, labels={"test.run": "one"}):
+            pass
+        expected = {"test.run": "one", "botbox.run": TOKEN}
+        assert image.options["labels"] == expected
+        assert f"create {VOLUME} {expected}" in steps
 
     async def it_yields_what_a_locked_down_container_needs(scratch: Path, image: Image) -> None:
         async with jail(scratch) as net:
