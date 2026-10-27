@@ -395,7 +395,7 @@ class Botbox:
         volumes: list[tuple[str, str, str]],
         workdir: str | Path | None,
         *,
-        labels: Mapping[str, str],
+        labels: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """`Image.run` options for an agent container, in the proxy's PID namespace, with no
         network.
@@ -406,7 +406,7 @@ class Botbox:
         source = self._credential_source()
         injected = {} if jail.credentials is None or source is None else source.env
         return {
-            "labels": {**labels, "botbox.run": token},
+            "labels": {**(labels or {}), "botbox.run": token},
             "env": {
                 "HOME": agent.home,
                 **({HOME_BYTES_ENV: str(len(home))} if home else {}),

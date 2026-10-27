@@ -172,6 +172,13 @@ def runs(temp: Path) -> Iterator[Runs]:
     runs.clean()
 
 
+@pytest.fixture
+def env_run() -> Iterator[str]:
+    value = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
+    with patch.dict(os.environ, {"BOTBOX_LABELS": f"env.run={value}"}):
+        yield value
+
+
 async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float:
     """Cancel `task`, and again shortly after if `twice`; how long it took to end."""
     started = time.monotonic()
@@ -185,23 +192,21 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
-    async def it_labels_all_three_containers_from_botbox_labels(runs: Runs) -> None:
-        run_id = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
-        with patch.dict(os.environ, {"BOTBOX_LABELS": f"env.run={run_id}"}):
-            task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
-            try:
-                await runs.started()
-                [token] = runs.tokens
-                names = docker_lines(
-                    "ps", "--filter", f"label=env.run={run_id}", "--format", "{{.Names}}"
-                )
-                assert set(names) == {
-                    f"botbox-agent-{token}",
-                    f"botbox-proxy-{token}",
-                    f"botbox-credentials-{token}",
-                }
-            finally:
-                await cancelled(task)
+    async def it_labels_all_three_containers_from_botbox_labels(runs: Runs, env_run: str) -> None:
+        task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
+        try:
+            await runs.started()
+            [token] = runs.tokens
+            names = docker_lines(
+                "ps", "--filter", f"label=env.run={env_run}", "--format", "{{.Names}}"
+            )
+            assert set(names) == {
+                f"botbox-agent-{token}",
+                f"botbox-proxy-{token}",
+                f"botbox-credentials-{token}",
+            }
+        finally:
+            await cancelled(task)
         assert runs.leftovers() == []
 
     async def it_kills_an_over_limit_child_and_keeps_the_run_alive(
