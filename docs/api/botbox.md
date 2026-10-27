@@ -21,6 +21,8 @@ Botbox(
 | `timeout`    | Seconds each [`run()`](./run) and [`session()`](./session) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
 | `labels`     | Docker labels added to each run's agent, proxy, credential proxy and socket volume. `botbox.run` is reserved and raises `ValueError`. Images are not labelled. |
 
+If `LABNOTES_RUN` is set to a non-empty value when `run()` or `session()` starts, botbox also adds `labnotes.run=<value>` to those resources. The value is passed through as-is. A `labnotes.run` entry in `labels=` takes precedence.
+
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
 
 Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.

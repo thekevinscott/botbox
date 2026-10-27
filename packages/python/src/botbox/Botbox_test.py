@@ -28,6 +28,11 @@ def fake_mount() -> Iterator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def no_labnotes_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("LABNOTES_RUN", raising=False)
+
+
 AGENT_STEP = Mock(
     context=Path("/agents"),
     tag="an-agent:latest",
@@ -1493,6 +1498,48 @@ def agent_env(how: str, docker_run: Mock, hold_session: Mock) -> dict[str, str]:
     options = docker_run.call_args.kwargs if how == "run" else hold_session.call_args.kwargs
     env: dict[str, str] = options["env"]
     return env
+
+
+@pytest.mark.parametrize("how", ["run", "session"])
+def describe_labnotes_run_labels() -> None:
+    @pytest.fixture
+    def launches(lockdown: Mock, docker_run: Mock, hold_session: Mock) -> tuple[Mock, Mock, Mock]:
+        return lockdown, docker_run, hold_session
+
+    @pytest.mark.parametrize(
+        "case",
+        [
+            (
+                "/tmp/runs/2026-10-27T14:38:00-ab12",
+                {},
+                {"labnotes.run": "/tmp/runs/2026-10-27T14:38:00-ab12"},
+            ),
+            (None, {}, {}),
+            ("", {}, {}),
+            (
+                "/tmp/runs/from-env",
+                {"labnotes.run": "/tmp/runs/from-caller"},
+                {"labnotes.run": "/tmp/runs/from-caller"},
+            ),
+        ],
+        ids=["set", "unset", "empty", "caller-wins"],
+    )
+    async def it_merges_the_environment_label_when_the_run_starts(
+        injector: Mock,
+        how: str,
+        case: tuple[str | None, dict[str, str], dict[str, str]],
+        monkeypatch: pytest.MonkeyPatch,
+        launches: tuple[Mock, Mock, Mock],
+    ) -> None:
+        value, caller, expected = case
+        box = Botbox(injector, labels=caller)
+        if value is not None:
+            monkeypatch.setenv("LABNOTES_RUN", value)
+        await run_and_talk(box, how)
+        lockdown, docker_run, hold_session = launches
+        assert lockdown.call_args.kwargs["labels"] == expected
+        options = docker_run.call_args.kwargs if how == "run" else hold_session.call_args.kwargs
+        assert options["labels"] == {**expected, "botbox.run": TOKEN}
 
 
 @pytest.mark.parametrize("how", ["run", "session"])

@@ -166,6 +166,7 @@ class Botbox:
         out, the run tears down as a cancel does and raises `Timeout` with `exit_code` -1.
         """
         agent = self.agent
+        labels = self._run_labels()
         limit = self.timeout if timeout is None else check_timeout(timeout)
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         source = self._credential_source()
@@ -187,11 +188,11 @@ class Botbox:
                         token,
                         output,
                         credential=credential,
-                        labels=self.labels,
+                        labels=labels,
                     ) as jail,
                     self._following(jail, source, credential),
                 ):
-                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
                     exit_code = await self._attach(
                         token,
                         image,
@@ -238,6 +239,7 @@ class Botbox:
         agent = self.agent
         if not isinstance(agent, SessionAgent):
             raise TypeError(f"{type(agent).__name__} has no session mode")
+        labels = self._run_labels()
         limit = self.timeout if timeout is None else check_timeout(timeout)
         command = agent.session_command()
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -262,13 +264,13 @@ class Botbox:
                         token,
                         output,
                         credential=credential,
-                        labels=self.labels,
+                        labels=labels,
                     ) as jail,
                     self._following(jail, source, credential),
                 ):
                     name = f"botbox-agent-{token}"
                     started = Container(name)
-                    flags = self._lockdown_flags(token, home, jail, volumes, workdir)
+                    flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
                     try:
                         async with hold_session(
                             agent,
@@ -381,13 +383,19 @@ class Botbox:
         volumes.append((str(output / "transcripts"), sessions, "rw"))
         return output
 
-    def _lockdown_flags(
+    def _run_labels(self) -> dict[str, str]:
+        run = os.environ.get("LABNOTES_RUN")
+        return {**({"labnotes.run": run} if run else {}), **self.labels}
+
+    def _lockdown_flags(  # noqa: PLR0913
         self,
         token: str,
         home: bytes,
         jail: Lockdown,
         volumes: list[tuple[str, str, str]],
         workdir: str | Path | None,
+        *,
+        labels: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """`Image.run` options for an agent container, in the proxy's PID namespace, with no
         network.
@@ -398,7 +406,7 @@ class Botbox:
         source = self._credential_source()
         injected = {} if jail.credentials is None or source is None else source.env
         return {
-            "labels": {**self.labels, "botbox.run": token},
+            "labels": {**(self.labels if labels is None else labels), "botbox.run": token},
             "env": {
                 "HOME": agent.home,
                 **({HOME_BYTES_ENV: str(len(home))} if home else {}),

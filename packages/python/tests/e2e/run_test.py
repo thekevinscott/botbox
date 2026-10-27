@@ -185,6 +185,27 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
+    async def it_labels_all_three_containers_from_labnotes_run(
+        runs: Runs, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        value = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
+        monkeypatch.setenv("LABNOTES_RUN", value)
+        task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
+        try:
+            await runs.started()
+            [token] = runs.tokens
+            names = docker_lines(
+                "ps", "--filter", f"label=labnotes.run={value}", "--format", "{{.Names}}"
+            )
+            assert set(names) == {
+                f"botbox-agent-{token}",
+                f"botbox-proxy-{token}",
+                f"botbox-credentials-{token}",
+            }
+        finally:
+            await cancelled(task)
+        assert runs.leftovers() == []
+
     async def it_labels_all_three_live_containers(runs: Runs) -> None:
         run_id = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
         task = asyncio.create_task(

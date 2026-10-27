@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
+  "ran_at": 1793128737,
+  "exit_code": 0,
+  "commit": "3a0b2bc7ee1d034aa16044f4066afd97a24b696f",
+  "branch": "labnotes-label-290"
+}
