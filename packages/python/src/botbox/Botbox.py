@@ -37,6 +37,7 @@ class Botbox:
 
     `timeout` is in seconds and bounds every run and session; None, the default, is no limit.
     A call's own `timeout` takes its place.
+    `memory` caps the agent container in Docker's size format; None leaves it uncapped.
 
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
     so a run or session in progress unwinds and tears down, then the block raises
@@ -54,6 +55,7 @@ class Botbox:
         dockerfile: str | Path | None = None,
         allow: Sequence[str] = (),
         timeout: float | None = None,
+        memory: str | None = None,
     ) -> None:
         if os.getuid() == 0:
             raise RuntimeError("botbox won't run an agent as root: run it as a regular user")
@@ -63,6 +65,7 @@ class Botbox:
             raise TypeError(f"allow takes a sequence of hosts: pass allow=({allow!r},)")
         self.allow = tuple(allow)
         self.timeout = check_timeout(timeout)
+        self.memory = memory
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -400,6 +403,7 @@ class Botbox:
             ],
             "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
             "network": "none",
+            "memory": self.memory,
             "pid": f"container:{jail.proxy.name}",
             "user": f"{os.getuid()}:{os.getgid()}",
             "cap_drop": ["ALL"],

@@ -104,6 +104,9 @@ def describe_botbox() -> None:
     def it_keeps_the_agent(agent: Mock) -> None:
         assert Botbox(agent).agent is agent
 
+    def it_leaves_memory_uncapped_by_default(agent: Mock) -> None:
+        assert Botbox(agent).memory is None
+
     def it_takes_its_options_by_keyword_only(agent: Mock, layer: Path) -> None:
         with pytest.raises(TypeError):
             Botbox(agent, layer)  # type: ignore[call-arg]
@@ -663,6 +666,10 @@ def describe_run() -> None:
         assert (scratch / "stderr.txt").read_bytes() == b"err\n"
 
     def describe_the_agent_container() -> None:
+        async def it_caps_only_the_agent_memory(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner, memory="64m").run("true")
+            assert docker_run.call_args.kwargs["memory"] == "64m"
+
         async def it_runs_the_command_through_the_relay_in_the_image(
             runner: Mock, docker_run: Mock, image: Mock
         ) -> None:
@@ -1016,6 +1023,11 @@ def describe_session() -> None:
         assert hold_session.call_args.kwargs["home"] == staged()
 
     def describe_the_agent_container() -> None:
+        async def it_caps_session_agent_memory(talker: Mock, hold_session: Mock) -> None:
+            async with Botbox(talker, memory="64m").session():
+                pass
+            assert session_options(hold_session)["memory"] == "64m"
+
         async def it_runs_the_session_command_attached_through_the_relay(
             talker: Mock, hold_session: Mock
         ) -> None:

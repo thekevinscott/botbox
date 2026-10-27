@@ -119,6 +119,18 @@ def describe_run() -> None:
             assert temp_dirs(temp) == []
 
     def describe_the_containers() -> None:
+        async def it_limits_only_the_agent_memory(box: Botbox, daemon: Daemon) -> None:
+            await Botbox(box.agent, memory="64m").run("true")
+            [agent] = daemon.runs("botbox-agent-")
+            [proxy] = daemon.runs("botbox-proxy-")
+            assert option(agent, "--memory") == "64m"
+            assert option(agent, "--memory-swap") == "64m"
+            assert "--memory" not in proxy
+            assert "--memory-swap" not in proxy
+            for credential_proxy in daemon.runs("botbox-credentials-"):
+                assert "--memory" not in credential_proxy
+                assert "--memory-swap" not in credential_proxy
+
         async def it_names_and_labels_both_with_one_run_token(box: Botbox, daemon: Daemon) -> None:
             await box.run("true")
             [proxy] = daemon.runs("botbox-proxy-")
