@@ -152,7 +152,7 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 
 ## pi
 
-- **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`.
+- **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`. `PI_OFFLINE=1` stops pi reaching `pi.dev` for its version check and model catalog, which the box can't reach.
 - **Command:** `pi -p <prompt> --mode json`, plus `--provider <provider> --model <model>` when a model is set. pi rejects `--provider` without `--model`.
 - **Session:** `pi --mode rpc`, with the same flags. Each message goes in as a `prompt` command. A turn ends at the `agent_settled` event, since retries and compaction can follow `agent_end`.
 - **Credentials:** on `openrouter`, `.pi/agent/auth.json` holds a placeholder key and `.pi/agent/models.json` sets the provider's `baseUrl` to the credential proxy, which adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` on its way to `openrouter.ai`. The key is `api_key`, or the literal `openrouter` key in the host's `auth.json`, reread every 2 seconds as for Claude. For any other provider, `auth.json`, and `models.json` if present, are copied into `.pi/agent/`.

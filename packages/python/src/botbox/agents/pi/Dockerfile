@@ -22,3 +22,5 @@ COPY tool-timeout.ts /usr/local/lib/botbox/tool-timeout.ts
 USER user
 
 ENV PI_CODING_AGENT_DIR=/home/user/.pi/agent
+# The box can't reach pi.dev, where pi checks for a newer version and model catalog.
+ENV PI_OFFLINE=1
