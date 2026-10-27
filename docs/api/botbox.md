@@ -23,6 +23,8 @@ Botbox(
 | `memory`     | Agent container memory limit, such as `"16g"`. `None` leaves it uncapped. Swap is disabled when a limit is set. |
 | `labels`     | Docker labels added to each run's agent, proxy, credential proxy and socket volume. `botbox.run` is reserved and raises `ValueError`. Images are not labelled. |
 
+`BOTBOX_LABELS` in the environment adds labels to the same resources, one `key=value` per line, as in Docker's `--label-file`. Botbox reads it when `run()` or `session()` starts. `labels=` wins on a key clash.
+
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
 
 Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.

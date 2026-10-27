@@ -23,6 +23,13 @@ class FakeMount:
 
 
 @pytest.fixture(autouse=True)
+def no_env_labels() -> Iterator[None]:
+    with patch.dict(os.environ):
+        os.environ.pop("BOTBOX_LABELS", None)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def fake_mount() -> Iterator[None]:
     with patch("botbox.Botbox.DockerMount", FakeMount):
         yield
@@ -713,6 +720,23 @@ def describe_run() -> None:
             }
             assert lockdown.call_args.kwargs["labels"] == {"test.run": LABEL_VALUE}
 
+        async def it_merges_env_labels_under_caller_labels(
+            runner: Mock, docker_run: Mock, lockdown: Mock
+        ) -> None:
+            os.environ["BOTBOX_LABELS"] = f"env.run={LABEL_VALUE}\ntest.run=env"
+            await Botbox(runner, labels={"test.run": "caller"}).run("true")
+            expected = {"env.run": LABEL_VALUE, "test.run": "caller"}
+            assert docker_run.call_args.kwargs["labels"] == {**expected, "botbox.run": TOKEN}
+            assert lockdown.call_args.kwargs["labels"] == expected
+
+        async def it_refuses_bad_env_labels_before_building(
+            runner: Mock, docker_build: Mock
+        ) -> None:
+            os.environ["BOTBOX_LABELS"] = "botbox.run=other"
+            with pytest.raises(ValueError, match=r"botbox\.run"):
+                await Botbox(runner).run("true")
+            docker_build.assert_not_called()
+
         async def it_does_not_remove_itself_and_reads_nothing(
             runner: Mock, docker_run: Mock
         ) -> None:
@@ -1091,6 +1115,17 @@ def describe_session() -> None:
                 pass
             assert session_options(hold_session)["labels"] == {
                 "test.run": LABEL_VALUE,
+                "botbox.run": TOKEN,
+            }
+
+        async def it_merges_env_labels_into_the_session_container(
+            talker: Mock, hold_session: Mock
+        ) -> None:
+            os.environ["BOTBOX_LABELS"] = f"env.run={LABEL_VALUE}"
+            async with Botbox(talker).session():
+                pass
+            assert session_options(hold_session)["labels"] == {
+                "env.run": LABEL_VALUE,
                 "botbox.run": TOKEN,
             }
 
