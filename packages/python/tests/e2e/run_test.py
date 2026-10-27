@@ -172,6 +172,13 @@ def runs(temp: Path) -> Iterator[Runs]:
     runs.clean()
 
 
+@pytest.fixture
+def labnotes_run() -> Iterator[str]:
+    value = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
+    with patch.dict(os.environ, {"LABNOTES_RUN": value}):
+        yield value
+
+
 async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float:
     """Cancel `task`, and again shortly after if `twice`; how long it took to end."""
     started = time.monotonic()
@@ -186,16 +193,14 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 def describe_run() -> None:
     async def it_labels_all_three_containers_from_labnotes_run(
-        runs: Runs, monkeypatch: pytest.MonkeyPatch
+        runs: Runs, labnotes_run: str
     ) -> None:
-        value = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
-        monkeypatch.setenv("LABNOTES_RUN", value)
         task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
         try:
             await runs.started()
             [token] = runs.tokens
             names = docker_lines(
-                "ps", "--filter", f"label=labnotes.run={value}", "--format", "{{.Names}}"
+                "ps", "--filter", f"label=labnotes.run={labnotes_run}", "--format", "{{.Names}}"
             )
             assert set(names) == {
                 f"botbox-agent-{token}",
