@@ -1,8 +1,8 @@
 import json
 import shlex
 from pathlib import Path
-from typing import Any
 
+from botbox.agents.Agent import Agent
 from botbox.agents.codex.CodexApiKey import CodexApiKey
 from botbox.agents.codex.CodexLogin import CodexLogin
 from botbox.agents.HomeFiles import HomeFiles
@@ -23,19 +23,15 @@ wire_api = "responses"
 requires_openai_auth = true
 """
 
-NO_SESSION = (
-    "NOT IMPLEMENTED: CodexAgent has no session mode. For a Codex model in a session, use"
-    " PiAgent('openrouter', 'openai/<model>')."
-)
-
 NO_TOOL_TIMEOUT = (
     "NOT IMPLEMENTED: CodexAgent has no tool_timeout. Codex has no setting that kills a shell"
     " command after a time limit."
 )
 
 
-class CodexAgent:
-    """The OpenAI Codex CLI."""
+class CodexAgent(Agent):
+    """The OpenAI Codex CLI. It has no session mode: for a Codex model in a session, use
+    `PiAgent('openrouter', 'openai/<model>')`."""
 
     image = "botbox-codex:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
@@ -77,15 +73,6 @@ class CodexAgent:
         if self.effort is not None:
             command += f" --config {shlex.quote(f'model_reasoning_effort={self.effort}')}"
         return f"{command} {shlex.quote(prompt)}"
-
-    def session_command(self) -> str:
-        raise NotImplementedError(NO_SESSION)
-
-    def encode(self, message: str) -> str:
-        raise NotImplementedError(NO_SESSION)
-
-    def turn_ended(self, event: dict[str, Any]) -> bool:
-        raise NotImplementedError(NO_SESSION)
 
     def stage_auth(self, home: HomeFiles) -> None:
         """A placeholder login, and a model provider that points Codex at the credential proxy."""

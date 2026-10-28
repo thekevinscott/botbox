@@ -64,7 +64,7 @@ class Judgment(BaseModel):
 
 Pydantic's validation cost is paid only where validation is *useful* (parsing JSON from a model, validating user-supplied YAML). Internal data structures pay nothing.
 
-**`Protocol` for structural typing**, **`TypeVar` is mostly obsolete** in 3.12+ (PEP 695 generics replace it).
+**`Protocol` for small structural contracts**, **`TypeVar` is mostly obsolete** in 3.12+ (PEP 695 generics replace it).
 
 ```python
 from typing import Protocol
@@ -72,6 +72,8 @@ from typing import Protocol
 class Loader(Protocol):
     def load(self, name: str) -> bytes: ...
 ```
+
+Domain objects botbox drives, such as agents, are base classes instead: an `ABC` whose abstract methods each subclass must implement, with defaults the subclass overrides. A fake in a test subclasses it too.
 
 **Import from `typing` only the names you use.** `Literal`, `Final`, `ClassVar`, `Annotated` each have real uses; pull them in deliberately.
 
@@ -148,7 +150,7 @@ class Loader(Protocol):
 - **f-strings** for interpolation. Always.
 - **Explicit `__all__`** in every `__init__.py`. Heavy-dep subpackages loaded via PEP 562 `__getattr__`.
 - **Slotted, frozen dataclasses where the data is immutable**: `@dataclass(frozen=True, slots=True)`. Catches typo-assignments and saves memory.
-- **`Protocol` for structural typing** over inheritance. PEP 695 generics over `TypeVar` on 3.12+.
+- **`Protocol` for small structural contracts**; base classes with overridable defaults for domain objects botbox drives, such as agents. PEP 695 generics over `TypeVar` on 3.12+.
 - **`cast(T, x)` carries a comment** explaining the unverified assumption.
 - **Docstrings start with the verb** ("Parse a document and ..."), describe *why*, and let the signature carry the types.
 - **Env vars read through a small config module** with documented defaults, not scattered `os.environ["FOO"]`.

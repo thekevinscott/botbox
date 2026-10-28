@@ -13,7 +13,7 @@ from uuid import uuid4
 from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
-from botbox.agents import Agent, HomeFiles, InjectingAgent, SessionAgent
+from botbox.agents import Agent, HomeFiles
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
@@ -235,8 +235,8 @@ class Botbox:
         for it to exit, removes the session's containers and temp directory, and leaves the
         `RunResult` in the session's `result`. Cancelling, or an error out of the block, kills the
         CLI instead and tears down the same way, through any number of further cancels, leaving
-        exit code -1 if none was read. Raises `TypeError` for an agent with no session mode, and
-        `DockerException` as `run()` does.
+        exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
+        mode, before anything starts, and `DockerException` as `run()` does.
 
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
@@ -246,8 +246,6 @@ class Botbox:
         transcripts go to files there too. Events are read from the temp directory's copy.
         """
         agent = self.agent
-        if not isinstance(agent, SessionAgent):
-            raise TypeError(f"{type(agent).__name__} has no session mode")
         limit = self.timeout if timeout is None else check_timeout(timeout)
         labels = {**env_labels(os.environ), **self.labels}
         command = agent.session_command()
@@ -357,8 +355,7 @@ class Botbox:
 
     def _credential_source(self) -> CredentialSource | None:
         """The agent's credential for the proxy to send, or None to have it copied in."""
-        agent = self.agent
-        return agent.credential_source if isinstance(agent, InjectingAgent) else None
+        return self.agent.credential_source
 
     def _following(
         self, jail: Lockdown, source: CredentialSource | None, credential: Credential | None

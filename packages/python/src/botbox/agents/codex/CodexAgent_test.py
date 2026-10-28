@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
+from botbox.agents.Agent import Agent
 from botbox.agents.codex.CodexAgent import CodexAgent
 
 if TYPE_CHECKING:
-    from botbox.agents.agent import Agent
     from botbox.agents.HomeFiles import HomeFiles
 
 MODULE = f"{__package__}.CodexAgent"
@@ -109,9 +109,8 @@ def describe_the_container() -> None:
     def it_allows_no_host_with_a_key() -> None:
         assert CodexAgent(api_key="k").allow == ()
 
-    def it_satisfies_the_agent_protocol(agent: CodexAgent) -> None:
-        typed: Agent = agent
-        assert typed.allow == ()
+    def it_is_an_agent(agent: CodexAgent) -> None:
+        assert isinstance(agent, Agent)
 
 
 def describe_credential_source() -> None:
@@ -238,11 +237,10 @@ def describe_command() -> None:
 
 
 def describe_session() -> None:
-    def it_has_no_session_command_and_points_at_pi() -> None:
+    def it_has_no_session_command() -> None:
         with pytest.raises(
             NotImplementedError,
-            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\. For a Codex model in a"
-            r" session, use PiAgent\('openrouter', 'openai/<model>'\)\.$",
+            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\.$",
         ):
             CodexAgent().session_command()
 

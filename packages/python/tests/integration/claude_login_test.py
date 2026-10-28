@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from staged_home_test import staged_home
 
-from botbox import ClaudeAgent, CredentialsExpired, InjectingAgent
+from botbox import ClaudeAgent, CredentialsExpired
 
 ACCESS = "sk-ant-oat01-host-access"
 REFRESH = "sk-ant-ort01-host-refresh"
@@ -45,7 +45,6 @@ def describe_a_claude_agent_on_the_host_login() -> None:
     def it_hands_the_proxy_the_real_token(tmp_path: Path) -> None:
         host_login(tmp_path / "claude", time.time() + 3600)
         agent = ClaudeAgent(host_home=tmp_path / "claude")
-        assert isinstance(agent, InjectingAgent)
         assert agent.allow == ()
         assert agent.credential_source is not None
         credential = agent.credential_source.read()

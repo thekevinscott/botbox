@@ -23,11 +23,11 @@ import asyncio, sys
 from pathlib import Path
 from botbox import Botbox, ClaudeAgent, DockerException
 
-class Agent:
+class Other(ClaudeAgent):
     image = sys.argv[1]
     dockerfile = Path(sys.argv[2])
 
-asyncio.run(Botbox(Agent()).build())
+asyncio.run(Botbox(Other()).build())
 """
 PROCESSES = 4
 

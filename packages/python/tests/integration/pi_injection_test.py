@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from staged_home_test import staged_home
 
-from botbox import InjectingAgent, PiAgent
+from botbox import PiAgent
 
 HOST_KEY = "sk-or-v1-host-key"
 OTHER_KEY = "sk-ant-other-key"
@@ -51,7 +51,6 @@ def describe_a_pi_agent_on_openrouter() -> None:
 
     def it_hands_the_proxy_the_hosts_key(pi_home: Path) -> None:
         agent = PiAgent("openrouter", host_home=pi_home)
-        assert isinstance(agent, InjectingAgent)
         assert agent.allow == ()
         assert agent.credential_source is not None
         credential = agent.credential_source.read()

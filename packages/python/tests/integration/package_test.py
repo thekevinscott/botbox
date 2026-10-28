@@ -23,6 +23,13 @@ def describe_botbox() -> None:
         assert inspect.isasyncgenfunction(inspect.unwrap(botbox.Botbox.session))
         assert inspect.iscoroutinefunction(botbox.Session.message)
 
+    def it_exports_one_agent_base_class() -> None:
+        assert inspect.isabstract(botbox.Agent)
+        agents = (botbox.ClaudeAgent, botbox.CodexAgent, botbox.PiAgent)
+        assert all(issubclass(agent, botbox.Agent) for agent in agents)
+        assert not hasattr(botbox, "SessionAgent")
+        assert not hasattr(botbox, "InjectingAgent")
+
     def it_raises_its_own_docker_exception() -> None:
         assert botbox.DockerException is DockerException
 

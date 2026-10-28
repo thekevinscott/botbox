@@ -5,7 +5,7 @@ from pathlib import Path
 
 from staged_home_test import staged_home
 
-from botbox import ClaudeAgent, InjectingAgent
+from botbox import ClaudeAgent
 from botbox.credential_proxy import envoy_config
 
 KEY = "sk-ant-api03-host-key"
@@ -22,7 +22,7 @@ def describe_a_claude_agent_on_an_api_key() -> None:
 
     def it_hands_the_proxy_the_real_key(tmp_path: Path) -> None:
         agent = ClaudeAgent(api_key=KEY, host_home=tmp_path / "missing")
-        assert isinstance(agent, InjectingAgent)
+        assert agent.credential_source is not None
         assert agent.allow == ()
         credential = agent.credential_source.read()
         assert credential.secret == KEY

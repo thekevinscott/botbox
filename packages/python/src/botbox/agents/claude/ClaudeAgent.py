@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from botbox.agents.Agent import Agent
 from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
 from botbox.agents.claude.ClaudeLogin import ClaudeLogin
 from botbox.agents.HomeFiles import HomeFiles
@@ -14,7 +15,7 @@ CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
 
 
-class ClaudeAgent:
+class ClaudeAgent(Agent):
     """Claude Code."""
 
     image = "botbox-claude:latest"

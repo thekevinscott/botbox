@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import json5
 
+from botbox.agents.Agent import Agent
 from botbox.agents.HomeFiles import HomeFiles
 from botbox.agents.pi.OpenRouterKey import OpenRouterKey
 from botbox.agents.with_env import with_env
@@ -37,7 +38,7 @@ def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) 
     return hosts
 
 
-class PiAgent:
+class PiAgent(Agent):
     """pi, on OpenRouter or any provider defined in models.json."""
 
     image = "botbox-pi:latest"

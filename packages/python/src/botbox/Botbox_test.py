@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
+from botbox.agents import Agent
 from botbox.Botbox import Botbox
 
 LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
@@ -429,7 +430,13 @@ def send_home() -> Iterator[AsyncMock]:
 @pytest.fixture
 def runner() -> Mock:
     """An agent that runs: its home, credentials, hosts and transcripts."""
-    agent = Mock(image="an-agent:latest", home="/home/user", allow=("api.anthropic.com",))
+    agent = Mock(
+        spec=Agent,
+        image="an-agent:latest",
+        home="/home/user",
+        allow=("api.anthropic.com",),
+        credential_source=None,
+    )
     agent.sessions_dir = ".claude/projects"
     agent.stage_auth.side_effect = lambda home: home.write(".credentials", "token")
     return agent
@@ -1010,9 +1017,6 @@ def session_options(hold_session: Mock) -> dict[str, Any]:
 def describe_session() -> None:
     @pytest.fixture
     def talker(runner: Mock) -> Mock:
-        # Set outright: the SessionAgent check looks attributes up statically, past Mock's magic.
-        for method in ("stage_auth", "command", "session_command", "encode", "turn_ended"):
-            setattr(runner, method, getattr(runner, method))
         runner.dockerfile = Path("/agents/D")
         runner.session_command.return_value = "an-agent --stream"
         return runner
@@ -1023,12 +1027,6 @@ def describe_session() -> None:
             assert live.result is None
         assert live.result is not None
         assert live.result is ENDED
-
-    async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
-        with pytest.raises(TypeError, match=r"^Mock has no session mode$"):
-            async with Botbox(runner).session():
-                pass
-        docker_build.assert_not_called()
 
     async def it_lets_an_agent_refuse_a_session_before_building(
         talker: Mock, docker_build: Mock
@@ -1524,9 +1522,6 @@ def source(steps: list[str]) -> Mock:
 @pytest.fixture
 def injector(runner: Mock, source: Mock) -> Mock:
     """An agent whose credential the proxy injects, with a session mode."""
-    # Set outright: the protocol checks look attributes up statically, past Mock's magic.
-    for name in ("stage_auth", "command", "session_command", "encode", "turn_ended"):
-        setattr(runner, name, getattr(runner, name))
     runner.dockerfile = Path("/agents/D")
     runner.allow = ()
     runner.credential_source = source
