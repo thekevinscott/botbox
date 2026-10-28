@@ -83,7 +83,7 @@ def describe_agent_exit() -> None:
         assert await agent_exit(container, 125, "") is run_result.return_value
         run_result.assert_called_once_with(125, oom_killed=True)
 
-    @pytest.mark.parametrize("record", [False, None, "true"])
+    @pytest.mark.parametrize("record", [False, None, "true", 1])
     async def it_reports_no_oom_kill_without_a_true_record(
         state: dict[str, Any], container: Mock, run_result: Mock, record: object
     ) -> None:
