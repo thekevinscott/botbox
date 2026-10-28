@@ -146,14 +146,14 @@ def describe_OpenRouterKey() -> None:
                 models,
                 {
                     "openrouter": {
-                        "models": [{"id": "a", "headers": {"k": "v"}}, "odd"],
+                        "models": [{"id": "a", "cost": 1, "headers": {"k": "v"}}, "odd"],
                         "modelOverrides": {"b": {"name": "B", "headers": {"k": "v"}}},
                     }
                 },
             )
             assert provider(OpenRouterKey(auth).models(models)) == {
                 "baseUrl": "http://proxy/api/v1",
-                "models": [{"id": "a"}, "odd"],
+                "models": [{"id": "a", "cost": 1}, "odd"],
                 "modelOverrides": {"b": {"name": "B"}},
             }
 
