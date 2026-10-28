@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
+  "ran_at": 1793204087,
+  "exit_code": 0,
+  "commit": "94fa8af9692e7e31c604aec42e020d13472247a7",
+  "branch": "agent-folder"
+}
