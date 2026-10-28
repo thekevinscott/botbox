@@ -19,7 +19,7 @@ import pytest
 from conftest import refused, transcripts
 from run_test import Runs
 
-from botbox import Botbox, ClaudeAgent, PiAgent, RunResult, SessionAgent
+from botbox import Agent, Botbox, ClaudeAgent, PiAgent, RunResult
 
 # A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -39,11 +39,11 @@ def pi_reply(events: list[dict[str, Any]]) -> str:
     return ""
 
 
-def claude() -> SessionAgent:
+def claude() -> Agent:
     return ClaudeAgent(model="claude-opus-5", effort="low")
 
 
-def pi(model: str) -> SessionAgent:
+def pi(model: str) -> Agent:
     if not OPENROUTER_API_KEY:
         pytest.skip("OPENROUTER_API_KEY is not set")
     return PiAgent("openrouter", model, api_key=OPENROUTER_API_KEY)

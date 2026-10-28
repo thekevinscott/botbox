@@ -16,7 +16,7 @@ Starts the agent's CLI in its session mode and holds it open, yielding a [`Sessi
 - `timeout` covers the whole block, every turn, and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `live.result`.
 - Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` has `exit_code` -1, and what was written so far stays in `output`.
 - A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends, as `run()` does.
-- Raises `TypeError` for an agent with no session mode; `CodexAgent` raises `NotImplementedError`. Both before anything is built.
+- Raises `NotImplementedError` for an agent with no session mode, such as `CodexAgent`, before anything is built.
 
 ```python
 async with Botbox(ClaudeAgent()).session() as live:

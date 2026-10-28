@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from staged_home_test import staged_home
 
-from botbox import CodexAgent, CredentialsExpired, InjectingAgent
+from botbox import CodexAgent, CredentialsExpired
 
 REFRESH = "rt-host-refresh"
 
@@ -49,7 +49,7 @@ def describe_a_codex_agent_on_the_host_login() -> None:
     def it_hands_the_proxy_the_real_token_for_the_codex_backend(tmp_path: Path) -> None:
         tokens = host_login(tmp_path / "codex", time.time() + 3600)
         agent = CodexAgent(host_home=tmp_path / "codex")
-        assert isinstance(agent, InjectingAgent)
+        assert agent.credential_source is not None
         assert agent.allow == ()
         credential = agent.credential_source.read()
         assert credential.secret == f"Bearer {tokens['access_token']}"

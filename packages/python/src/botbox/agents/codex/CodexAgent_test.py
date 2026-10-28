@@ -9,7 +9,7 @@ import pytest
 from botbox.agents.codex.CodexAgent import CodexAgent
 
 if TYPE_CHECKING:
-    from botbox.agents.agent import Agent
+    from botbox.agents.Agent import Agent
     from botbox.agents.HomeFiles import HomeFiles
 
 MODULE = f"{__package__}.CodexAgent"
@@ -238,11 +238,10 @@ def describe_command() -> None:
 
 
 def describe_session() -> None:
-    def it_has_no_session_command_and_points_at_pi() -> None:
+    def it_has_no_session_command() -> None:
         with pytest.raises(
             NotImplementedError,
-            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\. For a Codex model in a"
-            r" session, use PiAgent\('openrouter', 'openai/<model>'\)\.$",
+            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\.$",
         ):
             CodexAgent().session_command()
 

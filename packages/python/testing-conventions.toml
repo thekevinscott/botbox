@@ -76,7 +76,7 @@ reason = "* -> / only lets the internal caller pass scratch and output by positi
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["324", "402"]
+lines = ["322", "399"]
 reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords"
 
 [[python.exempt]]
@@ -93,5 +93,25 @@ reason = "#271 docstring-only note. Behavior unchanged. Remove for the next beha
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["367"]
+lines = ["364"]
 reason = "or -> and is equivalent: credential is None exactly when source is None"
+
+[[python.exempt]]
+path = "src/botbox/Session.py"
+rules = ["co-change"]
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/build_steps.py"
+rules = ["co-change"]
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/hold_session.py"
+rules = ["co-change"]
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/agents/__init__.py"
+rules = ["co-change"]
+reason = "Agent base class: export-only change: SessionAgent and InjectingAgent removed. tests/integration/package_test.py covers the exports."

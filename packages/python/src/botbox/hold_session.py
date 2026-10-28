@@ -7,7 +7,7 @@ from typing import Any, cast
 from posix_tools import tail
 
 from adocker import Container, Image
-from botbox.agents.agent import SessionAgent
+from botbox.agents.Agent import Agent
 from botbox.process import settle
 from botbox.send_home import send_home
 from botbox.Session import Session
@@ -18,7 +18,7 @@ from botbox.write import write
 
 @asynccontextmanager
 async def hold_session(  # noqa: PLR0913
-    agent: SessionAgent,
+    agent: Agent,
     image: str,
     command: Sequence[str],
     *,

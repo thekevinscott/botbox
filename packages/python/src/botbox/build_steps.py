@@ -2,7 +2,7 @@ import hashlib
 from pathlib import Path
 from typing import NamedTuple
 
-from botbox.agents.agent import Agent
+from botbox.agents.Agent import Agent
 from botbox.lockdown import RELAY_DIR
 
 

@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
-from botbox.agents.agent import SessionAgent
+from botbox.agents.Agent import Agent
 from botbox.RunResult import RunResult
 from botbox.utils.abort_writer import abort_writer
 
@@ -19,7 +19,7 @@ class Session:
 
     def __init__(
         self,
-        agent: SessionAgent,
+        agent: Agent,
         stdin: asyncio.StreamWriter,
         client: asyncio.Future[int],
         readline: Callable[[], Awaitable[bytes]],
