@@ -98,3 +98,15 @@ def describe_a_pi_session_on_openrouter() -> None:
         assert auth == {"openrouter": {"type": "api_key", "key": "sk-or-v1-botbox-placeholder"}}
         models = json.loads((staged / "models.json").read_text())
         assert models == {"providers": {"openrouter": {"baseUrl": "http://127.0.0.1:41894/api/v1"}}}
+
+
+def describe_a_host_model_with_its_own_base_url() -> None:
+    def it_refuses_to_start(tmp_path: Path) -> None:
+        (tmp_path / "auth.json").write_text(
+            json.dumps({"openrouter": {"type": "api_key", "key": "sk-or-v1-fake"}})
+        )
+        models = {"providers": {"openrouter": {"models": [{"id": "m", "baseUrl": "http://x"}]}}}
+        (tmp_path / "models.json").write_text(json.dumps(models))
+        box = Botbox(PiAgent("openrouter", "m", host_home=tmp_path))
+        with pytest.raises(ValueError, match="model 'm' sets its own baseUrl"):
+            asyncio.run(box.run("true"))

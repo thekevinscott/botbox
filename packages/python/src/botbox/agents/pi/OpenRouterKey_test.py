@@ -141,24 +141,33 @@ def describe_OpenRouterKey() -> None:
                 "compat": {"supportsDeveloperRole": False},
             }
 
-        def it_drops_each_models_headers_and_base_url(auth: Path, models: Path) -> None:
+        def it_drops_each_models_headers(auth: Path, models: Path) -> None:
             write(
                 models,
                 {
                     "openrouter": {
-                        "models": [
-                            {"id": "a", "baseUrl": "https://elsewhere", "headers": {"k": "v"}},
-                            "odd",
-                        ],
+                        "models": [{"id": "a", "cost": 1, "headers": {"k": "v"}}, "odd"],
                         "modelOverrides": {"b": {"name": "B", "headers": {"k": "v"}}},
                     }
                 },
             )
             assert provider(OpenRouterKey(auth).models(models)) == {
                 "baseUrl": "http://proxy/api/v1",
-                "models": [{"id": "a"}, "odd"],
+                "models": [{"id": "a", "cost": 1}, "odd"],
                 "modelOverrides": {"b": {"name": "B"}},
             }
+
+        def it_refuses_a_listed_model_with_its_own_base_url(auth: Path, models: Path) -> None:
+            write(models, {"openrouter": {"models": [{"id": "a", "baseUrl": "https://elsewhere"}]}})
+            with pytest.raises(ValueError, match=r"model 'a' sets its own baseUrl"):
+                OpenRouterKey(auth).models(models)
+
+        def it_refuses_an_override_with_its_own_base_url(auth: Path, models: Path) -> None:
+            write(
+                models, {"openrouter": {"modelOverrides": {"b": {"baseUrl": "https://elsewhere"}}}}
+            )
+            with pytest.raises(ValueError, match=r"model 'b' sets its own baseUrl"):
+                OpenRouterKey(auth).models(models)
 
         def it_leaves_a_malformed_model_list_as_it_is(auth: Path, models: Path) -> None:
             write(models, {"openrouter": {"models": "odd"}})

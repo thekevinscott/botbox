@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/pi_openrouter_test.py",
+  "ran_at": 1793148774,
+  "exit_code": 0,
+  "commit": "23dff7f8ce5979757076dd347c92cf12b507bf37",
+  "branch": "openrouter-baseurl-279"
+}

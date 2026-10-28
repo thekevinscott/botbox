@@ -34,7 +34,7 @@ async with Botbox(agent) as box:
 
 ## Credentials
 
-On `openrouter`, the key stays on the host. By default it is the `openrouter` key in `~/.pi/agent/auth.json`, read on the host; pass `api_key` to use another. The box gets a placeholder key, and a `models.json` holding only `openrouter`, from the host's `models.json` if it has one, with its `apiKey` and `headers` dropped, each model's `headers` and `baseUrl` dropped, and its `baseUrl` at the credential proxy. The proxy adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` and refuses every other path, so the box can't read the key's metadata or balance. The key must be a literal. One that is a `!command` or an env var name raises `ValueError` when the run starts.
+On `openrouter`, the key stays on the host. By default it is the `openrouter` key in `~/.pi/agent/auth.json`, read on the host; pass `api_key` to use another. The box gets a placeholder key, and a `models.json` holding only `openrouter`, from the host's `models.json` if it has one, with its `apiKey` and `headers` dropped, each model's `headers` dropped, and its `baseUrl` at the credential proxy. A model there that sets its own `baseUrl` raises `ValueError` when the run starts, since it would go around the proxy. The proxy adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` and refuses every other path, so the box can't read the key's metadata or balance. The key must be a literal. One that is a `!command` or an env var name raises `ValueError` when the run starts.
 
 For any other provider, botbox copies `~/.pi/agent/auth.json` into the box, and `models.json` beside it if it exists. That copy holds every provider's key.
 

@@ -76,6 +76,12 @@ def describe_a_pi_agent_on_openrouter() -> None:
         with pytest.raises(ValueError, match="literal key"):
             source.read()
 
+    def it_refuses_a_model_with_its_own_base_url(pi_home: Path, home: Path) -> None:
+        models = {"providers": {"openrouter": {"models": [{"id": "m", "baseUrl": "http://x"}]}}}
+        (pi_home / "models.json").write_text(json.dumps(models))
+        with pytest.raises(ValueError, match="model 'm' sets its own baseUrl"):
+            staged_home(PiAgent("openrouter", host_home=pi_home), home)
+
 
 def describe_a_pi_agent_on_a_custom_provider() -> None:
     def it_injects_nothing_and_copies_the_host_files(pi_home: Path, home: Path) -> None:

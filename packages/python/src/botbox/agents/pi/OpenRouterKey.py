@@ -15,8 +15,6 @@ BASE_URL = f"{PROXY_URL}/api/v1"
 # pi reads a key that names a set env var as that var's value.
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SECRETS = ("apiKey", "headers")
-# A model's own baseUrl would go around the proxy.
-MODEL_SECRETS = ("headers", "baseUrl")
 
 
 class OpenRouterKey:
@@ -43,7 +41,8 @@ class OpenRouterKey:
     def models(self, host: Path | None) -> str:
         """`models.json` for the box: OpenRouter from the host's `models.json` at `host`, if
         any, pointed at the proxy and stripped of keys and headers. Other providers are left
-        out."""
+        out. Raises `ValueError` for a model with its own `baseUrl`, which would go around the
+        proxy."""
         providers = json5.loads(host.read_text()).get("providers", {}) if host else {}
         provider = {k: v for k, v in providers.get(PROVIDER, {}).items() if k not in SECRETS}
         for field in ("models", "modelOverrides"):
@@ -66,15 +65,23 @@ class OpenRouterKey:
 
 
 def _without_secrets(models: Any) -> Any:
-    """`models`, a list or a dict of model entries, with each entry's `MODEL_SECRETS` dropped."""
+    """`models`, a list or a dict of model entries, with each entry's `headers` dropped. Raises
+    `ValueError` for an entry with a `baseUrl`."""
 
-    def strip(entry: Any) -> Any:
+    def strip(name: Any, entry: Any) -> Any:
         if not isinstance(entry, dict):
             return entry
-        return {k: v for k, v in entry.items() if k not in MODEL_SECRETS}
+        if "baseUrl" in entry:
+            raise ValueError(
+                f"OpenRouter model {name!r} sets its own baseUrl; botbox sends OpenRouter"
+                " models only through the credential proxy"
+            )
+        return {k: v for k, v in entry.items() if k != "headers"}
 
     if isinstance(models, list):
-        return [strip(entry) for entry in models]
+        return [
+            strip(entry.get("id") if isinstance(entry, dict) else None, entry) for entry in models
+        ]
     if isinstance(models, dict):
-        return {name: strip(entry) for name, entry in models.items()}
+        return {name: strip(name, entry) for name, entry in models.items()}
     return models
