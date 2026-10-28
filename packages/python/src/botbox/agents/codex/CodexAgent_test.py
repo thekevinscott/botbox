@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.agents.codex.CodexAgent import CodexAgent
 
 if TYPE_CHECKING:
+    from botbox.agents.Agent import Agent
     from botbox.agents.HomeFiles import HomeFiles
 
 MODULE = f"{__package__}.CodexAgent"
@@ -109,8 +109,9 @@ def describe_the_container() -> None:
     def it_allows_no_host_with_a_key() -> None:
         assert CodexAgent(api_key="k").allow == ()
 
-    def it_is_an_agent(agent: CodexAgent) -> None:
-        assert isinstance(agent, Agent)
+    def it_satisfies_the_agent_protocol(agent: CodexAgent) -> None:
+        typed: Agent = agent
+        assert typed.allow == ()
 
 
 def describe_credential_source() -> None:

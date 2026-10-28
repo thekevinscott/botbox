@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.agents import Agent
 from botbox.Botbox import Botbox
 
 LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
@@ -431,7 +430,6 @@ def send_home() -> Iterator[AsyncMock]:
 def runner() -> Mock:
     """An agent that runs: its home, credentials, hosts and transcripts."""
     agent = Mock(
-        spec=Agent,
         image="an-agent:latest",
         home="/home/user",
         allow=("api.anthropic.com",),

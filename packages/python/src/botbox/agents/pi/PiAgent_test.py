@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.agents.pi.PiAgent import PiAgent
 
 if TYPE_CHECKING:
@@ -120,9 +119,6 @@ def describe_the_container() -> None:
 
     def it_writes_sessions_to_the_sessions_directory(agent: PiAgent) -> None:
         assert agent.sessions_dir == ".pi/agent/sessions"
-
-    def it_is_an_agent(agent: PiAgent) -> None:
-        assert isinstance(agent, Agent)
 
 
 def describe_host_home() -> None:

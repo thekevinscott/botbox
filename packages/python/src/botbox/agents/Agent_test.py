@@ -1,10 +1,12 @@
 from pathlib import Path
-from typing import get_type_hints
+from typing import TYPE_CHECKING, get_type_hints
 
 import pytest
 
 from botbox.agents.Agent import Agent
-from botbox.agents.HomeFiles import HomeFiles
+
+if TYPE_CHECKING:
+    from botbox.agents.HomeFiles import HomeFiles
 
 
 def describe_agent() -> None:
@@ -63,7 +65,7 @@ class OneShot(Agent):
     sessions_dir = "sessions"
     allow = ()
 
-    def stage_auth(self, home: HomeFiles) -> None: ...
+    def stage_auth(self, home: "HomeFiles") -> None: ...
 
     def command(self, prompt: str) -> str:
         return prompt
@@ -75,4 +77,4 @@ class NoStageAuth(Agent):
 
 
 class NoCommand(Agent):
-    def stage_auth(self, home: HomeFiles) -> None: ...
+    def stage_auth(self, home: "HomeFiles") -> None: ...
