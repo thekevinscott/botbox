@@ -99,19 +99,19 @@ reason = "or -> and is equivalent: credential is None exactly when source is Non
 [[python.exempt]]
 path = "src/botbox/Session.py"
 rules = ["co-change"]
-reason = "#796 type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
 path = "src/botbox/build_steps.py"
 rules = ["co-change"]
-reason = "#796 type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
 path = "src/botbox/hold_session.py"
 rules = ["co-change"]
-reason = "#796 type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
+reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
 
 [[python.exempt]]
 path = "src/botbox/agents/__init__.py"
 rules = ["co-change"]
-reason = "#796 export-only change: SessionAgent and InjectingAgent removed. tests/integration/package_test.py covers the exports."
+reason = "Agent base class: export-only change: SessionAgent and InjectingAgent removed. tests/integration/package_test.py covers the exports."
