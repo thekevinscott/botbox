@@ -48,3 +48,12 @@ class Agent(ABC):
     def turn_ended(self, event: dict[str, Any]) -> bool:
         """Whether `event`, one line of the CLI's stdout, is the last of a turn."""
         raise NotImplementedError(NO_SESSION.format(name=type(self).__name__))
+
+    def filter_stdout(self, line: bytes) -> bytes | None:
+        """The bytes to write for `line`, one line of the CLI's stdout, or None to drop it.
+
+        `line` keeps its trailing newline, except the unterminated rest the CLI leaves at exit.
+        What is returned is written as is, so keep the newline. An error raised here ends the
+        run or session with that error. The default writes every line unchanged.
+        """
+        return line

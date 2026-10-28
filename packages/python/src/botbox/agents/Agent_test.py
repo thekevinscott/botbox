@@ -29,6 +29,10 @@ def describe_agent() -> None:
     def it_has_its_credentials_copied_in_by_default() -> None:
         assert OneShot().credential_source is None
 
+    def it_writes_each_stdout_line_unchanged_by_default() -> None:
+        line = b'{"type":"x"}\n'
+        assert OneShot().filter_stdout(line) is line
+
     def describe_abstract_methods() -> None:
         def it_refuses_a_subclass_without_stage_auth() -> None:
             with pytest.raises(TypeError, match="stage_auth"):

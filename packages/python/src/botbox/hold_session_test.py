@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from botbox.agents.Agent import Agent
 from botbox.hold_session import hold_session
 
 
@@ -77,7 +78,11 @@ def abort_writer() -> Iterator[Mock]:
 
 @pytest.fixture
 def agent() -> Mock:
-    return Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
+    return Mock(
+        encode=lambda message: message,
+        turn_ended=lambda event: event == {"type": "end"},
+        filter_stdout=lambda line: line,
+    )
 
 
 @pytest.fixture
@@ -87,7 +92,37 @@ def scratch(tmp_path: Path) -> Path:
     return path
 
 
-def hold(agent: Mock, scratch: Path, output: Path | None = None, home: bytes = b"") -> Any:
+class Filtering(Agent):
+    """A session agent whose filter drops "drop" events, raises on "boom" and renames "keep" to
+    "kept"."""
+
+    image = "an-agent:latest"
+    dockerfile = Path("/agents/an-agent.Dockerfile")
+    home = "/home/agent"
+    sessions_dir = "sessions"
+    allow: tuple[str, ...] = ()
+
+    def stage_auth(self, home: object) -> None: ...
+
+    def command(self, prompt: str) -> str:
+        return prompt
+
+    def session_command(self) -> str:
+        return "cli"
+
+    def encode(self, message: str) -> str:
+        return message
+
+    def turn_ended(self, event: dict[str, Any]) -> bool:
+        return event == {"type": "end"}
+
+    def filter_stdout(self, line: bytes) -> bytes | None:
+        if b'"boom"' in line:
+            raise ValueError(line)
+        return None if b'"drop"' in line else line.replace(b"keep", b"kept")
+
+
+def hold(agent: Any, scratch: Path, output: Path | None = None, home: bytes = b"") -> Any:
     return hold_session(
         agent, "img", ["cli"], home=home, scratch=scratch, output=output, name="c", init=True
     )
@@ -198,3 +233,44 @@ def describe_hold_session() -> None:
         with pytest.raises(OSError, match="no docker"):
             async with hold(agent, scratch):
                 pytest.fail("yielded")
+
+    def describe_with_an_agent_that_filters_its_stdout() -> None:
+        async def it_writes_and_reads_only_what_the_filter_keeps(
+            scratch: Path, tmp_path: Path
+        ) -> None:
+            async with hold(Filtering(), scratch, tmp_path) as (live, _):
+                live.stdin.write(b'{"type":"drop"}\n{"type":"keep"}\n{"type":"drop"}\n')
+                live.stdin.write(b'{"type":"keep-last"}')
+                live.stdin.close()
+                assert await live.client == 7
+                assert await live.event() == {"type": "kept"}
+                assert await live.event() == {"type": "kept-last"}
+                assert await live.event() is None
+            for folder in (scratch, tmp_path):
+                assert (folder / "stdout.txt").read_bytes() == (
+                    b'{"type":"kept"}\n{"type":"kept-last"}'
+                )
+
+        async def it_ends_the_client_with_what_the_filter_raises(
+            scratch: Path, tmp_path: Path
+        ) -> None:
+            async with hold(Filtering(), scratch, tmp_path) as (live, _):
+                live.stdin.write(b'{"type":"keep"}\n{"type":"boom"}\n')
+                live.stdin.close()
+                with pytest.raises(ValueError, match="boom"):
+                    await live.client
+                assert await live.event() == {"type": "kept"}
+                assert await live.event() is None
+            assert (tmp_path / "stdout.txt").read_bytes() == b'{"type":"kept"}\n'
+
+        async def it_raises_on_leaving_what_the_filter_raises_for_the_rest(
+            scratch: Path, tmp_path: Path
+        ) -> None:
+            with pytest.raises(ValueError, match="boom"):
+                async with hold(Filtering(), scratch, tmp_path) as (live, _):
+                    live.stdin.write(b'{"type":"keep"}\n{"type":"boom"}')
+                    live.stdin.close()
+                    assert await live.client == 7
+                    assert await live.event() == {"type": "kept"}
+                    assert await live.event() is None
+            assert (tmp_path / "stdout.txt").read_bytes() == b'{"type":"kept"}\n'

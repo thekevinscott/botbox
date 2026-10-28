@@ -1,13 +1,13 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["85-86", "118"]
+lines = ["86-87", "119"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["64"]
+lines = ["65"]
 reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 
 [[python.exempt]]
@@ -70,13 +70,13 @@ reason = "* -> / only lets the internal caller pass flags by position; Image.run
 [[python.exempt]]
 path = "src/botbox/hold_session.py"
 rules = ["mutation"]
-lines = ["24"]
+lines = ["25"]
 reason = "* -> / only lets the internal caller pass scratch and output by position; Botbox passes them by keyword"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["322", "399"]
+lines = ["324", "402"]
 reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords"
 
 [[python.exempt]]
@@ -93,7 +93,7 @@ reason = "#271 docstring-only note. Behavior unchanged. Remove for the next beha
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["364"]
+lines = ["367"]
 reason = "or -> and is equivalent: credential is None exactly when source is None"
 
 [[python.exempt]]
@@ -103,11 +103,6 @@ reason = "Agent base class: type-hint-only change: Agent replaces the SessionAge
 
 [[python.exempt]]
 path = "src/botbox/build_steps.py"
-rules = ["co-change"]
-reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/hold_session.py"
 rules = ["co-change"]
 reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
 

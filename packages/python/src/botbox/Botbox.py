@@ -20,6 +20,7 @@ from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.env_labels import env_labels
 from botbox.hold_session import hold_session
+from botbox.LineFilter import LineFilter
 from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
@@ -150,7 +151,8 @@ class Botbox:
         well, and transcripts/ there is mounted over the agent's `sessions_dir`. The three files
         are truncated; other files are kept. If writing to one of them fails mid-run, it is
         warned about and dropped, and the run carries on. A path with `:` raises `ValueError`,
-        since Docker can't mount it.
+        since Docker can't mount it. stdout goes through the agent's `filter_stdout`, a line at a
+        time, before it is written; an error from it ends the run with that error.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
         is built. The agent's home is in the container, created by the image, and goes with the
@@ -334,12 +336,13 @@ class Botbox:
             with (
                 write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
                 write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
+                LineFilter(out, self.agent.filter_stdout) as stdout,
             ):
                 container = await Image(image).run(
                     *command,
                     name=name,
                     stdin=asyncio.subprocess.PIPE if home else asyncio.subprocess.DEVNULL,
-                    stdout=out,
+                    stdout=stdout,
                     stderr=err,
                     **flags,
                 )
