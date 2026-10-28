@@ -116,6 +116,14 @@ def describe_botbox() -> None:
     def it_leaves_memory_uncapped_by_default(agent: Mock) -> None:
         assert Botbox(agent).memory is None
 
+    def it_defaults_to_4096_pids(agent: Mock) -> None:
+        assert Botbox(agent).pids == 4096
+
+    @pytest.mark.parametrize("pids", [0, -1])
+    def it_rejects_nonpositive_pids(agent: Mock, pids: int) -> None:
+        with pytest.raises(ValueError, match="pids must be at least 1"):
+            Botbox(agent, pids=pids)
+
     def it_takes_its_options_by_keyword_only(agent: Mock, layer: Path) -> None:
         with pytest.raises(TypeError):
             Botbox(agent, layer)  # type: ignore[call-arg]
@@ -691,6 +699,17 @@ def describe_run() -> None:
         assert (scratch / "stderr.txt").read_bytes() == b"err\n"
 
     def describe_the_agent_container() -> None:
+        async def it_passes_default_pids_limit_to_the_agent(runner: Mock, docker_run: Mock) -> None:
+            await Botbox(runner).run("true")
+            assert docker_run.call_args.kwargs["pids_limit"] == 4096
+
+        @pytest.mark.parametrize("pids", [32, None])
+        async def it_passes_the_pids_limit_to_the_agent(
+            runner: Mock, docker_run: Mock, pids: int | None
+        ) -> None:
+            await Botbox(runner, pids=pids).run("true")
+            assert docker_run.call_args.kwargs["pids_limit"] == pids
+
         async def it_caps_only_the_agent_memory(runner: Mock, docker_run: Mock) -> None:
             await Botbox(runner, memory="64m").run("true")
             assert docker_run.call_args.kwargs["memory"] == "64m"

@@ -39,6 +39,7 @@ class Botbox:
     `timeout` is in seconds and bounds every run and session; None, the default, is no limit.
     A call's own `timeout` takes its place.
     `memory` caps the agent container in Docker's size format; None leaves it uncapped.
+    `pids` caps processes and threads in the agent container; None leaves it uncapped.
 
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
     so a run or session in progress unwinds and tears down, then the block raises
@@ -57,6 +58,7 @@ class Botbox:
         allow: Sequence[str] = (),
         timeout: float | None = None,
         memory: str | None = None,
+        pids: int | None = 4096,
         labels: Mapping[str, str] | None = None,
     ) -> None:
         if os.getuid() == 0:
@@ -68,6 +70,9 @@ class Botbox:
         self.allow = tuple(allow)
         self.timeout = check_timeout(timeout)
         self.memory = memory
+        if pids is not None and pids < 1:
+            raise ValueError("pids must be at least 1 or None")
+        self.pids = pids
         if labels is not None and "botbox.run" in labels:
             raise ValueError("botbox.run is reserved for botbox cleanup")
         self.labels = dict(labels or {})
@@ -423,6 +428,7 @@ class Botbox:
             "workdir": agent.home if workdir is None else Path(workdir).as_posix(),
             "network": "none",
             "memory": self.memory,
+            "pids_limit": self.pids,
             "pid": f"container:{jail.proxy.name}",
             "user": f"{os.getuid()}:{os.getgid()}",
             "cap_drop": ["ALL"],

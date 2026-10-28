@@ -123,6 +123,20 @@ def describe_run() -> None:
             assert temp_dirs(temp) == []
 
     def describe_the_containers() -> None:
+        async def it_limits_only_the_agent_processes(box: Botbox, daemon: Daemon) -> None:
+            await Botbox(box.agent, pids=32).run("true")
+            [agent] = daemon.runs("botbox-agent-")
+            [proxy] = daemon.runs("botbox-proxy-")
+            assert option(agent, "--pids-limit") == "32"
+            assert option(proxy, "--pids-limit") == "256"
+            for credential_proxy in daemon.runs("botbox-credentials-"):
+                assert option(credential_proxy, "--pids-limit") == "64"
+
+        async def it_omits_the_agent_process_limit_when_none(box: Botbox, daemon: Daemon) -> None:
+            await Botbox(box.agent, pids=None).run("true")
+            [agent] = daemon.runs("botbox-agent-")
+            assert "--pids-limit" not in agent
+
         async def it_limits_only_the_agent_memory(box: Botbox, daemon: Daemon) -> None:
             await Botbox(box.agent, memory="64m").run("true")
             [agent] = daemon.runs("botbox-agent-")

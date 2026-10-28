@@ -222,6 +222,27 @@ def describe_run() -> None:
         assert (output / "stdout.txt").read_text() == "child:137\nsurvived\n"
         assert runs.leftovers() == []
 
+    async def it_limits_processes_in_the_agent_and_still_runs_commands(
+        box: Botbox, runs: Runs, output: Path
+    ) -> None:
+        command = (
+            'node -e \'const {spawn} = require("node:child_process"); '
+            "const children = []; "
+            "function stop() { for (const child of children) child.kill(); } "
+            "function next() { "
+            "if (children.length === 64) { stop(); process.exitCode = 2; return; } "
+            'const child = spawn("sleep", ["30"]); '
+            'child.on("error", error => { stop(); '
+            'if (error.code === "EAGAIN") console.log("capped"); '
+            "else { console.error(error); process.exitCode = 1; } }); "
+            'child.on("spawn", () => { children.push(child); next(); }); '
+            "} next();' && echo normal"
+        )
+        result = await Botbox(box.agent, pids=32).run(command, output=output)
+        assert result == RunResult(0, oom_killed=False)
+        assert (output / "stdout.txt").read_text() == "capped\nnormal\n"
+        assert runs.leftovers() == []
+
     async def it_labels_all_three_live_containers(runs: Runs) -> None:
         run_id = f"/tmp/runs/2026-10-27T14:38:00-{uuid4().hex}"
         task = asyncio.create_task(
