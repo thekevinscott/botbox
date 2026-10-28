@@ -10,6 +10,7 @@ Botbox(
     allow: Sequence[str] = (),
     timeout: float | None = None,
     memory: str | None = None,
+    pids: int | None = 4096,
     labels: Mapping[str, str] | None = None,
 )
 ```
@@ -21,6 +22,7 @@ Botbox(
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
 | `timeout`    | Seconds each [`run()`](./run) and [`session()`](./session) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
 | `memory`     | Agent container memory limit, such as `"16g"`. `None` leaves it uncapped. Swap is disabled when a limit is set. |
+| `pids`       | Agent container process and thread limit, separate from the proxy's limit. Defaults to `4096`; `None` leaves it uncapped. Must be at least 1. |
 | `labels`     | Docker labels added to each run's agent, proxy, credential proxy and socket volume. `botbox.run` is reserved and raises `ValueError`. Images are not labelled. |
 
 `BOTBOX_LABELS` in the environment adds labels to the same resources, one `key=value` per line, as in Docker's `--label-file`. Botbox reads it when `run()` or `session()` starts. `labels=` wins on a key clash.
