@@ -218,7 +218,7 @@ def describe_run() -> None:
             'test "$child" -eq 137 && echo survived'
         )
         result = await Botbox(box.agent, memory="64m").run(command, output=output)
-        assert result == RunResult(0)
+        assert result == RunResult(0, oom_killed=True)
         assert (output / "stdout.txt").read_text() == "child:137\nsurvived\n"
         assert runs.leftovers() == []
 
@@ -243,7 +243,7 @@ def describe_run() -> None:
         assert runs.leftovers() == []
 
     async def it_returns_only_the_exit_code_without_output(box: Botbox, runs: Runs) -> None:
-        assert await box.run("echo out; echo err >&2; exit 5") == RunResult(5)
+        assert await box.run("echo out; echo err >&2; exit 5") == RunResult(5, oom_killed=False)
         assert len(runs.tokens) == 1
         assert runs.leftovers() == []
 
@@ -251,7 +251,7 @@ def describe_run() -> None:
         box: Botbox, runs: Runs, tmp_path: Path
     ) -> None:
         result = await box.run("echo out; echo err >&2; exit 5", output=tmp_path / "output")
-        assert result == RunResult(5)
+        assert result == RunResult(5, oom_killed=False)
         assert (tmp_path / "output" / "stdout.txt").read_text() == "out\n"
         assert (tmp_path / "output" / "stderr.txt").read_text() == "err\n"
         assert "Starting main loop" in (tmp_path / "output" / "proxy.log").read_text()
@@ -265,7 +265,7 @@ def describe_run() -> None:
             " && mkdir ~/.claude/projects/w && echo '{}' > ~/.claude/projects/w/t.jsonl"
         )
         result = await box.run(command, output=output)
-        assert result == RunResult(0)
+        assert result == RunResult(0, oom_killed=False)
         assert (output / "transcripts" / "w" / "t.jsonl").read_text() == "{}\n"
         assert [p.name for p in output.rglob("*credentials*")] == ["credentials.log"]
         assert runs.leftovers() == []

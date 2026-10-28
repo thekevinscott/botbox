@@ -35,7 +35,7 @@ asyncio.run(main())
 
 How the two copies are written: [Output](../explanation/#output).
 
-`run()` returns a `RunResult`, which holds only the `exit_code`. Read everything else from the files.
+`run()` returns a `RunResult`, which holds the `exit_code` and `oom_killed`. Read everything else from the files. With a `memory` cap, the kernel may kill a child process while the agent carries on, so a run can exit 0 with `oom_killed` true.
 
 ## Check the exit code
 

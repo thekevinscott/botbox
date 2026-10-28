@@ -1,0 +1,1 @@
+**Added** (**BREAKING**, see [migration](../migrations.d/2026-10-28-python-run-result-oom-killed.md)): `RunResult.oom_killed`, whether the kernel killed a process in the agent container, the agent or a child, for running out of memory. Read from Docker's `State.OOMKilled`; `None` when no record was read, as after a timeout or an interrupted session.

@@ -390,6 +390,7 @@ def scratch(tmp_path: Path) -> Path:
 
 ARCHIVE = b"the staged home"
 SIZE_ENV = "BOTBOX_HOME_BYTES"
+ENDED = Mock(name="ended", exit_code=3)
 
 
 def staged() -> bytes:
@@ -516,9 +517,9 @@ def docker_run(image: Mock) -> Mock:
 
 @pytest.fixture(autouse=True)
 def agent_exit(steps: list[str]) -> Iterator[Mock]:
-    async def exited(*_args: object) -> int:
+    async def exited(*_args: object) -> Mock:
         steps.append("read exit code")
-        return 3
+        return ENDED
 
     with patch("botbox.Botbox.agent_exit", autospec=True, side_effect=exited) as m:
         yield m
@@ -591,8 +592,8 @@ def stuck_lockdown(*_args: object, **_options: object) -> Any:
 
 
 def describe_run() -> None:
-    async def it_returns_only_the_exit_code(runner: Mock) -> None:
-        assert asdict(await Botbox(runner).run("claude -p hi")) == {"exit_code": 3}
+    async def it_returns_how_the_agent_container_ended(runner: Mock) -> None:
+        assert await Botbox(runner).run("claude -p hi") is ENDED
 
     async def it_takes_its_options_by_keyword_only(runner: Mock) -> None:
         with pytest.raises(TypeError):
@@ -866,7 +867,7 @@ def describe_run() -> None:
             docker_run.side_effect = hang
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
-            assert raised.value.result.exit_code == -1
+            assert asdict(raised.value.result) == {"exit_code": -1, "oom_killed": None}
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
@@ -999,7 +1000,7 @@ def describe_session() -> None:
             assert live is held
             assert live.result is None
         assert live.result is not None
-        assert live.result.exit_code == 3
+        assert live.result is ENDED
 
     async def it_refuses_an_agent_with_no_session_mode(runner: Mock, docker_build: Mock) -> None:
         with pytest.raises(TypeError, match=r"^Mock has no session mode$"):
@@ -1172,7 +1173,7 @@ def describe_session() -> None:
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp directory"
-            assert held.result.exit_code == -1
+            assert asdict(held.result) == {"exit_code": -1, "oom_killed": None}
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, held: Mock, steps: list[str]

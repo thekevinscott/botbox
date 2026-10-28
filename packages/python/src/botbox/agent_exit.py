@@ -1,8 +1,9 @@
 from adocker import Container, DockerException
+from botbox.RunResult import RunResult
 
 
-async def agent_exit(container: Container, client: int, stderr: str) -> int:
-    """The exit code of `container`, once its attached client exited with `client`.
+async def agent_exit(container: Container, client: int, stderr: str) -> RunResult:
+    """How `container` ended, once its attached client exited with `client`.
 
     The container's own record decides, so a command that exits 125 is told apart from a client
     that failed. Raises DockerException, with the client's code and stderr, if the container
@@ -15,5 +16,4 @@ async def agent_exit(container: Container, client: int, stderr: str) -> int:
         raise DockerException(container.docker_command, client, stderr) from None
     if client < 0 or state.get("Status") != "exited":
         raise DockerException(container.docker_command, client, stderr)
-    code: int = state["ExitCode"]
-    return code
+    return RunResult(state["ExitCode"], oom_killed=state.get("OOMKilled") is True)
