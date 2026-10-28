@@ -119,6 +119,9 @@ def describe_botbox() -> None:
     def it_defaults_to_4096_pids(agent: Mock) -> None:
         assert Botbox(agent).pids == 4096
 
+    def it_accepts_one_pid(agent: Mock) -> None:
+        assert Botbox(agent, pids=1).pids == 1
+
     @pytest.mark.parametrize("pids", [0, -1])
     def it_rejects_nonpositive_pids(agent: Mock, pids: int) -> None:
         with pytest.raises(ValueError, match="pids must be at least 1"):
