@@ -62,8 +62,12 @@ def describe_run() -> None:
         box: Botbox, daemon: Daemon, temp: Path
     ) -> None:
         daemon.agent("true", stdout="out\n", stderr="err\n")
-        assert await box.run("true") == RunResult(0)
+        assert await box.run("true") == RunResult(0, oom_killed=False)
         assert list(temp.iterdir()) == []
+
+    async def it_reports_an_oom_kill_in_the_agent_container(box: Botbox, daemon: Daemon) -> None:
+        daemon.agent("true", oom_killed=True)
+        assert await box.run("true") == RunResult(0, oom_killed=True)
 
     async def it_drops_an_output_file_that_fails_and_carries_on(
         box: Botbox, daemon: Daemon, tmp_path: Path
@@ -71,14 +75,14 @@ def describe_run() -> None:
         daemon.agent("true", stdout="out\n", stderr="err\n", exit=3)
         (tmp_path / "stdout.txt").symlink_to("/dev/full")
         with pytest.warns(RuntimeWarning, match="stopped writing to .*stdout.txt"):
-            assert await box.run("true", output=tmp_path) == RunResult(3)
+            assert await box.run("true", output=tmp_path) == RunResult(3, oom_killed=False)
         assert (tmp_path / "stderr.txt").read_text() == "err\n"
 
     def describe_the_result() -> None:
         async def it_returns_only_the_exit_code(box: Botbox, daemon: Daemon) -> None:
             daemon.agent("claude -p hi", stdout="out\n", stderr="err\n", exit=3)
             daemon.set(proxy_log=REFUSAL)
-            assert await box.run("claude -p hi") == RunResult(3)
+            assert await box.run("claude -p hi") == RunResult(3, oom_killed=False)
 
         async def it_writes_the_proxy_log_bytes_into_output(
             box: Botbox, daemon: Daemon, output: Path
@@ -427,7 +431,7 @@ def describe_run_output() -> None:
         stdout, stderr = "x" * 200_000, "y" * 200_000
         daemon.agent("true", stdout=stdout, stderr=stderr, exit=7)
         result = await box.run("true", output=tmp_path)
-        assert result == RunResult(7)
+        assert result == RunResult(7, oom_killed=False)
         assert (tmp_path / "stdout.txt").read_text() == stdout
         assert (tmp_path / "stderr.txt").read_text() == stderr
         assert daemon.containers == []

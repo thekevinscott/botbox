@@ -197,7 +197,7 @@ class Botbox:
                     self._following(jail, source, credential),
                 ):
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
-                    exit_code = await self._attach(
+                    result = await self._attach(
                         token,
                         image,
                         (RELAY, "sh", "-c", command),
@@ -212,7 +212,7 @@ class Botbox:
                 raise Timeout(limit, RunResult(-1)) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
-        return RunResult(exit_code)
+        return result
 
     @asynccontextmanager
     async def session(
@@ -255,7 +255,7 @@ class Botbox:
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         live = None
-        exit_code = -1
+        ended = RunResult(-1)
         deadline = asyncio.timeout(limit)
         try:
             try:
@@ -290,7 +290,7 @@ class Botbox:
                             live.stdin.close()
                             client = await live.client
                         stderr = last_stderr(Path(scratch.name))
-                        exit_code = await agent_exit(container, client, stderr)
+                        ended = await agent_exit(container, client, stderr)
                     finally:
                         await settle(
                             warned(remove_within(started), f"remove its agent container {name}")
@@ -298,7 +298,7 @@ class Botbox:
             finally:
                 try:
                     if live is not None:
-                        live.result = RunResult(exit_code)
+                        live.result = ended
                 finally:
                     await settle(
                         warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory")
@@ -321,7 +321,7 @@ class Botbox:
         flags: dict[str, Any],
         scratch: Path,
         output: Path | None,
-    ) -> int:
+    ) -> RunResult:
         """Run attached, with `home` on its stdin, writing to `scratch` and `output`, then
         remove the agent container."""
         name = f"botbox-agent-{token}"
@@ -345,10 +345,10 @@ class Botbox:
                     await send_home(stdin, home)
                     stdin.close()
                 client = await container.wait()
-            exit_code = await agent_exit(container, client, last_stderr(scratch))
+            result = await agent_exit(container, client, last_stderr(scratch))
         finally:
             await settle(warned(remove_within(container), f"remove its agent container {name}"))
-        return exit_code
+        return result
 
     def _credential_source(self) -> CredentialSource | None:
         """The agent's credential for the proxy to send, or None to have it copied in."""

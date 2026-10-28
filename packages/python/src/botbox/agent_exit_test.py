@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from botbox.agent_exit import agent_exit
+from botbox.RunResult import RunResult
 
 COMMAND = ["docker", "run", "--name", "botbox-agent-1", "image"]
 
@@ -42,14 +43,14 @@ def describe_agent_exit() -> None:
     async def it_reads_the_exit_code_from_the_stopped_container(
         inspect: AsyncMock, container: Mock
     ) -> None:
-        assert await agent_exit(container, 125, "") == 125
+        assert await agent_exit(container, 125, "") == RunResult(125, oom_killed=False)
         inspect.assert_awaited_once_with()
 
     async def it_believes_the_container_over_the_client(
         state: dict[str, Any], container: Mock
     ) -> None:
         state["ExitCode"] = 7
-        assert await agent_exit(container, 125, "") == 7
+        assert await agent_exit(container, 125, "") == RunResult(7, oom_killed=False)
 
     @pytest.mark.parametrize("client", [-9, -15, -1])
     async def it_raises_with_a_killed_client_even_though_the_container_exited(
@@ -63,7 +64,18 @@ def describe_agent_exit() -> None:
 
     async def it_takes_a_client_exit_of_zero(state: dict[str, Any], container: Mock) -> None:
         state["ExitCode"] = 0
-        assert await agent_exit(container, 0, "") == 0
+        assert await agent_exit(container, 0, "") == RunResult(0, oom_killed=False)
+
+    async def it_reports_an_oom_kill(state: dict[str, Any], container: Mock) -> None:
+        state["OOMKilled"] = True
+        assert await agent_exit(container, 125, "") == RunResult(125, oom_killed=True)
+
+    @pytest.mark.parametrize("record", [False, None, "true"])
+    async def it_reports_no_oom_kill_without_a_true_record(
+        state: dict[str, Any], container: Mock, record: object
+    ) -> None:
+        state["OOMKilled"] = record
+        assert await agent_exit(container, 125, "") == RunResult(125, oom_killed=False)
 
     @pytest.mark.parametrize("status", ["running", "created", "dead"])
     async def it_raises_with_the_client_when_the_container_never_exited(

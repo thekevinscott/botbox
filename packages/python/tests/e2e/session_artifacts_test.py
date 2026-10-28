@@ -60,7 +60,9 @@ def describe_session_artifacts() -> None:
             with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
                 await run()
         assert live is not None
-        assert live.result == RunResult(0 if outcome == "normal" else -1)
+        assert live.result == (
+            RunResult(0, oom_killed=False) if outcome == "normal" else RunResult(-1)
+        )
         assert (output / "transcripts" / "turn.jsonl").read_text() == "transcript\n"
         assert "ready" in (output / "stdout.txt").read_text()
         assert (output / "stderr.txt").read_text() == "diagnostic\n"

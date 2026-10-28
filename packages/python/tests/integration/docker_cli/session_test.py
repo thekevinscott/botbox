@@ -89,7 +89,7 @@ def describe_session() -> None:
             async with talker.session() as live:
                 await live.message("hi")
                 assert live.result is None
-            assert live.result == RunResult(0)
+            assert live.result == RunResult(0, oom_killed=False)
 
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: Botbox, daemon: Daemon, output: Path
@@ -124,7 +124,7 @@ def describe_session() -> None:
                 second = await live.message("two")
             assert first[-1] == {"type": "result", "result": "ONE"}
             assert second[-1] == {"type": "result", "result": "TWO"}
-            assert live.result == RunResult(0)
+            assert live.result == RunResult(0, oom_killed=False)
 
         async def it_drops_an_output_file_that_fails_and_carries_on(
             talker: Botbox, output: Path
@@ -135,13 +135,13 @@ def describe_session() -> None:
                 async with talker.session(output=output) as live:
                     events = await live.message("one")
             assert events[-1] == {"type": "result", "result": "ONE"}
-            assert live.result == RunResult(0)
+            assert live.result == RunResult(0, oom_killed=False)
             assert (output / "stderr.txt").is_file()
 
         async def it_leaves_nothing_behind_without_output(talker: Botbox, temp: Path) -> None:
             async with talker.session() as live:
                 assert (await live.message("one"))[-1] == {"type": "result", "result": "ONE"}
-            assert live.result == RunResult(0)
+            assert live.result == RunResult(0, oom_killed=False)
             assert list(temp.iterdir()) == []
 
         async def it_streams_events_from_the_files_it_writes(
@@ -155,7 +155,7 @@ def describe_session() -> None:
                 second = await live.message("two")
             assert first[-1] == {"type": "result", "result": "ONE"}
             assert second[-1] == {"type": "result", "result": "TWO"}
-            assert live.result == RunResult(0)
+            assert live.result == RunResult(0, oom_killed=False)
             stdout = (output / "stdout.txt").read_text()
             assert stdout.startswith("booting\n")
             assert '{"type": "result", "result": "TWO"}\n' in stdout

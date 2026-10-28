@@ -51,12 +51,12 @@ def settle(name, status, code=0):
     (state / f"{name}.json").write_text(json.dumps(container))
 
 
-def exit_container(name, code=0):
+def exit_container(name, code=0, oom_killed=False):
     # A container rm already removed stays removed: r+ never recreates the file.
     try:
         with open(state / f"{name}.json", "r+") as file:
             container = json.load(file)
-            container.update(Status="exited", ExitCode=code)
+            container.update(Status="exited", ExitCode=code, OOMKilled=oom_killed)
             file.seek(0)
             file.truncate()
             json.dump(container, file)
@@ -173,7 +173,7 @@ else:
     if mode == "client_dies_after_exit":
         exit_container(name, 0)
         os.kill(os.getpid(), signal.SIGKILL)
-    exit_container(name, agent.get("exit", 0))
+    exit_container(name, agent.get("exit", 0), agent.get("oom_killed", False))
     sys.exit(agent.get("exit", 0))
 """
 
