@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/filter_stdout_test.py",
-  "ran_at": 1793360871,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/filter_stdout_test.py tests/e2e/session_artifacts_test.py",
+  "ran_at": 1793361866,
   "exit_code": 0,
-  "commit": "abde2029dff87b8a9606b7bb201431fe3a0e851b",
+  "commit": "e00710009532e9edfb87bd2861118408008c7f54",
   "branch": "filter-stdout-285"
 }
