@@ -7,7 +7,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.hold_session import hold_session
 
 
@@ -92,34 +91,17 @@ def scratch(tmp_path: Path) -> Path:
     return path
 
 
-class Filtering(Agent):
-    """A session agent whose filter drops "drop" events, raises on "boom" and renames "keep" to
-    "kept"."""
+@pytest.fixture
+def filtering(agent: Mock) -> Mock:
+    """The agent, dropping "drop" events, raising on "boom" and renaming "keep" to "kept"."""
 
-    image = "an-agent:latest"
-    dockerfile = Path("/agents/an-agent.Dockerfile")
-    home = "/home/agent"
-    sessions_dir = "sessions"
-    allow: tuple[str, ...] = ()
-
-    def stage_auth(self, home: object) -> None: ...
-
-    def command(self, prompt: str) -> str:
-        return prompt
-
-    def session_command(self) -> str:
-        return "cli"
-
-    def encode(self, message: str) -> str:
-        return message
-
-    def turn_ended(self, event: dict[str, Any]) -> bool:
-        return event == {"type": "end"}
-
-    def filter_stdout(self, line: bytes) -> bytes | None:
+    def filter_stdout(line: bytes) -> bytes | None:
         if b'"boom"' in line:
             raise ValueError(line)
         return None if b'"drop"' in line else line.replace(b"keep", b"kept")
+
+    agent.filter_stdout = filter_stdout
+    return agent
 
 
 def hold(agent: Any, scratch: Path, output: Path | None = None, home: bytes = b"") -> Any:
@@ -236,9 +218,9 @@ def describe_hold_session() -> None:
 
     def describe_with_an_agent_that_filters_its_stdout() -> None:
         async def it_writes_and_reads_only_what_the_filter_keeps(
-            scratch: Path, tmp_path: Path
+            scratch: Path, tmp_path: Path, filtering: Mock
         ) -> None:
-            async with hold(Filtering(), scratch, tmp_path) as (live, _):
+            async with hold(filtering, scratch, tmp_path) as (live, _):
                 live.stdin.write(b'{"type":"drop"}\n{"type":"keep"}\n{"type":"drop"}\n')
                 live.stdin.write(b'{"type":"keep-last"}')
                 live.stdin.close()
@@ -252,9 +234,9 @@ def describe_hold_session() -> None:
                 )
 
         async def it_ends_the_client_with_what_the_filter_raises(
-            scratch: Path, tmp_path: Path
+            scratch: Path, tmp_path: Path, filtering: Mock
         ) -> None:
-            async with hold(Filtering(), scratch, tmp_path) as (live, _):
+            async with hold(filtering, scratch, tmp_path) as (live, _):
                 live.stdin.write(b'{"type":"keep"}\n{"type":"boom"}\n')
                 live.stdin.close()
                 with pytest.raises(ValueError, match="boom"):
@@ -264,10 +246,10 @@ def describe_hold_session() -> None:
             assert (tmp_path / "stdout.txt").read_bytes() == b'{"type":"kept"}\n'
 
         async def it_raises_on_leaving_what_the_filter_raises_for_the_rest(
-            scratch: Path, tmp_path: Path
+            scratch: Path, tmp_path: Path, filtering: Mock
         ) -> None:
             with pytest.raises(ValueError, match="boom"):
-                async with hold(Filtering(), scratch, tmp_path) as (live, _):
+                async with hold(filtering, scratch, tmp_path) as (live, _):
                     live.stdin.write(b'{"type":"keep"}\n{"type":"boom"}')
                     live.stdin.close()
                     assert await live.client == 7

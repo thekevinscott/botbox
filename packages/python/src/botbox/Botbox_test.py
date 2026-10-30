@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.Botbox import Botbox
 
 LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
@@ -442,24 +441,17 @@ def runner() -> Mock:
     return agent
 
 
-class Filtering(Agent):
-    """An agent that drops b"drop\\n" from its stdout, raises on "boom" and upper-cases the rest."""
+@pytest.fixture
+def filtering(runner: Mock) -> Mock:
+    """The runner, dropping b"drop\\n" from stdout, raising on "boom", upper-casing the rest."""
 
-    image = "an-agent:latest"
-    dockerfile = Path("/agents/D")
-    home = "/home/user"
-    sessions_dir = ".claude/projects"
-    allow: tuple[str, ...] = ()
-
-    def stage_auth(self, home: Any) -> None: ...
-
-    def command(self, prompt: str) -> str:
-        return prompt
-
-    def filter_stdout(self, line: bytes) -> bytes | None:
+    def filter_stdout(line: bytes) -> bytes | None:
         if line.startswith(b"boom"):
             raise ValueError(line)
         return None if line == b"drop\n" else line.upper()
+
+    runner.filter_stdout = filter_stdout
+    return runner
 
 
 @pytest.fixture(autouse=True)
@@ -730,7 +722,7 @@ def describe_run() -> None:
 
     def describe_with_an_agent_that_filters_its_stdout() -> None:
         async def it_writes_only_what_the_filter_keeps(
-            docker_run: Mock, scratch: Path, output: Path
+            docker_run: Mock, scratch: Path, output: Path, filtering: Mock
         ) -> None:
             async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
                 stdout(b"keep\ndr")
@@ -738,12 +730,12 @@ def describe_run() -> None:
                 return exited(name, 3)
 
             docker_run.side_effect = attached
-            await Botbox(Filtering()).run("true", output=output)
+            await Botbox(filtering).run("true", output=output)
             assert (scratch / "stdout.txt").read_bytes() == b"KEEP\nLAST"
             assert (output / "stdout.txt").read_bytes() == b"KEEP\nLAST"
 
         async def it_filters_the_rest_when_cancelled_mid_run(
-            docker_run: Mock, output: Path
+            docker_run: Mock, output: Path, filtering: Mock
         ) -> None:
             started = asyncio.Event()
 
@@ -754,19 +746,19 @@ def describe_run() -> None:
                 raise AssertionError
 
             docker_run.side_effect = hang
-            task = asyncio.create_task(Botbox(Filtering()).run("sleep 600", output=output))
+            task = asyncio.create_task(Botbox(filtering).run("sleep 600", output=output))
             await started.wait()
             task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert (output / "stdout.txt").read_bytes() == b"PARTIAL"
 
-        async def it_leaves_stderr_unfiltered(scratch: Path) -> None:
-            await Botbox(Filtering()).run("true")
+        async def it_leaves_stderr_unfiltered(scratch: Path, filtering: Mock) -> None:
+            await Botbox(filtering).run("true")
             assert (scratch / "stderr.txt").read_bytes() == b"err\n"
 
         async def it_raises_what_the_filter_raises_mid_run(
-            docker_run: Mock, steps: list[str], output: Path
+            docker_run: Mock, steps: list[str], output: Path, filtering: Mock
         ) -> None:
             async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
                 async def drained() -> int:
@@ -779,13 +771,13 @@ def describe_run() -> None:
 
             docker_run.side_effect = attached
             with pytest.raises(ValueError, match="boom"):
-                await Botbox(Filtering()).run("true", output=output)
+                await Botbox(filtering).run("true", output=output)
             assert (output / "stdout.txt").read_bytes() == b"KEEP\n"
             assert "read exit code" not in steps
             assert f"remove botbox-agent-{TOKEN}" in steps
 
         async def it_raises_what_the_filter_raises_for_the_rest_at_exit(
-            docker_run: Mock, steps: list[str], output: Path
+            docker_run: Mock, steps: list[str], output: Path, filtering: Mock
         ) -> None:
             async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
                 stdout(b"keep\nboom")
@@ -793,7 +785,7 @@ def describe_run() -> None:
 
             docker_run.side_effect = attached
             with pytest.raises(ValueError, match="boom"):
-                await Botbox(Filtering()).run("true", output=output)
+                await Botbox(filtering).run("true", output=output)
             assert (output / "stdout.txt").read_bytes() == b"KEEP\n"
             assert "read exit code" not in steps
             assert f"remove botbox-agent-{TOKEN}" in steps
