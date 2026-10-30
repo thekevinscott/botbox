@@ -10,7 +10,7 @@ from botbox.process import settle
 from botbox.send_home import send_home
 from botbox.Session import Session
 from botbox.utils.abort_writer import abort_writer
-from botbox.utils.Lines import Lines
+from botbox.utils.LineBuffer import LineBuffer
 from botbox.write import write
 
 
@@ -38,13 +38,21 @@ async def hold_session(  # noqa: PLR0913
         write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
     ):
         printed: asyncio.Queue[bytes] = asyncio.Queue()
+        lines = LineBuffer()
 
-        def print_line(line: bytes) -> None:
-            out(line)
-            printed.put_nowait(line)
+        def print_lines() -> None:
+            for line in lines:
+                out(line)
+                printed.put_nowait(line)
+
+        def take(chunk: bytes) -> None:
+            nonlocal lines
+            lines += chunk
+            print_lines()
 
         def ended(_client: asyncio.Future[int]) -> None:
-            stdout.close()
+            lines.close()
+            print_lines()
             printed.put_nowait(b"")
 
         async def readline() -> bytes:
@@ -53,11 +61,10 @@ async def hold_session(  # noqa: PLR0913
                 printed.put_nowait(line)
             return line
 
-        stdout = Lines(print_line)
         container = await Image(image).run(
             *command,
             stdin=asyncio.subprocess.PIPE,
-            stdout=stdout,
+            stdout=take,
             stderr=err,
             **options,
         )
