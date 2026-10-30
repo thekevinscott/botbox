@@ -108,8 +108,8 @@ def session(harness: str, output: Path) -> tuple[Turns, list[float], RunResult]:
                 ),
                 await live.message("What codeword did I give you? Reply with the codeword only."),
             ]
-        assert live.result is not None
-        return turns, arrivals, live.result
+        assert box.result is not None
+        return turns, arrivals, box.result
 
     return asyncio.run(talk())
 

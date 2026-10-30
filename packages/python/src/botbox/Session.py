@@ -5,7 +5,6 @@ from contextlib import suppress
 from typing import Any
 
 from botbox.agents.Agent import Agent
-from botbox.RunResult import RunResult
 from botbox.utils.abort_writer import abort_writer
 
 
@@ -14,7 +13,7 @@ class Session:
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
     collects them. One turn at a time. `client` is the CLI's attached `docker run`, and
-    `readline` reads its stdout. `result` is set once the session's block is left.
+    `readline` reads its stdout.
     """
 
     def __init__(
@@ -29,7 +28,6 @@ class Session:
         self.client = client
         self._readline = readline
         self.turn = False
-        self.result: RunResult | None = None
         client.add_done_callback(self.ended)
 
     def ended(self, _client: asyncio.Future[int]) -> None:

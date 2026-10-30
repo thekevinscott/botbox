@@ -1,0 +1,1 @@
+**Changed** (**BREAKING**, see [migration](../migrations.d/2026-10-30-python-session-box-result.md)): a session's `RunResult` is in `box.result` once its block is left, instead of `live.result`. It is the agent container's exit record. `Session.result` is gone.

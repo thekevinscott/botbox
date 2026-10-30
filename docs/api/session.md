@@ -10,20 +10,21 @@ async with box.session(
 ) as live: ...
 ```
 
-Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `live.result`. With `output`, `stdout.txt` holds every line the CLI wrote, events included.
+Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `box.result`. With `output`, `stdout.txt` holds every line the CLI wrote, events included.
 
 - `output` is as for [`run()`](./run): the CLI's stdout and stderr go to `stdout.txt` and `stderr.txt`, the proxy's output to `proxy.log`, and the transcripts to `transcripts/`. Events are read from the temp directory's copy of `stdout.txt`, so a failing `output` doesn't stop them. Read the files for what the session left. A Docker error carries the last 64 KiB of stderr. Omit `output` and the streams, transcripts and proxy log are deleted after the session.
-- `timeout` covers the whole block, every turn, and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `live.result`.
-- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` has `exit_code` -1, and what was written so far stays in `output`.
+- `timeout` covers the whole block, every turn, and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `box.result`.
+- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `box.result` has `exit_code` -1, and what was written so far stays in `output`.
 - A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends, as `run()` does.
 - Raises `NotImplementedError` for an agent with no session mode, such as `CodexAgent`, before anything is built.
 
 ```python
-async with Botbox(ClaudeAgent()).session() as live:
+box = Botbox(ClaudeAgent())
+async with box.session() as live:
     async for event in live.stream("Fix the failing test."):
         print(event["type"])
     events = await live.message("Now run the whole suite.")
-print(live.result.exit_code)
+print(box.result.exit_code)
 ```
 
 ## `Session`
@@ -31,7 +32,6 @@ print(live.result.exit_code)
 ```python
 async for event in live.stream(text: str): ...
 await live.message(text: str) -> list[dict[str, Any]]
-live.result -> RunResult | None
 ```
 
 `live.stream(text)` sends `text` and yields each event as the CLI prints it, one per JSON line on its stdout. It ends after the event that ends the agent's turn. Lines that aren't JSON objects are skipped, and stay in `stdout.txt` with `output`. If the CLI exits mid-turn, the stream ends with what it printed. Leave the loop early and the rest of that turn is read and dropped before the next message is sent. `await live.message(text)` collects a whole turn into a list. Run one turn at a time. A turn has no timeout of its own. Wrap one in `asyncio.timeout` to bound it, which ends the session.

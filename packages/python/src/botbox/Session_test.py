@@ -63,9 +63,6 @@ def describe_Session() -> None:
         assert session.stdin is live.stdin
         assert session.client is live.client
 
-    async def it_has_no_result_until_the_session_is_left(live: Live) -> None:
-        assert live.session.result is None
-
     async def it_drops_its_input_once_the_client_exits(live: Live, abort_writer: Mock) -> None:
         live.exit()
         await asyncio.sleep(0)
