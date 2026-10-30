@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import IO, Any
@@ -104,6 +105,17 @@ def describe_write() -> None:
         with pytest.raises(OSError, match="no close"), write(a, b) as sink:
             sink(b"x")
         assert b.read_bytes() == b"x"
+
+    def it_closes_the_first_even_when_dropping_another_raises(
+        tmp_path: Path, failing: dict[Path, str]
+    ) -> None:
+        a, b = tmp_path / "a", tmp_path / "b"
+        failing[a] = failing[b] = "close"
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(OSError, match="no close") as error, write(a, b) as sink:
+                sink(b"x")
+        assert isinstance(error.value.__context__, RuntimeWarning)
 
     def it_closes_every_target_when_the_block_raises(tmp_path: Path) -> None:
         a, b = tmp_path / "a", tmp_path / "b"
