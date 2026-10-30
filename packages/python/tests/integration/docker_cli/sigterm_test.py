@@ -30,8 +30,10 @@ async def main():
     try:
         async with Botbox(CopyingClaude(api_key="sk-test", host_home=home)) as box:
             if moment == "session":
-                async with box.session(output=output) as live:
-                    await live.message("hang")
+                async with box.session(output=output) as agent:
+                    await agent.send("hang")
+                    async for _ in agent.messages:
+                        pass
             else:
                 await box.run("hang")
     except asyncio.CancelledError:
@@ -82,7 +84,7 @@ def describe_sigterm() -> None:
         assert daemon.containers == []
         assert temp_dirs(temp) == []
         if moment == "session":
-            assert '"said": "hang"' in (tmp_path / "output" / "stdout.txt").read_text()
+            assert '"text": "hang"' in (tmp_path / "output" / "stdout.txt").read_text()
 
     async def it_leaves_a_handler_the_program_set_alone(
         box: Botbox,  # noqa: ARG001

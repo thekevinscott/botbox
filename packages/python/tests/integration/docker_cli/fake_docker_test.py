@@ -16,7 +16,8 @@ LISTENING = "botbox-proxy: listening\n"
 
 # Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
 # serves until its stdin closes; each agent does what the plan says for its command. A session
-# answers each message on its stdin with an event, a line that isn't JSON, and a result.
+# answers each message on its stdin as Claude does: a tool call, its result, the message back as
+# text, then a line that isn't JSON and a result.
 FAKE_DOCKER = """
 import contextlib, json, os, signal, sys, time
 from pathlib import Path
@@ -146,7 +147,13 @@ else:
     if mode == "session":
         for line in sys.stdin:
             said = json.loads(line)["message"]["content"]
-            print(json.dumps({"type": "assistant", "said": said}), flush=True)
+            for kind, part in (
+                ("assistant", {"type": "tool_use", "name": "Bash", "input": {}}),
+                ("user", {"type": "tool_result", "content": "ran"}),
+                ("assistant", {"type": "text", "text": said}),
+            ):
+                message = {"role": kind, "content": [part]}
+                print(json.dumps({"type": kind, "message": message}), flush=True)
             if said == "hang":
                 (state / f"{name}.hanging").write_text(str(os.getpid()))
                 while (state / f"{name}.json").exists():
