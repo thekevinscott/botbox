@@ -41,17 +41,16 @@ def lines(path: Path, followed: Followed) -> FileLines:
     return FileLines(path, followed)
 
 
-def append(path: Path, lines: FileLines, data: bytes) -> None:
+def append(path: Path, data: bytes) -> None:
     with path.open("ab") as file:
         file.write(data)
-    lines.grew(len(data))
 
 
 def describe_FileLines() -> None:
     async def it_returns_lines_as_tail_follows_them(
         path: Path, followed: Followed, lines: FileLines
     ) -> None:
-        append(path, lines, b"one\ntwo\n")
+        append(path, b"one\ntwo\n")
         followed.queue.put_nowait(b"one\n")
         followed.queue.put_nowait(b"two\n")
         assert await lines.readline() == b"one\n"
@@ -67,7 +66,7 @@ def describe_FileLines() -> None:
     async def it_returns_the_unterminated_rest_then_nothing_once_ended(
         path: Path, followed: Followed, lines: FileLines
     ) -> None:
-        append(path, lines, b"a\nrest")
+        append(path, b"a\nrest")
         followed.queue.put_nowait(b"a\n")
         lines.end()
         assert await lines.readline() == b"a\n"
@@ -78,7 +77,7 @@ def describe_FileLines() -> None:
     async def it_reads_whole_lines_without_waiting_for_tail_once_ended(
         path: Path, lines: FileLines
     ) -> None:
-        append(path, lines, b"a\nb")
+        append(path, b"a\nb")
         lines.end()
         assert await lines.readline() == b"a\n"
         assert await lines.readline() == b"b"
@@ -92,14 +91,14 @@ def describe_FileLines() -> None:
     async def it_reads_what_was_written_before_it_ended(path: Path, lines: FileLines) -> None:
         reading = asyncio.ensure_future(lines.readline())
         await asyncio.sleep(0.01)
-        append(path, lines, b"last")
+        append(path, b"last")
         lines.end()
         assert await reading == b"last"
 
     async def it_reads_written_lines_even_if_tail_ends_first(
         path: Path, followed: Followed, lines: FileLines
     ) -> None:
-        append(path, lines, b"a\n")
+        append(path, b"a\n")
         reading = asyncio.ensure_future(lines.readline())
         await asyncio.sleep(0.01)
         followed.queue.put_nowait(b"")

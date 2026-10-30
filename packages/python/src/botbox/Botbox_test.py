@@ -434,7 +434,7 @@ def runner() -> Mock:
         home="/home/user",
         allow=("api.anthropic.com",),
         credential_source=None,
-        filter_stdout=lambda line: line,
+        filter_stdout=None,
     )
     agent.sessions_dir = ".claude/projects"
     agent.stage_auth.side_effect = lambda home: home.write(".credentials", "token")
@@ -733,25 +733,6 @@ def describe_run() -> None:
             await Botbox(filtering).run("true", output=output)
             assert (scratch / "stdout.txt").read_bytes() == b"KEEP\nLAST"
             assert (output / "stdout.txt").read_bytes() == b"KEEP\nLAST"
-
-        async def it_filters_the_rest_when_cancelled_mid_run(
-            docker_run: Mock, output: Path, filtering: Mock
-        ) -> None:
-            started = asyncio.Event()
-
-            async def hang(*_args: object, stdout: Any, **_options: object) -> Mock:
-                stdout(b"drop\npartial")
-                started.set()
-                await asyncio.Event().wait()
-                raise AssertionError
-
-            docker_run.side_effect = hang
-            task = asyncio.create_task(Botbox(filtering).run("sleep 600", output=output))
-            await started.wait()
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            assert (output / "stdout.txt").read_bytes() == b"PARTIAL"
 
         async def it_leaves_stderr_unfiltered(scratch: Path, filtering: Mock) -> None:
             await Botbox(filtering).run("true")

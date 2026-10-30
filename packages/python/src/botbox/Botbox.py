@@ -20,7 +20,6 @@ from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.env_labels import env_labels
 from botbox.hold_session import hold_session
-from botbox.LineFilter import LineFilter
 from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
@@ -334,15 +333,17 @@ class Botbox:
         also = [] if output is None else [output]
         try:
             with (
-                write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
+                write(
+                    *[folder / "stdout.txt" for folder in (scratch, *also)],
+                    filter_line=self.agent.filter_stdout,
+                ) as out,
                 write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
-                LineFilter(out, self.agent.filter_stdout) as stdout,
             ):
                 container = await Image(image).run(
                     *command,
                     name=name,
                     stdin=asyncio.subprocess.PIPE if home else asyncio.subprocess.DEVNULL,
-                    stdout=stdout,
+                    stdout=out,
                     stderr=err,
                     **flags,
                 )

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,10 @@ class Agent(ABC):
     credential_source: CredentialSource | None = None
     """The host credential the proxy sends upstream, so the box never holds it, or None to have
     `stage_auth` copy the login in."""
+    filter_stdout: Callable[[bytes], bytes | None] | None = None
+    """Takes each line of the CLI's stdout, newline kept, and returns the bytes to write, or
+    None to drop it. An error from it ends the run or session. None writes stdout as it comes.
+    """
 
     @abstractmethod
     def stage_auth(self, home: HomeFiles) -> None:
@@ -48,12 +53,3 @@ class Agent(ABC):
     def turn_ended(self, event: dict[str, Any]) -> bool:
         """Whether `event`, one line of the CLI's stdout, is the last of a turn."""
         raise NotImplementedError(NO_SESSION.format(name=type(self).__name__))
-
-    def filter_stdout(self, line: bytes) -> bytes | None:
-        """The bytes to write for `line`, one line of the CLI's stdout, or None to drop it.
-
-        `line` keeps its trailing newline, except the unterminated rest the CLI leaves at exit.
-        What is returned is written as is, so keep the newline. An error raised here ends the
-        run or session with that error. The default writes every line unchanged.
-        """
-        return line

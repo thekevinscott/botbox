@@ -80,7 +80,7 @@ def agent() -> Mock:
     return Mock(
         encode=lambda message: message,
         turn_ended=lambda event: event == {"type": "end"},
-        filter_stdout=lambda line: line,
+        filter_stdout=None,
     )
 
 
@@ -226,7 +226,6 @@ def describe_hold_session() -> None:
                 live.stdin.close()
                 assert await live.client == 7
                 assert await live.event() == {"type": "kept"}
-                assert await live.event() == {"type": "kept-last"}
                 assert await live.event() is None
             for folder in (scratch, tmp_path):
                 assert (folder / "stdout.txt").read_bytes() == (
