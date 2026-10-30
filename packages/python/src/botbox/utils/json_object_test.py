@@ -1,6 +1,6 @@
 import pytest
 
-from botbox.agents.json_object import json_object
+from botbox.utils.json_object import json_object
 
 
 def describe_json_object() -> None:

@@ -9,10 +9,10 @@ from botbox.agents.Agent import Agent
 from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
 from botbox.agents.claude.ClaudeLogin import ClaudeLogin
 from botbox.agents.HomeFiles import HomeFiles
-from botbox.agents.json_object import json_object
 from botbox.agents.Message import Message
 from botbox.agents.message_from import message_from
 from botbox.agents.with_env import with_env
+from botbox.utils.json_object import json_object
 
 CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
