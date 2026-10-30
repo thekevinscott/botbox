@@ -1,34 +1,20 @@
-from collections import deque
-from collections.abc import Iterator
-from typing import Self
-
-
 class LineBuffer:
-    """Bytes added with `+=` come out of iterating it as whole lines, each once.
-
-    Iterating yields the lines complete so far and stops. Once closed, the unterminated rest
-    comes out last.
-    """
+    """Turns chunks into whole lines, holding only the unterminated rest between chunks."""
 
     def __init__(self) -> None:
-        self.lines: deque[bytes] = deque()
         self.rest: list[bytes] = []
 
-    def __iadd__(self, chunk: bytes) -> Self:
+    def add(self, chunk: bytes) -> list[bytes]:
+        """The lines `chunk` completes."""
         *lines, rest = chunk.split(b"\n")
         if lines:
             lines[0] = b"".join([*self.rest, lines[0]])
             self.rest = []
-        self.lines.extend(line + b"\n" for line in lines)
         if rest:
             self.rest.append(rest)
-        return self
+        return [line + b"\n" for line in lines]
 
-    def __iter__(self) -> Iterator[bytes]:
-        while self.lines:
-            yield self.lines.popleft()
-
-    def close(self) -> None:
-        if self.rest:
-            self.lines.append(b"".join(self.rest))
-            self.rest = []
+    def close(self) -> list[bytes]:
+        """The unterminated rest, if any."""
+        rest, self.rest = b"".join(self.rest), []
+        return [rest] if rest else []

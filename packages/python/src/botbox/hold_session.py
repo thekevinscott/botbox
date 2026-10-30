@@ -38,21 +38,18 @@ async def hold_session(  # noqa: PLR0913
         write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
     ):
         printed: asyncio.Queue[bytes] = asyncio.Queue()
-        lines = LineBuffer()
+        buffer = LineBuffer()
 
-        def print_lines() -> None:
+        def print_lines(lines: list[bytes]) -> None:
             for line in lines:
                 out(line)
                 printed.put_nowait(line)
 
-        def take(chunk: bytes) -> None:
-            nonlocal lines
-            lines += chunk
-            print_lines()
+        def stdout(chunk: bytes) -> None:
+            print_lines(buffer.add(chunk))
 
         def ended(_client: asyncio.Future[int]) -> None:
-            lines.close()
-            print_lines()
+            print_lines(buffer.close())
             printed.put_nowait(b"")
 
         async def readline() -> bytes:
@@ -64,7 +61,7 @@ async def hold_session(  # noqa: PLR0913
         container = await Image(image).run(
             *command,
             stdin=asyncio.subprocess.PIPE,
-            stdout=take,
+            stdout=stdout,
             stderr=err,
             **options,
         )
