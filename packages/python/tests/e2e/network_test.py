@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from conftest import docker_lines, run_probes
+from conftest import agent_up, docker_lines, run_probes
 
 from botbox import Botbox, ClaudeAgent
 
@@ -156,16 +156,24 @@ def describe_allow() -> None:
 def other_run(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     """Another run's proxy, live, admitting example.com: its address on the default bridge.
 
-    The session is held open on a thread of its own, with its own event loop, for the module.
-    Its temp directory, botbox-<token>-*, is the only one in a temp dir of its own.
+    The run is held live on a thread of its own, with its own event loop, for the module, and up
+    once its agent prints. Its temp directory, botbox-<token>-*, is the only one in a temp dir of
+    its own.
     """
     temp = tmp_path_factory.mktemp("tmp")
+    output = tmp_path_factory.mktemp("output")
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(ClaudeAgent(), allow=["example.com"]).session():
+        box = Botbox(ClaudeAgent(), allow=["example.com"])
+        run = asyncio.ensure_future(box.run("echo up; sleep 600", output=output))
+        try:
+            await agent_up(output)
             up.set()
             await asyncio.to_thread(done.wait)
+        finally:
+            run.cancel()
+            await asyncio.wait({run})
 
     holder = threading.Thread(target=asyncio.run, args=(hold(),))
     with patch.object(tempfile, "tempdir", str(temp)):

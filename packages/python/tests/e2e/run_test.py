@@ -42,38 +42,24 @@ from botbox import Botbox, ClaudeAgent
 asyncio.run(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=sys.argv[2]))
 """
 
-SESSION_OWNER = f"""
-import asyncio
-from botbox import Botbox, ClaudeAgent
-
-class Hostile(ClaudeAgent):
-    def session_command(self):
-        return {HOSTILE!r}
-
-async def main():
-    async with Botbox(Hostile()).session() as live:
-        await live.message("never answered")
-
-asyncio.run(main())
-"""
-
 # A worker forked by the owner outlives it and inherits its descriptors.
 FORKING_OWNER = f"""
 import asyncio, os, sys, time
+from pathlib import Path
 from botbox import Botbox, ClaudeAgent
 
-class Hostile(ClaudeAgent):
-    def session_command(self):
-        return {HOSTILE!r}
-
 async def main():
-    async with Botbox(Hostile()).session() as live:
-        child = os.fork()
-        if child == 0:
-            time.sleep(600)
-            os._exit(0)
-        open(sys.argv[1], "w").write(str(child))
-        await live.message("never answered")
+    output = Path(sys.argv[2])
+    stderr = output / "stderr.txt"
+    run = asyncio.ensure_future(Botbox(ClaudeAgent()).run({(PRINT + HOSTILE)!r}, output=output))
+    while not stderr.is_file() or stderr.read_text() != "err\\n":
+        await asyncio.sleep(0.05)
+    child = os.fork()
+    if child == 0:
+        time.sleep(600)
+        os._exit(0)
+    open(sys.argv[1], "w").write(str(child))
+    await run
 
 asyncio.run(main())
 """
@@ -380,8 +366,8 @@ def describe_run() -> None:
     def describe_sigkill_of_the_owner() -> None:
         @pytest.mark.parametrize(
             "holder",
-            [OWNER, SESSION_OWNER, FORKING_OWNER],
-            ids=["run", "session", "forked-child"],
+            [OWNER, FORKING_OWNER],
+            ids=["run", "forked-child"],
         )
         async def it_leaves_nothing_running_within_seconds(
             runs: Runs, temp: Path, tmp_path: Path, holder: str
@@ -396,8 +382,7 @@ def describe_run() -> None:
             )
             try:
                 await runs.started()
-                if holder == OWNER:
-                    await printed(tmp_path / "output")
+                await printed(tmp_path / "output")
                 await asyncio.sleep(1)  # Let the hostile command take its shots first.
                 owner.send_signal(signal.SIGKILL)
                 owner.wait()

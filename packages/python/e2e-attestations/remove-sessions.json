@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/network_test.py",
+  "ran_at": 1793390164,
+  "exit_code": 0,
+  "commit": "45fd10c838816ab8d454300b491bdc21eccdd491",
+  "branch": "remove-sessions"
+}

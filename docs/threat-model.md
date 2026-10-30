@@ -6,7 +6,7 @@ Trusted: the host, the Docker daemon, your code that calls botbox, your `dockerf
 
 Each threat has four parts: who attacks, what botbox does about it now, what's left for you to handle, and why botbox doesn't close the gap itself.
 
-## Forged session events
+## Forged agent output
 
 ### Who Attacks
 
@@ -14,11 +14,11 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` is whatever reached the container's stdout.
+Nothing. `stdout.txt` is whatever reached the container's stdout. A forged `result` can claim success, cost or usage that never happened.
 
 ### What's Left
 
-All of it. Treat events and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
+All of it. Treat `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
 
 ### Why botbox Doesn't Close It
 
@@ -93,7 +93,7 @@ The agent, using up host memory, processes, CPU or disk, by accident or on purpo
 
 ### What botbox Does
 
-The proxy has a process cap. The agent container has its own cap of 4096 processes and threads by default; `Botbox(pids=None)` removes it. Agent memory and CPU are uncapped by default. Without `output`, botbox holds a run's whole stdout and stderr in memory, and a session's whole output. With `output`, they go to files in that directory instead, so the agent can fill that disk; a session holds only the stdout line it is reading, and `output/transcripts/` is a writable mount of the host disk. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. There is no default time limit. `Botbox(timeout=...)` sets one for every run and session, and a call can set its own.
+The proxy has a process cap. The agent container has its own cap of 4096 processes and threads by default; `Botbox(pids=None)` removes it. Agent memory and CPU are uncapped by default. Without `output`, botbox holds a run's whole stdout and stderr in memory. With `output`, they go to files in that directory instead, so the agent can fill that disk, and `output/transcripts/` is a writable mount of the host disk. Both containers run with no Docker log, so the daemon keeps no copy. The home lives in the host's temp directory, so the agent can fill that disk, or memory if it's a tmpfs. There is no default time limit. `Botbox(timeout=...)` sets one for every run, and a call can set its own.
 
 ### What's Left
 

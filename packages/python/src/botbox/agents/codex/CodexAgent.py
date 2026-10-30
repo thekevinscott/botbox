@@ -30,8 +30,7 @@ NO_TOOL_TIMEOUT = (
 
 
 class CodexAgent(Agent):
-    """The OpenAI Codex CLI. It has no session mode: for a Codex model in a session, use
-    `PiAgent('openrouter', 'openai/<model>')`."""
+    """The OpenAI Codex CLI."""
 
     image = "botbox-codex:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")

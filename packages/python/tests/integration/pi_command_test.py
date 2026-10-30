@@ -67,32 +67,28 @@ def describe_quoting() -> None:
     def it_hands_pi_the_provider_intact(home: Path) -> None:
         agent = provider(home, "a b; id")
         assert argv(agent.command("hi"))[-3] == "a b; id"
-        assert argv(agent.session_command())[-3] == "a b; id"
 
     def it_hands_pi_the_model_intact() -> None:
         agent = PiAgent("openrouter", "a b; id")
         assert argv(agent.command("hi"))[-2:] == ["--model", "a b; id"]
-        assert argv(agent.session_command())[-2:] == ["--model", "a b; id"]
 
 
 def describe_appended_flags() -> None:
-    def it_hands_pi_flags_a_subclass_appends_to_the_session_command() -> None:
+    def it_hands_pi_flags_a_subclass_appends_to_the_command() -> None:
         class Terse(PiAgent):
-            def session_command(self) -> str:
-                return super().session_command() + " --append-system-prompt " + shlex.quote("X Y")
+            def command(self, prompt: str) -> str:
+                return super().command(prompt) + " --append-system-prompt " + shlex.quote("X Y")
 
-        assert argv(Terse("openrouter", "m").session_command())[-2:] == [
+        assert argv(Terse("openrouter", "m").command("hi"))[-2:] == [
             "--append-system-prompt",
             "X Y",
         ]
 
 
 def describe_tool_timeout() -> None:
-    @pytest.mark.parametrize("session", [False, True], ids=["print", "session"])
     @pytest.mark.parametrize("timeout", [0, 2.5])
-    def it_passes_the_limit_and_extension_only_when_enabled(session: bool, timeout: float) -> None:
-        agent = PiAgent("openrouter", tool_timeout=timeout)
-        events, code = run(agent.session_command() if session else agent.command("hi"))
+    def it_passes_the_limit_and_extension_only_when_enabled(timeout: float) -> None:
+        events, code = run(PiAgent("openrouter", tool_timeout=timeout).command("hi"))
         assert code == 0
         assert events[0]["tool_timeout"] == ("2.5" if timeout else None)
         if timeout:

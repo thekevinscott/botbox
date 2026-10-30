@@ -31,10 +31,6 @@ By default, the run uses your Codex login from `~/.codex/auth.json`. Pass `api_k
 
 With `output`, `transcripts/` there is mounted over `~/.codex/sessions`. The staged credentials sit outside it.
 
-## Sessions
-
-`CodexAgent` has no session mode, and `session()` raises `NotImplementedError`. To hold a session with a Codex model, run it through pi on OpenRouter: `PiAgent("openrouter", "openai/<model>")`.
-
 ## Tool timeout
 
 Codex has no setting that kills a shell command after a time limit, so `tool_timeout` above 0 raises `NotImplementedError` when the agent is created. Its shell tool returns to the model after at most 30 seconds and leaves a long command running in the background, so a slow command does not block the model. The command keeps running until Codex exits. To bound a whole run, use the `timeout` on `Botbox`.

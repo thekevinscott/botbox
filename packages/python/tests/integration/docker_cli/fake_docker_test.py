@@ -15,8 +15,7 @@ REFUSAL = 'NOTICE Proxying refused on filtered url "github.com:443"\n'
 LISTENING = "botbox-proxy: listening\n"
 
 # Each container is a state file, `<name>.json`, that inspect reads and rm deletes. The proxy
-# serves until its stdin closes; each agent does what the plan says for its command. A session
-# answers each message on its stdin with an event, a line that isn't JSON, and a result.
+# serves until its stdin closes; each agent does what the plan says for its command.
 FAKE_DOCKER = """
 import contextlib, json, os, signal, sys, time
 from pathlib import Path
@@ -143,19 +142,6 @@ else:
     sys.stdout.flush()
     sys.stderr.flush()
     mode = agent.get("mode")
-    if mode == "session":
-        for line in sys.stdin:
-            said = json.loads(line)["message"]["content"]
-            print(json.dumps({"type": "assistant", "said": said}), flush=True)
-            if said == "hang":
-                (state / f"{name}.hanging").write_text(str(os.getpid()))
-                while (state / f"{name}.json").exists():
-                    time.sleep(0.05)
-                sys.exit(137)
-            if said == "die":
-                os.kill(os.getpid(), signal.SIGKILL)
-            print("not json")
-            print(json.dumps({"type": "result", "result": said.upper()}), flush=True)
     if mode == "hang":
         # Dies with its owner, as an agent in the proxy's PID namespace does.
         owner = os.getppid()

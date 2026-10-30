@@ -1,9 +1,6 @@
-import json
 import shlex
 from collections.abc import Mapping
-from enum import StrEnum
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 import json5
@@ -39,23 +36,8 @@ def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) 
     return hosts
 
 
-class PiMessageType(StrEnum):
-    """rpc mode's message roles, as each `message_end` event gives them."""
-
-    ASSISTANT = "assistant"
-    USER = "user"
-    TOOL_RESULT = "toolResult"
-    SYSTEM = "system"
-    BASH_EXECUTION = "bashExecution"
-    CUSTOM = "custom"
-    BRANCH_SUMMARY = "branchSummary"
-    COMPACTION_SUMMARY = "compactionSummary"
-
-
 class PiAgent(Agent):
     """pi, on OpenRouter or any provider defined in models.json."""
-
-    MESSAGE_TYPE = PiMessageType
 
     image = "botbox-pi:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
@@ -96,25 +78,13 @@ class PiAgent(Agent):
             self.credential_source = None
 
     def command(self, prompt: str) -> str:
-        return self._pi(f"-p {shlex.quote(prompt)} --mode json")
-
-    def session_command(self) -> str:
-        return self._pi("--mode rpc")
-
-    def _pi(self, mode: str) -> str:
-        command = f"pi {mode}"
+        command = f"pi -p {shlex.quote(prompt)} --mode json"
         # pi 1.0 rejects --provider without --model; before, it ignored it and picked the default.
         if self.model is not None:
             command += f" --provider {shlex.quote(self.provider)} --model {shlex.quote(self.model)}"
         if self.tool_timeout:
             command += f" -e {TOOL_TIMEOUT_EXTENSION}"
         return with_env(self.env, command)
-
-    def encode(self, message: str) -> str:
-        return json.dumps({"type": "prompt", "message": message})
-
-    def turn_ended(self, event: dict[str, Any]) -> bool:
-        return bool(event.get("type") == "agent_settled")
 
     def stage_auth(self, home: HomeFiles) -> None:
         if self.credential_source is not None:

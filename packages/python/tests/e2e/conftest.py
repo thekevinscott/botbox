@@ -32,6 +32,14 @@ def docker_lines(*args: str) -> list[str]:
     ).stdout.split()
 
 
+async def agent_up(output: Path) -> None:
+    """Wait for a run writing to `output` to print "up", so its agent is live."""
+    stdout = output / "stdout.txt"
+    async with asyncio.timeout(300):
+        while not stdout.is_file() or stdout.read_text() != "up\n":
+            await asyncio.sleep(0.1)
+
+
 def leftovers() -> set[str]:
     """Every container, network, volume and host temp directory a botbox run could leave behind."""
     names = docker_lines("ps", "-a", "--format", "{{.Names}}")

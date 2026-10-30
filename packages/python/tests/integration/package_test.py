@@ -13,15 +13,10 @@ from botbox.Timeout import Timeout
 def describe_botbox() -> None:
     def it_has_no_async_botbox() -> None:
         assert not hasattr(botbox, "AsyncBotbox")
-        assert not hasattr(botbox, "AsyncSession")
 
     def it_builds_and_runs_as_coroutines() -> None:
         assert inspect.iscoroutinefunction(botbox.Botbox.build)
         assert inspect.iscoroutinefunction(botbox.Botbox.run)
-
-    def it_holds_sessions_as_async_context_managers() -> None:
-        assert inspect.isasyncgenfunction(inspect.unwrap(botbox.Botbox.session))
-        assert inspect.iscoroutinefunction(botbox.Session.message)
 
     def it_exports_one_agent_base_class() -> None:
         assert inspect.isabstract(botbox.Agent)

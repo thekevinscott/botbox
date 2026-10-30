@@ -34,11 +34,11 @@ The agent's `docker run` client and the proxy's each pipe their stdout and stder
 
 A failed write to the temporary copy raises, and the run tears down. A failed write to `output`, a full disk say, is a `RuntimeWarning`: botbox stops writing that one file and the run carries on.
 
-botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException`, the end of `proxy.log` when the proxy won't start, and `stdout.txt` for session events. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
+botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException` and the end of `proxy.log` when the proxy won't start. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
 
 Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into its home in the container, and they go with it.
 
-`run()` and `session()` truncate `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
+`run()` truncates `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Every container in a run carries the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 
@@ -95,21 +95,13 @@ Envoy's stdout and stderr, including one access-log line per request, go to `cre
 
 The agent's home (`/home/user`) is part of its container. The harness image creates it, with every directory down to the sessions directory open to any uid, since the agent runs as yours. Nothing on the host backs it, and it goes when the container is removed.
 
-Before the run, the agent's `stage_auth` writes its credentials and config into a `HomeFiles`. They travel into the container as a gzipped tar at the head of its stdin, and the relay unpacks them into the home before your command starts. Only the tar's size is in the env, as `BOTBOX_HOME_BYTES`, so `docker inspect` never shows the files. The relay reads exactly that many bytes, and the rest of stdin, a session's messages, goes to the command. For Claude's and Codex's login and `api_key`, and pi's OpenRouter key, the staged files hold a placeholder, and the [credential proxy](#credential-proxy) sends the real one. An agent opts in to that by setting `credential_source`, which the `Agent` base class leaves as `None`. One without it, such as pi on another provider, stages its host login as is, so that login is in the container's home for the run. A token refresh inside the run never touches the host's file. botbox reads no `.env`.
+Before the run, the agent's `stage_auth` writes its credentials and config into a `HomeFiles`. They travel into the container as a gzipped tar at the head of its stdin, and the relay unpacks them into the home before your command starts. Only the tar's size is in the env, as `BOTBOX_HOME_BYTES`, so `docker inspect` never shows the files. The relay reads exactly that many bytes, and the rest of stdin goes to the command. For Claude's and Codex's login and `api_key`, and pi's OpenRouter key, the staged files hold a placeholder, and the [credential proxy](#credential-proxy) sends the real one. An agent opts in to that by setting `credential_source`, which the `Agent` base class leaves as `None`. One without it, such as pi on another provider, stages its host login as is, so that login is in the container's home for the run. A token refresh inside the run never touches the host's file. botbox reads no `.env`.
 
 With `output`, `output/transcripts/` is mounted over the harness's sessions directory, so the CLI writes its transcripts there. botbox never reads them. Without `output`, they are deleted with the container.
 
-## Sessions
-
-`session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
-
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` as in a run (see [Output](#output)), and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
-
-The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
-
 ## Images
 
-`build()` runs on every `run()` and `session()`. Docker's layer cache keeps an unchanged build fast. Your `dockerfile` is built on top of the harness image, tagged by a hash of the Dockerfile's path, for example `botbox-claude-<hash>:latest`.
+`build()` runs on every `run()`. Docker's layer cache keeps an unchanged build fast. Your `dockerfile` is built on top of the harness image, tagged by a hash of the Dockerfile's path, for example `botbox-claude-<hash>:latest`.
 
 Each build runs `docker buildx build --load --progress=quiet` as an asyncio subprocess, and keeps the last 64 KiB of its stderr for the error. buildx runs in its own session, so Ctrl-C reaches it only as a cancel. On cancel, botbox stops the buildx client and waits for it to exit, even through a second cancel. BuildKit drops a build when its client goes away.
 
@@ -121,7 +113,6 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 
 - **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
 - **Command:** `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set.
-- **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
 - **Credentials:** the host login stays on the host. `.claude/.credentials.json` in the box holds placeholder tokens with a far-future expiry, and `ANTHROPIC_BASE_URL` points Claude Code at the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /v1/messages` and `/v1/messages/count_tokens` on their way to `api.anthropic.com` (see [Credential Proxy](#credential-proxy)). Its access log goes to `credentials.log`. Claude Code also calls `api.anthropic.com` directly for a few things, past `ANTHROPIC_BASE_URL`. botbox turns off its claude.ai MCP server fetch (`ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its OAuth profile fetch is refused by the proxy, and the run goes on without it. With `api_key`, the key stays on the host as well. `.claude/api_key` holds a placeholder key, with a `settings.json` whose `apiKeyHelper` reads it. Claude Code sends that value as both `x-api-key` and `Authorization: Bearer`; the proxy drops the `Authorization` header and sets `x-api-key` to the real key, on the same two paths.
 - **Hosts:** none, since the credential proxy carries the traffic.
 - **Transcript:** `.claude/projects/**/*.jsonl`.
@@ -144,7 +135,6 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 
 - **Image:** `agents/codex/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@openai/codex`.
 - **Command:** `codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --disable plugins --disable apps --config analytics.enabled=false <prompt>`, plus `--model` and `--config model_reasoning_effort=` when set. Codex's own sandbox is off because the container is the sandbox.
-- **Session:** none. Codex's only long-running mode, `codex app-server`, needs a per-session handshake.
 - **Credentials:** the host login stays on the host. `.codex/auth.json` in the box holds unsigned placeholder tokens with the host's account id and plan, a far-future expiry and no usable refresh token. `.codex/config.toml` sets a model provider whose `base_url` is the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /backend-api/codex/responses` and `GET /backend-api/codex/models` on their way to `chatgpt.com`. `chatgpt_base_url` points at the proxy too, so Codex's account and settings calls get the proxy's 403 rather than leaving past it, and `--disable apps` stops its direct apps MCP call. With `api_key`, `auth.json` holds a placeholder key, and the proxy sends the real one on `POST /v1/responses` to `api.openai.com`. Its access log goes to `credentials.log`.
 - **Hosts:** none, since the credential proxy carries the traffic.
 - **Expiry:** as in [Login Expiry](#login-expiry): `CredentialsExpired` before the run if the host's access token has expired, and a renewed token sent from the next request on.
@@ -154,7 +144,6 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 
 - **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`. `PI_OFFLINE=1` stops pi reaching `pi.dev` for its version check and model catalog, which the box can't reach.
 - **Command:** `pi -p <prompt> --mode json`, plus `--provider <provider> --model <model>` when a model is set. pi rejects `--provider` without `--model`.
-- **Session:** `pi --mode rpc`, with the same flags. Each message goes in as a `prompt` command. A turn ends at the `agent_settled` event, since retries and compaction can follow `agent_end`.
 - **Credentials:** on `openrouter`, `.pi/agent/auth.json` holds a placeholder key and `.pi/agent/models.json` sets the provider's `baseUrl` to the credential proxy, which adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` on its way to `openrouter.ai`. The key is `api_key`, or the literal `openrouter` key in the host's `auth.json`, reread every 2 seconds as for Claude. For any other provider, `auth.json`, and `models.json` if present, are copied into `.pi/agent/`.
 - **Hosts:** none for `openrouter`, since the credential proxy carries the traffic. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.

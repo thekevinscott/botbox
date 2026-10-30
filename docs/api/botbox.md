@@ -20,14 +20,14 @@ Botbox(
 | `agent`      | Which harness. See [Harnesses](../harnesses/).                 |
 | `dockerfile` | Your layer on top of the agent's image. Build context is the Dockerfile's directory. Must end as `USER user` and leave the agent's home where it is. |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
-| `timeout`    | Seconds each [`run()`](./run) and [`session()`](./session) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
+| `timeout`    | Seconds each [`run()`](./run) may take, counted once the image is built. `None` means no limit. A call's own `timeout` replaces it. |
 | `memory`     | Agent container memory limit, such as `"16g"`. `None` leaves it uncapped. Swap is disabled when a limit is set. |
 | `pids`       | Agent container process and thread limit, separate from the proxy's limit. Defaults to `4096`; `None` leaves it uncapped. Must be at least 1. |
 | `labels`     | Docker labels added to each run's agent, proxy, credential proxy and socket volume. `botbox.run` is reserved and raises `ValueError`. Images are not labelled. |
 
-`BOTBOX_LABELS` in the environment adds labels to the same resources, one `key=value` per line, as in Docker's `--label-file`. Botbox reads it when `run()` or `session()` starts. `labels=` wins on a key clash.
+`BOTBOX_LABELS` in the environment adds labels to the same resources, one `key=value` per line, as in Docker's `--label-file`. Botbox reads it when `run()` starts. `labels=` wins on a key clash.
 
-`Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
+`Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build) and [`run()`](./run) work without the block too.
 
 Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.
 
@@ -35,4 +35,4 @@ A sync caller wraps each call in `asyncio.run(...)`.
 
 ## `Timeout`
 
-A run or session that runs out of time tears down as a cancel does, then raises `botbox.Timeout`. It is a `TimeoutError`, so `except TimeoutError` catches it. `result` holds a [`RunResult`](./run-result) with `exit_code` -1. `seconds` is the limit that ran out.
+A run that runs out of time tears down as a cancel does, then raises `botbox.Timeout`. It is a `TimeoutError`, so `except TimeoutError` catches it. `result` holds a [`RunResult`](./run-result) with `exit_code` -1. `seconds` is the limit that ran out.

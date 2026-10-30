@@ -1,5 +1,4 @@
 import json
-import shlex
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -307,7 +306,6 @@ def describe_command() -> None:
         )
         agent = PiAgent("a b; id", "m", host_home=tmp_path)
         assert agent.command("hi") == "pi -p hi --mode json --provider 'a b; id' --model m"
-        assert agent.session_command() == "pi --mode rpc --provider 'a b; id' --model m"
 
     def it_shell_quotes_the_prompt() -> None:
         assert PiAgent(provider="openrouter").command("it's $HOME") == (
@@ -339,82 +337,11 @@ def describe_tool_timeout() -> None:
             "BOTBOX_TOOL_TIMEOUT=30 pi -p hi --mode json -e /usr/local/lib/botbox/tool-timeout.ts"
         )
 
-    def it_loads_the_extension_with_the_limit_in_session_mode() -> None:
-        assert PiAgent("openrouter", "m", tool_timeout=2.5).session_command() == (
-            "BOTBOX_TOOL_TIMEOUT=2.5 pi --mode rpc --provider openrouter --model m"
-            " -e /usr/local/lib/botbox/tool-timeout.ts"
-        )
-
     def it_sets_nothing_when_zero() -> None:
         agent = PiAgent("openrouter", tool_timeout=0)
         assert agent.env == {}
-        assert "tool-timeout" not in agent.command("hi") + agent.session_command()
+        assert "tool-timeout" not in agent.command("hi")
 
     def it_rejects_a_negative_timeout() -> None:
         with pytest.raises(ValueError, match="tool_timeout is in seconds and must be 0 or more"):
             PiAgent("openrouter", tool_timeout=-1)
-
-
-def describe_session() -> None:
-    def it_runs_pi_in_rpc_mode() -> None:
-        assert PiAgent("openrouter").session_command() == "pi --mode rpc"
-
-    def it_leaves_the_provider_to_pi_without_a_model(custom_home: Path) -> None:
-        assert "--provider" not in PiAgent("ollama", host_home=custom_home).session_command()
-
-    def it_passes_the_model_when_set() -> None:
-        assert PiAgent("openrouter", "qwen/qwen3-coder").session_command() == (
-            "pi --mode rpc --provider openrouter --model qwen/qwen3-coder"
-        )
-
-    def it_shell_quotes_the_model() -> None:
-        assert PiAgent("openrouter", "a b; id").session_command() == (
-            "pi --mode rpc --provider openrouter --model 'a b; id'"
-        )
-
-    def it_ends_with_pis_argv_so_a_subclass_can_append_flags() -> None:
-        class Terse(PiAgent):
-            def session_command(self) -> str:
-                return super().session_command() + " --append-system-prompt " + shlex.quote("X Y")
-
-        assert shlex.split(Terse("openrouter", "m").session_command()) == [
-            *["pi", "--mode", "rpc", "--provider", "openrouter", "--model", "m"],
-            *["--append-system-prompt", "X Y"],
-        ]
-
-    def it_encodes_a_message_as_a_prompt_command() -> None:
-        assert json.loads(PiAgent("openrouter").encode("it's\nhere")) == {
-            "type": "prompt",
-            "message": "it's\nhere",
-        }
-
-    def it_encodes_on_one_line() -> None:
-        assert "\n" not in PiAgent("openrouter").encode("two\nlines")
-
-    def it_ends_the_turn_when_the_agent_settles() -> None:
-        assert PiAgent("openrouter").turn_ended({"type": "agent_settled", "aborted": False}) is True
-
-    def it_compares_the_event_type_by_value() -> None:
-        parsed = "".join(["agent", "_settled"])
-        assert PiAgent("openrouter").turn_ended({"type": parsed}) is True
-
-    def it_keeps_the_turn_open_until_then() -> None:
-        agent = PiAgent("openrouter")
-        assert agent.turn_ended({"type": "turn_end"}) is False
-        assert agent.turn_ended({"type": "agent_end", "willRetry": True}) is False
-        assert agent.turn_ended({"type": "response", "command": "prompt"}) is False
-        assert agent.turn_ended({}) is False
-
-
-def describe_message_type() -> None:
-    def it_names_rpc_message_roles() -> None:
-        assert {member.name: member.value for member in PiAgent.MESSAGE_TYPE} == {
-            "ASSISTANT": "assistant",
-            "USER": "user",
-            "TOOL_RESULT": "toolResult",
-            "SYSTEM": "system",
-            "BASH_EXECUTION": "bashExecution",
-            "CUSTOM": "custom",
-            "BRANCH_SUMMARY": "branchSummary",
-            "COMPACTION_SUMMARY": "compactionSummary",
-        }

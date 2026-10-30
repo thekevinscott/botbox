@@ -9,14 +9,14 @@ from pathlib import Path
 import pytest
 from fake_docker_test import Daemon, temp_dirs
 
-from botbox import Botbox, ClaudeAgent
+from botbox import Botbox
 
 HOLDER = """
 import asyncio, signal, sys
 from pathlib import Path
 from botbox import Botbox, ClaudeAgent
 
-home, moment, output = Path(sys.argv[1]), sys.argv[2], Path(sys.argv[3])
+home, moment = Path(sys.argv[1]), sys.argv[2]
 
 class CopyingClaude(ClaudeAgent):
     def __init__(self, **options):
@@ -29,11 +29,7 @@ async def main():
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
     try:
         async with Botbox(CopyingClaude(api_key="sk-test", host_home=home)) as box:
-            if moment == "session":
-                async with box.session(output=output) as live:
-                    await live.message("hang")
-            else:
-                await box.run("hang")
+            await box.run("hang")
     except asyncio.CancelledError:
         sys.exit(7)
 
@@ -49,7 +45,6 @@ async def hold(tmp_path: Path, temp: Path, moment: str) -> asyncio.subprocess.Pr
         HOLDER,
         str(tmp_path / "claude-home"),
         moment,
-        str(tmp_path / "output"),
         env={**os.environ, "TMPDIR": str(temp)},
     )
 
@@ -57,19 +52,16 @@ async def hold(tmp_path: Path, temp: Path, moment: str) -> asyncio.subprocess.Pr
 @pytest.fixture(autouse=True)
 def plan(daemon: Daemon) -> None:
     daemon.agent("hang", mode="hang")
-    daemon.agent(ClaudeAgent().session_command(), mode="session")
 
 
 def describe_sigterm() -> None:
-    @pytest.mark.parametrize("moment", ["run", "session"])
     async def it_tears_down_and_exits_143(
         box: Botbox,  # noqa: ARG001
         tmp_path: Path,
         daemon: Daemon,
         temp: Path,
-        moment: str,
     ) -> None:
-        holder = await hold(tmp_path, temp, moment)
+        holder = await hold(tmp_path, temp, "run")
         try:
             await daemon.hanging()
             holder.send_signal(signal.SIGTERM)
@@ -81,8 +73,6 @@ def describe_sigterm() -> None:
                 await holder.wait()
         assert daemon.containers == []
         assert temp_dirs(temp) == []
-        if moment == "session":
-            assert '"said": "hang"' in (tmp_path / "output" / "stdout.txt").read_text()
 
     async def it_leaves_a_handler_the_program_set_alone(
         box: Botbox,  # noqa: ARG001
