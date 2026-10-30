@@ -238,6 +238,33 @@ def describe_Image() -> None:
             pipe.release.assert_called_once_with()
             pipe.writer.close.assert_called_once_with()
 
+        async def it_raises_the_cancel_when_the_cancelled_client_fails(
+            execute: AsyncMock,
+        ) -> None:
+            starting = asyncio.Event()
+
+            async def client(_args: list[str], **_options: Any) -> int:
+                starting.set()
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    raise OSError("kill failed") from None
+                return 0
+
+            execute.side_effect = client
+            task = asyncio.create_task(Image("img").run(name="box"))
+            await starting.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        async def it_pipes_any_stdin_equal_to_pipe(pipe: Mock) -> None:
+            class Fd(int):
+                pass
+
+            container = await Image("img").run(name="box", stdin=Fd(PIPE))
+            assert container.stdin is pipe.writer
+
         async def it_takes_its_options_by_keyword_only() -> None:
             with pytest.raises(TypeError):
                 await Image("img").run(name="box", stdin=DEVNULL, bogus=1)  # type: ignore[call-arg]
