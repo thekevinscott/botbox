@@ -34,7 +34,7 @@ The agent's `docker run` client and the proxy's each pipe their stdout and stder
 
 A failed write to the temporary copy raises, and the run tears down. A failed write to `output`, a full disk say, is a `RuntimeWarning`: botbox stops writing that one file and the run carries on.
 
-botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException`, the end of `proxy.log` when the proxy won't start, and `stdout.txt` for session events. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
+botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerException` and the end of `proxy.log` when the proxy won't start. A session reads its messages from stdout as the CLI prints it. So `output` failing never changes what a run does. The temporary directory sits under `TMPDIR`. On a tmpfs, the streams take memory, so keep it on disk.
 
 Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into its home in the container, and they go with it.
 
@@ -103,7 +103,7 @@ With `output`, `output/transcripts/` is mounted over the harness's sessions dire
 
 `session()` sets up the same way as `run()`, then starts the agent's session command in a `docker run --interactive` that stays attached. The proxy's init reaps whatever the agent leaves running in the background when the CLI exits.
 
-The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` as in a run (see [Output](#output)), and a `tail -F` follower of the temporary `stdout.txt` feeds the events. `stream()` and `message()` write one line in the harness's input format, then read stdout line by line, parsing each as JSON, until the harness's end-of-turn event. When the client exits, the waiting turn wakes and ends, and later writes are dropped instead of filling the pipe.
+The CLI's stdin is a pipe the process holds, written through an asyncio write-pipe transport. Its stdout and stderr come back through read-pipe transports, so no thread reads them. They go to `stdout.txt` and `stderr.txt` as in a run (see [Output](#output)). Each complete stdout line, once written, goes through the agent's `read_message`, and each message it reads goes to every open `replies` or `messages` iterator and every callback. `send()` writes one line in the harness's input format. When the client exits, the open iterators end, and later writes are dropped instead of filling the pipe.
 
 The block's end closes stdin, waits for the client, reads the exit code, and removes the container as `run()` does. A cancel or an error in the block kills the client first, then the same teardown runs, shielded.
 
@@ -121,7 +121,7 @@ Each harness image stands alone, with no shared base. A harness is a Dockerfile 
 
 - **Image:** `agents/claude/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay and a pinned `@anthropic-ai/claude-code`, with the auto-updater and non-essential traffic turned off.
 - **Command:** `claude -p <prompt> --output-format json --dangerously-skip-permissions --strict-mcp-config`, plus `--model` and `--effort` when set.
-- **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. A turn ends at the `result` event.
+- **Session:** `claude -p --input-format stream-json --output-format stream-json --verbose`, with the same permission and MCP flags. Each message goes in as a `user` event. Messages are read from `assistant` and `user` events.
 - **Credentials:** the host login stays on the host. `.claude/.credentials.json` in the box holds placeholder tokens with a far-future expiry, and `ANTHROPIC_BASE_URL` points Claude Code at the credential proxy, which adds `Authorization: Bearer <host access token>` to `POST /v1/messages` and `/v1/messages/count_tokens` on their way to `api.anthropic.com` (see [Credential Proxy](#credential-proxy)). Its access log goes to `credentials.log`. Claude Code also calls `api.anthropic.com` directly for a few things, past `ANTHROPIC_BASE_URL`. botbox turns off its claude.ai MCP server fetch (`ENABLE_CLAUDEAI_MCP_SERVERS=false`). Its OAuth profile fetch is refused by the proxy, and the run goes on without it. With `api_key`, the key stays on the host as well. `.claude/api_key` holds a placeholder key, with a `settings.json` whose `apiKeyHelper` reads it. Claude Code sends that value as both `x-api-key` and `Authorization: Bearer`; the proxy drops the `Authorization` header and sets `x-api-key` to the real key, on the same two paths.
 - **Hosts:** none, since the credential proxy carries the traffic.
 - **Transcript:** `.claude/projects/**/*.jsonl`.
@@ -154,7 +154,7 @@ On a login, botbox runs the unmodified Claude Code, on your machine, with your o
 
 - **Image:** `agents/pi/Dockerfile`. Node, `git`, `ca-certificates`, `socat`, the relay, `python3`, `ripgrep`, `fd` and a pinned `@earendil-works/pi-coding-agent`. `PI_OFFLINE=1` stops pi reaching `pi.dev` for its version check and model catalog, which the box can't reach.
 - **Command:** `pi -p <prompt> --mode json`, plus `--provider <provider> --model <model>` when a model is set. pi rejects `--provider` without `--model`.
-- **Session:** `pi --mode rpc`, with the same flags. Each message goes in as a `prompt` command. A turn ends at the `agent_settled` event, since retries and compaction can follow `agent_end`.
+- **Session:** `pi --mode rpc`, with the same flags. Each message goes in as a `prompt` command. Messages are read from `message_end` events.
 - **Credentials:** on `openrouter`, `.pi/agent/auth.json` holds a placeholder key and `.pi/agent/models.json` sets the provider's `baseUrl` to the credential proxy, which adds `Authorization: Bearer <key>` to `POST /api/v1/chat/completions` on its way to `openrouter.ai`. The key is `api_key`, or the literal `openrouter` key in the host's `auth.json`, reread every 2 seconds as for Claude. For any other provider, `auth.json`, and `models.json` if present, are copied into `.pi/agent/`.
 - **Hosts:** none for `openrouter`, since the credential proxy carries the traffic. For any other provider, the host of its `baseUrl` in `models.json`.
 - **Transcript:** `.pi/agent/sessions/**/*.jsonl`.

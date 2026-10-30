@@ -6,7 +6,7 @@ Trusted: the host, the Docker daemon, your code that calls botbox, your `dockerf
 
 Each threat has four parts: who attacks, what botbox does about it now, what's left for you to handle, and why botbox doesn't close the gap itself.
 
-## Forged session events
+## Forged session messages
 
 ### Who Attacks
 
@@ -14,11 +14,11 @@ Any process in the box: a tool call, a test script from the repo, a build step. 
 
 ### What botbox Does
 
-Nothing. A session parses each JSON line on stdout as an event (see [Sessions](./explanation/#sessions)). A forged end-of-turn event ends `stream()` early, and the real rest of that turn arrives at the start of the next one. A forged `result` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` is whatever reached the container's stdout.
+Nothing. A session reads each JSON line on stdout that has a message's shape as a message (see [Sessions](./explanation/#sessions)). A forged one arrives in `replies`, `messages` and the callbacks as the agent's own. A forged `result` line in `stdout.txt` can claim success, cost or usage that never happened. `run()` is the same: `stdout.txt` is whatever reached the container's stdout.
 
 ### What's Left
 
-All of it. Treat events and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
+All of it. Treat messages and `stdout` as agent output, not as facts. Don't gate a decision with security weight on them. The exit code comes from Docker and the proxy log is written by the proxy, out of the agent's reach, so both are firmer ground. Neither proves the work was done.
 
 ### Why botbox Doesn't Close It
 

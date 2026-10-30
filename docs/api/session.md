@@ -10,30 +10,56 @@ async with box.session(
 ) as live: ...
 ```
 
-Starts the agent's CLI in its session mode and holds it open, yielding a [`Session`](#session). `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `live.result`. With `output`, `stdout.txt` holds every line the CLI wrote, events included.
+Starts the agent's CLI in its session mode and holds it open, yielding the agent. `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `agent.result`. With `output`, `stdout.txt` holds every line the CLI wrote.
 
-- `output` is as for [`run()`](./run): the CLI's stdout and stderr go to `stdout.txt` and `stderr.txt`, the proxy's output to `proxy.log`, and the transcripts to `transcripts/`. Events are read from the temp directory's copy of `stdout.txt`, so a failing `output` doesn't stop them. Read the files for what the session left. A Docker error carries the last 64 KiB of stderr. Omit `output` and the streams, transcripts and proxy log are deleted after the session.
-- `timeout` covers the whole block, every turn, and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `live.result`.
-- Cancelling the task, or an `asyncio.timeout` firing, mid-turn or between turns, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `live.result` has `exit_code` -1, and what was written so far stays in `output`.
+- `output` is as for [`run()`](./run): the CLI's stdout and stderr go to `stdout.txt` and `stderr.txt`, the proxy's output to `proxy.log`, and the transcripts to `transcripts/`. A failing `output` doesn't stop the messages. Read the files for what the session left. A Docker error carries the last 64 KiB of stderr. Omit `output` and the streams, transcripts and proxy log are deleted after the session.
+- `timeout` covers the whole block and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `agent.result`.
+- Cancelling the task, or an `asyncio.timeout` firing, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `agent.result` has `exit_code` -1, and what was written so far stays in `output`.
 - A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends, as `run()` does.
+- An agent holds one session at a time. A second `session()` on it while one is open raises `RuntimeError`.
 - Raises `NotImplementedError` for an agent with no session mode, such as `CodexAgent`, before anything is built.
 
 ```python
-async with Botbox(ClaudeAgent()).session() as live:
-    async for event in live.stream("Fix the failing test."):
-        print(event["type"])
-    events = await live.message("Now run the whole suite.")
-print(live.result.exit_code)
+async with Botbox(ClaudeAgent()).session() as agent:
+    replies = agent.replies
+    await agent.send("Fix the failing test.")
+    print((await anext(replies)).text)
+print(agent.result.exit_code)
 ```
 
-## `Session`
+## The agent in a session
 
 ```python
-async for event in live.stream(text: str): ...
-await live.message(text: str) -> list[dict[str, Any]]
-live.result -> RunResult | None
+await agent.send(text: str)
+agent.replies -> AsyncIterator[Message]
+agent.messages -> AsyncIterator[Message]
+agent.on(kind: Literal["reply", "message"], callback: Callable[[Message], object])
+agent.result -> RunResult | None
 ```
 
-`live.stream(text)` sends `text` and yields each event as the CLI prints it, one per JSON line on its stdout. It ends after the event that ends the agent's turn. Lines that aren't JSON objects are skipped, and stay in `stdout.txt` with `output`. If the CLI exits mid-turn, the stream ends with what it printed. Leave the loop early and the rest of that turn is read and dropped before the next message is sent. `await live.message(text)` collects a whole turn into a list. Run one turn at a time. A turn has no timeout of its own. Wrap one in `asyncio.timeout` to bound it, which ends the session.
+`await agent.send(text)` writes `text` to the CLI in its harness's input format and returns. It doesn't wait for an answer.
 
-Events come from inside the box, and any process there can forge one. See [Forged session events](../threat-model#forged-session-events).
+`agent.messages` yields each message the CLI prints, as it prints it. `agent.replies` yields only the agent's own messages that have text; an agent's message that is only a tool call has none, and is left out. Each read of either returns a new iterator, which starts at that moment and ends when the CLI's stdout does. So open one before `send`, or a quick answer may come before it. Any number can be open at once, and each gets every message. An open iterator holds the messages it hasn't yielded yet. `async for` over one runs until the CLI exits, so break out of it when you have what you need.
+
+`agent.on("reply", fn)` and `agent.on("message", fn)` call `fn` with each reply or message, as it is read, until the session ends. A callback that raises ends the session, and its exception comes out of the block.
+
+`agent.send`, `agent.replies`, `agent.messages` and `agent.on` raise `RuntimeError` outside a session.
+
+Messages come from inside the box, and any process there can forge one. See [Forged session messages](../threat-model#forged-session-messages).
+
+## `Message`
+
+```python
+message.type -> str
+message.text -> str
+message.event -> dict[str, Any]
+```
+
+`type` is the harness's name for who sent it, one of the agent's `MESSAGE_TYPE`, such as `agent.MESSAGE_TYPE.ASSISTANT`. `text` is the message's text parts joined, empty when it has none. `event` is the JSON object the CLI printed, unchanged.
+
+| Agent        | `MESSAGE_TYPE`                                                                                         | Read from                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------ | --------------------------------------------- |
+| `ClaudeAgent` | `ASSISTANT`, `USER`                                                                                    | `assistant` and `user` events                 |
+| `PiAgent`    | `ASSISTANT`, `USER`, `TOOL_RESULT`, `SYSTEM`, `BASH_EXECUTION`, `CUSTOM`, `BRANCH_SUMMARY`, `COMPACTION_SUMMARY` | `message_end` events, by `message.role` |
+
+Other lines on stdout, such as Claude's `result` or pi's `agent_settled`, are not messages. They stay in `stdout.txt` with `output`.
