@@ -21,7 +21,7 @@ class Agent(ABC):
     overrides `session_command`, `encode` and `read_message`.
 
     While `Botbox.session()` holds its CLI open, `send` writes to it, and `messages`, `replies`
-    and `on` hear what it prints. One agent holds one session at a time. `result` is set once
+    and `on` hear what it prints. `result` is set once
     the session's block is left.
     """
 
@@ -82,8 +82,6 @@ class Agent(ABC):
     def on(self, kind: Literal["reply", "message"], callback: Callable[[Message], object]) -> None:
         """Call `callback` with each reply or message for the rest of the session. A callback
         that raises ends the session, and the error comes out of its block."""
-        if kind not in ("reply", "message"):
-            raise ValueError(f"kind is 'reply' or 'message', not {kind!r}")
         self._live().listen(self._is_reply if kind == "reply" else everything, callback)
 
     def _is_reply(self, message: Message) -> bool:

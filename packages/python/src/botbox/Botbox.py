@@ -235,8 +235,7 @@ class Botbox:
         The same lockdown, home, credentials and mounts as `run()`, with the container labelled
         and its temp directory named the same way. Leaving the block ends the CLI's input, waits
         for it to exit, removes the session's containers and temp directory, and leaves the
-        `RunResult` in the agent's `result`. Raises `RuntimeError` if the agent already has a
-        session open. Cancelling, or an error out of the block, kills the
+        `RunResult` in the agent's `result`. Cancelling, or an error out of the block, kills the
         CLI instead and tears down the same way, through any number of further cancels, leaving
         exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
         mode, before anything starts, and `DockerException` as `run()` does.
@@ -257,7 +256,9 @@ class Botbox:
         credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
         home = self._home_files()
-        channel, image = await self._claim_and_build()
+        image = await self.build()
+        channel = agent.channel = Channel()
+        agent.result = None
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         ended = RunResult(-1)
@@ -313,22 +314,6 @@ class Botbox:
             if limit is None or not deadline.expired():
                 raise
             raise Timeout(limit, agent.result or RunResult(-1)) from timed_out
-
-    async def _claim_and_build(self) -> tuple[Channel, str]:
-        """Open a channel on the agent, then build the image; the agent is let go if that fails.
-
-        Claimed before the first await, so a second session on the agent can't start meanwhile.
-        """
-        agent = self.agent
-        if agent.channel is not None:
-            raise RuntimeError(f"{type(agent).__name__} already has a session open")
-        channel = agent.channel = Channel()
-        agent.result = None
-        try:
-            return channel, await self.build()
-        except BaseException:
-            agent.channel = None
-            raise
 
     async def _attach(  # noqa: PLR0913
         self,

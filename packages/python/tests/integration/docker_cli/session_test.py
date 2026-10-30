@@ -170,12 +170,6 @@ def describe_session() -> None:
                 await b.send(await ask(a, "plan"))
                 assert (await anext(heard)).text == "plan"
 
-        async def it_refuses_a_second_session_on_the_same_agent(talker: Botbox) -> None:
-            async with talker.session():
-                with pytest.raises(RuntimeError, match="already has a session open"):
-                    async with Botbox(talker.agent).session():
-                        pass
-
         async def it_refuses_to_send_once_the_session_is_over(talker: Botbox) -> None:
             async with talker.session() as agent:
                 pass

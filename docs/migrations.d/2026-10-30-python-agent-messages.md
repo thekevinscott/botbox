@@ -38,7 +38,6 @@ None.
 
 ## Behavior changes without code changes
 
-- An agent holds one session at a time. A second `session()` on it while one is open raises `RuntimeError`.
 - Open `replies` or `messages` before `send`: an iterator starts when it is read, and misses what came before.
 
 ## Verification

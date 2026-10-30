@@ -1,8 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from contextlib import suppress
 from typing import Self
-from weakref import WeakSet
 
 from botbox.agents.Message import Message
 
@@ -32,14 +30,11 @@ class Subscription:
 
 class Channel:
     """A running CLI: its stdin, and every message it prints handed to each open subscription
-    and each callback.
-
-    Subscriptions are held weakly, so one dropped mid-session stops holding messages.
-    """
+    and each callback."""
 
     def __init__(self) -> None:
         self.stdin: asyncio.StreamWriter | None = None
-        self.subscriptions: WeakSet[Subscription] = WeakSet()
+        self.subscriptions: list[Subscription] = []
         self.callbacks: list[tuple[Wanted, Callable[[Message], object]]] = []
         self.ended = False
 
@@ -47,19 +42,18 @@ class Channel:
         if self.stdin is None:
             raise RuntimeError("the CLI has not started")
         self.stdin.write(line)
-        with suppress(ConnectionError):
-            await self.stdin.drain()
+        await self.stdin.drain()
 
     def subscribe(self, wanted: Wanted) -> Subscription:
         subscription = Subscription(wanted, ended=self.ended)
-        self.subscriptions.add(subscription)
+        self.subscriptions.append(subscription)
         return subscription
 
     def listen(self, wanted: Wanted, callback: Callable[[Message], object]) -> None:
         self.callbacks.append((wanted, callback))
 
     def publish(self, message: Message) -> None:
-        for subscription in list(self.subscriptions):
+        for subscription in self.subscriptions:
             if subscription.wanted(message):
                 subscription.put(message)
         for wanted, callback in self.callbacks:
@@ -68,5 +62,5 @@ class Channel:
 
     def end(self) -> None:
         self.ended = True
-        for subscription in list(self.subscriptions):
+        for subscription in self.subscriptions:
             subscription.put(None)

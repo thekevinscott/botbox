@@ -1038,33 +1038,6 @@ def describe_session() -> None:
         assert talker.channel is None
         assert talker.result is ENDED
 
-    async def it_refuses_an_agent_with_a_session_open_before_building(
-        talker: Mock, docker_build: Mock
-    ) -> None:
-        talker.channel = open_ = Mock()
-        with pytest.raises(RuntimeError, match="already has a session open"):
-            async with Botbox(talker).session():
-                pass
-        assert talker.channel is open_
-        docker_build.assert_not_called()
-
-    async def it_refuses_a_second_session_on_the_agent_while_one_is_open(
-        talker: Mock, docker_build: Mock
-    ) -> None:
-        async with Botbox(talker).session():
-            built = docker_build.call_count
-            with pytest.raises(RuntimeError, match="already has a session open"):
-                async with Botbox(talker).session():
-                    pass
-            assert docker_build.call_count == built
-
-    async def it_lets_the_agent_go_when_the_build_fails(talker: Mock, docker_build: Mock) -> None:
-        docker_build.side_effect = CommandFailed()
-        with pytest.raises(CommandFailed):
-            async with Botbox(talker).session():
-                pass
-        assert talker.channel is None
-
     async def it_lets_an_agent_refuse_a_session_before_building(
         talker: Mock, docker_build: Mock
     ) -> None:

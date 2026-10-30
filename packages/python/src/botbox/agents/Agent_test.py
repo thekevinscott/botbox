@@ -119,10 +119,6 @@ def describe_in_a_session() -> None:
         assert reply[0](Mock(type="tool", text="hi")) is False
         assert message[0](Mock(type="tool", text="hi")) is True
 
-    def it_refuses_any_other_kind(agent: "Talker") -> None:
-        with pytest.raises(ValueError, match="'turn'"):
-            agent.on("turn", print)  # type: ignore[arg-type]
-
 
 class TalkerType(StrEnum):
     ASSISTANT = "assistant"

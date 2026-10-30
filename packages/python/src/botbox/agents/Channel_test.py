@@ -1,5 +1,4 @@
 import asyncio
-import gc
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -27,11 +26,6 @@ def describe_channel() -> None:
             await channel.send(b"hi\n")
             channel.stdin.write.assert_called_once_with(b"hi\n")
             channel.stdin.drain.assert_awaited_once_with()
-
-        async def it_shrugs_off_a_closed_pipe() -> None:
-            channel = Channel()
-            channel.stdin = Mock(drain=AsyncMock(side_effect=BrokenPipeError))
-            await channel.send(b"hi\n")
 
         async def it_refuses_before_the_cli_starts() -> None:
             with pytest.raises(RuntimeError, match="not started"):
@@ -77,12 +71,6 @@ def describe_channel() -> None:
             channel = Channel()
             channel.end()
             assert await drain(channel.subscribe(everything)) == []
-
-        def it_lets_go_of_a_dropped_subscription() -> None:
-            channel = Channel()
-            channel.subscribe(everything)
-            gc.collect()
-            assert len(channel.subscriptions) == 0
 
     def describe_callbacks() -> None:
         def it_calls_each_with_what_it_wants() -> None:
