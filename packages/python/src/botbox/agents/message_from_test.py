@@ -24,6 +24,7 @@ def describe_message_from() -> None:
         content = [
             {"type": "text", "text": "one "},
             {"type": "toolCall", "text": "not text"},
+            {"type": "summary", "text": "not text"},
             {"type": "text", "text": 2},
             "loose",
             {"type": "text", "text": "two"},

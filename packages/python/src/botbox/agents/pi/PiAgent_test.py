@@ -464,6 +464,7 @@ def describe_read_message() -> None:
             b'{"type": "message_end", "message": {"content": "no role"}}\n',
             b'{"type": "message_end"}\n',
             b'{"type": "agent_settled"}\n',
+            b'{"type": "error", "message": {"role": "assistant", "content": "boom"}}\n',
             b"starting\n",
         ],
     )
