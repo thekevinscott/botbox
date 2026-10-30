@@ -1,6 +1,8 @@
 from typing import Any
 from unittest.mock import Mock
 
+import pytest
+
 from adocker.Image.run_args import run_args
 
 NONE: dict[str, Any] = {
@@ -111,3 +113,7 @@ def describe_run_args() -> None:
 
     def it_passes_a_zero_pids_limit() -> None:
         assert run_args("img", [], **{**NONE, "pids_limit": 0})[3:5] == ["--pids-limit", "0"]
+
+    def it_takes_its_flags_by_keyword_only() -> None:
+        with pytest.raises(TypeError):
+            run_args("img", [], *NONE.values())  # type: ignore[call-arg]

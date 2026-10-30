@@ -13,7 +13,8 @@ def write(*targets: Path) -> Iterator[Callable[[bytes], None]]:
     or on a write, is warned about and dropped while the rest carry on.
     """
     first, *others = targets
-    files: dict[IO[bytes], Path] = {first.open("wb"): first}
+    head = first.open("wb")
+    files: dict[IO[bytes], Path] = {}
     try:
         for path in others:
             try:
@@ -22,13 +23,13 @@ def write(*targets: Path) -> Iterator[Callable[[bytes], None]]:
                 dropped(path, error)
 
         def sink(chunk: bytes) -> None:
+            head.write(chunk)
+            head.flush()
             for file, path in list(files.items()):
                 try:
                     file.write(chunk)
                     file.flush()
                 except OSError as error:
-                    if path is first:
-                        raise
                     del files[file]
                     with suppress(OSError):
                         file.close()
@@ -36,13 +37,14 @@ def write(*targets: Path) -> Iterator[Callable[[bytes], None]]:
 
         yield sink
     finally:
-        for file, path in reversed(files.items()):
-            try:
-                file.close()
-            except OSError as error:
-                if path is first:
-                    raise
-                dropped(path, error)
+        try:
+            for file, path in reversed(files.items()):
+                try:
+                    file.close()
+                except OSError as error:
+                    dropped(path, error)
+        finally:
+            head.close()
 
 
 def dropped(path: Path, error: OSError) -> None:

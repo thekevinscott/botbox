@@ -198,3 +198,7 @@ def describe_hold_session() -> None:
         with pytest.raises(OSError, match="no docker"):
             async with hold(agent, scratch):
                 pytest.fail("yielded")
+
+    def it_takes_home_scratch_and_output_by_keyword_only(agent: Mock, scratch: Path) -> None:
+        with pytest.raises(TypeError):
+            hold_session(agent, "img", ["cli"], b"", scratch, None)  # type: ignore[call-arg]

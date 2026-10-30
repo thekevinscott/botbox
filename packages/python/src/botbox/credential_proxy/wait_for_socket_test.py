@@ -104,6 +104,17 @@ def describe_wait_for_socket() -> None:
         assert loop.time() - start >= 0.2
         assert error.value.__cause__ is None
 
+    async def it_keeps_polling_at_the_deadline_and_gives_up_past_it(
+        through: Through, log: Path, running: asyncio.Future[int]
+    ) -> None:
+        with (
+            patch(f"{__package__}.wait_for_socket.time") as clock,
+            pytest.raises(RuntimeError, match="did not start"),
+        ):
+            clock.monotonic.side_effect = [100.0, 105.0, 105.5]
+            await wait(through, running, log, 5)
+        assert len(through.calls) == 2
+
     async def it_keeps_only_the_end_of_a_long_log(through: Through, log: Path) -> None:
         log.write_bytes(b"a" * 10 + b"b" * 65536)
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()

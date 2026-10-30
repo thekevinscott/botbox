@@ -108,16 +108,16 @@ def describe_execute() -> None:
         spawn.assert_called_once_with("docker", "build", stdin=7, stdout=PIPE, stderr=PIPE)
         assert (bytes(out), bytes(err)) == (b"out", b"err")
 
-    async def it_reads_in_bounded_chunks(made: list[Process], printed: dict[str, bytes]) -> None:
+    async def it_reads_in_64_kib_chunks(made: list[Process], printed: dict[str, bytes]) -> None:
         printed.clear()
         chunks: list[int] = []
         task = asyncio.create_task(
             execute([], stdin=None, stdout=lambda chunk: chunks.append(len(chunk)), stderr=None)
         )
         await asyncio.sleep(0)
-        made[0].print(stdout=b"x" * (CHUNK_BYTES + 1))
+        made[0].print(stdout=b"x" * (64 * 1024 + 1))
         await task
-        assert chunks == [CHUNK_BYTES, 1]
+        assert chunks == [64 * 1024, 1]
 
     @pytest.mark.parametrize("file_stdout", [True, False])
     async def it_passes_files_through_and_pipes_only_the_sink(
