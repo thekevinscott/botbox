@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from conftest import leaked, probe
+from conftest import agent_up, leaked, probe
 
 from botbox import Botbox, ClaudeAgent, HomeFiles
 
@@ -30,19 +30,25 @@ class CanaryAgent(ClaudeAgent):
 
 @pytest.fixture(scope="module")
 def other_run(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[str, str]]:
-    """Another run's session, held open for the module: its agent container and canary value.
+    """Another run, held live for the module: its agent container and canary value.
 
-    Held on a thread of its own, with its own event loop. Its temp directory, botbox-<token>-*,
-    is the only one in a temp dir of its own.
+    Held on a thread of its own, with its own event loop, and up once its agent prints. Its temp
+    directory, botbox-<token>-*, is the only one in a temp dir of its own.
     """
     agent = CanaryAgent(f"canary-{secrets.token_hex(16)}")
     temp = tmp_path_factory.mktemp("tmp")
+    output = tmp_path_factory.mktemp("output")
     up, done = threading.Event(), threading.Event()
 
     async def hold() -> None:
-        async with Botbox(agent).session():
+        run = asyncio.ensure_future(Botbox(agent).run("echo up; sleep 600", output=output))
+        try:
+            await agent_up(output)
             up.set()
             await asyncio.to_thread(done.wait)
+        finally:
+            run.cancel()
+            await asyncio.wait({run})
 
     holder = threading.Thread(target=asyncio.run, args=(hold(),))
     with patch.object(tempfile, "tempdir", str(temp)):

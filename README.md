@@ -88,9 +88,9 @@ Botbox(
 | `agent`      | Which agent. See [Agents](#agents).                            |
 | `dockerfile` | Your layer on top of the agent's image. See [Extending the image](#extending-the-image). |
 | `allow`      | Hostnames the proxy admits, in addition to the agent's own.    |
-| `timeout`    | Seconds each run or session may take once the image is built. `None` means no limit. |
+| `timeout`    | Seconds each run may take once the image is built. `None` means no limit. |
 
-`Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run in progress tears down, then the block raises `SystemExit(143)`. `build()`, `run()` and `session()` work without the block too.
+`Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run in progress tears down, then the block raises `SystemExit(143)`. `build()` and `run()` work without the block too.
 
 ### `run()`
 
@@ -206,11 +206,11 @@ Two rules: end as `USER user`; leave the agent's home where it is.
 
 An agent is a Dockerfile plus a class that knows the home path, the credentials file, the transcript files, the hosts the CLI needs, and how to invoke the CLI.
 
-| Agent       | Class         | Dockerfile                 | Sessions |
-| ----------- | ------------- | -------------------------- | -------- |
-| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` | yes      |
-| Codex       | `CodexAgent`  | `agents/codex/Dockerfile`  | no       |
-| pi          | `PiAgent`     | `agents/pi/Dockerfile`     | yes      |
+| Agent       | Class         | Dockerfile                 |
+| ----------- | ------------- | -------------------------- |
+| Claude Code | `ClaudeAgent` | `agents/claude/Dockerfile` |
+| Codex       | `CodexAgent`  | `agents/codex/Dockerfile`  |
+| pi          | `PiAgent`     | `agents/pi/Dockerfile`     |
 
 No shared base image. To add an agent: one Dockerfile, one class, one row.
 

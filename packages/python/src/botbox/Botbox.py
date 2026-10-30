@@ -2,8 +2,8 @@ import asyncio
 import os
 import signal
 import threading
-from collections.abc import AsyncIterator, Mapping, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, nullcontext
+from collections.abc import Mapping, Sequence
+from contextlib import AbstractAsyncContextManager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
@@ -19,13 +19,11 @@ from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.env_labels import env_labels
-from botbox.hold_session import hold_session
 from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
 from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.send_home import send_home
-from botbox.Session import Session
 from botbox.Timeout import Timeout
 from botbox.warned import warned
 from botbox.write import write
@@ -36,13 +34,13 @@ STDERR_BYTES = 64 * 1024
 class Botbox:
     """An agent, an optional image layer, the extra hosts its proxy admits, and a timeout.
 
-    `timeout` is in seconds and bounds every run and session; None, the default, is no limit.
+    `timeout` is in seconds and bounds every run; None, the default, is no limit.
     A call's own `timeout` takes its place.
     `memory` caps the agent container in Docker's size format; None leaves it uncapped.
     `pids` caps processes and threads in the agent container; None leaves it uncapped.
 
     Used as an async context manager, SIGTERM inside the block cancels the task that entered it,
-    so a run or session in progress unwinds and tears down, then the block raises
+    so a run in progress unwinds and tears down, then the block raises
     `SystemExit(143)`; Python's default SIGTERM exits without unwinding. A SIGTERM handler the
     program set itself is left alone, and so is SIGTERM off the main thread.
 
@@ -218,101 +216,6 @@ class Botbox:
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return result
-
-    @asynccontextmanager
-    async def session(
-        self,
-        *,
-        mounts: Sequence[Mount] = (),
-        workdir: str | Path | None = None,
-        timeout: float | None = None,
-        output: str | Path | None = None,
-    ) -> AsyncIterator[Session]:
-        """Start the agent's CLI in its session mode in the locked-down container and hold it open.
-
-        The same lockdown, home, credentials and mounts as `run()`, with the container labelled
-        and its temp directory named the same way. Leaving the block ends the CLI's input, waits
-        for it to exit, removes the session's containers and temp directory, and leaves the
-        `RunResult` in the session's `result`. Cancelling, or an error out of the block, kills the
-        CLI instead and tears down the same way, through any number of further cancels, leaving
-        exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
-        mode, before anything starts, and `DockerException` as `run()` does.
-
-        The timeout, `timeout` or else the box's, covers the whole block, from once the image is
-        built to the CLI's exit. When it runs out, the session tears down as a cancel does and
-        raises `Timeout` with the session's `result`.
-
-        `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
-        transcripts go to files there too. Events are read from the temp directory's copy.
-        """
-        agent = self.agent
-        limit = self.timeout if timeout is None else check_timeout(timeout)
-        labels = {**env_labels(os.environ), **self.labels}
-        command = agent.session_command()
-        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
-        source = self._credential_source()
-        credential = None if source is None else source.read()
-        output = self._prepare_output(output, volumes)
-        home = self._home_files()
-        image = await self.build()
-        token = uuid4().hex[:12]
-        scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
-        live = None
-        ended = RunResult(-1)
-        deadline = asyncio.timeout(limit)
-        try:
-            try:
-                allow = (*agent.allow, *self.allow)
-                async with (
-                    deadline,
-                    lockdown(
-                        allow,
-                        Path(scratch.name),
-                        token,
-                        output,
-                        credential=credential,
-                        labels=labels,
-                    ) as jail,
-                    self._following(jail, source, credential),
-                ):
-                    name = f"botbox-agent-{token}"
-                    started = Container(name)
-                    flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
-                    try:
-                        async with hold_session(
-                            agent,
-                            image,
-                            (RELAY, "sh", "-c", command),
-                            home=home,
-                            scratch=Path(scratch.name),
-                            output=output,
-                            name=name,
-                            **flags,
-                        ) as (live, container):
-                            yield live
-                            live.stdin.close()
-                            client = await live.client
-                        stderr = last_stderr(Path(scratch.name))
-                        ended = await agent_exit(container, client, stderr)
-                    finally:
-                        await settle(
-                            warned(remove_within(started), f"remove its agent container {name}")
-                        )
-            finally:
-                try:
-                    if live is not None:
-                        live.result = ended
-                finally:
-                    await settle(
-                        warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory")
-                    )
-        except TimeoutError as timed_out:
-            if limit is None or not deadline.expired():
-                raise
-            result = None if live is None else live.result
-            if result is None:
-                result = RunResult(-1)
-            raise Timeout(limit, result) from timed_out
 
     async def _attach(  # noqa: PLR0913
         self,

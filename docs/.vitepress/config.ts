@@ -35,7 +35,6 @@ export default defineConfig({
           { text: 'Extending the image', link: '/guide/extending-the-image' },
           { text: 'Allowing hosts', link: '/guide/allowing-hosts' },
           { text: 'Mounting directories', link: '/guide/mounting-directories' },
-          { text: 'Holding a session', link: '/guide/holding-a-session' },
           { text: 'Reading the result', link: '/guide/reading-the-result' },
         ],
       },
@@ -46,7 +45,6 @@ export default defineConfig({
           { text: 'build()', link: '/api/build' },
           { text: 'run()', link: '/api/run' },
           { text: 'RunResult', link: '/api/run-result' },
-          { text: 'session()', link: '/api/session' },
         ],
       },
       {

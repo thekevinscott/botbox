@@ -2,7 +2,7 @@ from botbox.RunResult import RunResult
 
 
 class Timeout(TimeoutError):
-    """A run or session that outlasted its timeout, torn down, with what it left in `result`."""
+    """A run that outlasted its timeout, torn down, with what it left in `result`."""
 
     def __init__(self, seconds: float, result: RunResult) -> None:
         self.seconds = seconds

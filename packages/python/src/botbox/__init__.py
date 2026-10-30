@@ -5,7 +5,6 @@ from botbox.agents import Agent, ClaudeAgent, CodexAgent, HomeFiles, PiAgent
 from botbox.Botbox import Botbox
 from botbox.credential_proxy import Credential, CredentialsExpired, CredentialSource, Injection
 from botbox.RunResult import RunResult
-from botbox.Session import Session
 from botbox.Timeout import Timeout
 
 __all__ = [
@@ -21,6 +20,5 @@ __all__ = [
     "Injection",
     "PiAgent",
     "RunResult",
-    "Session",
     "Timeout",
 ]

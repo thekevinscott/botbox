@@ -2,9 +2,7 @@ import json
 import math
 import shlex
 from collections.abc import Mapping
-from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 from botbox.agents.Agent import Agent
 from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
@@ -16,18 +14,8 @@ CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
 
 
-class ClaudeMessageType(StrEnum):
-    """stream-json's message lines, by their `type`."""
-
-    # stdout also carries "system", "rate_limit_event" and "result" lines, which aren't messages.
-    ASSISTANT = "assistant"
-    USER = "user"
-
-
 class ClaudeAgent(Agent):
     """Claude Code."""
-
-    MESSAGE_TYPE = ClaudeMessageType
 
     image = "botbox-claude:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
@@ -76,23 +64,6 @@ class ClaudeAgent(Agent):
         if self.effort is not None:
             command += f" --effort {shlex.quote(self.effort)}"
         return with_env(self.env, command)
-
-    def session_command(self) -> str:
-        command = (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config"
-        )
-        if self.model is not None:
-            command += f" --model {shlex.quote(self.model)}"
-        if self.effort is not None:
-            command += f" --effort {shlex.quote(self.effort)}"
-        return with_env(self.env, command)
-
-    def encode(self, message: str) -> str:
-        return json.dumps({"type": "user", "message": {"role": "user", "content": message}})
-
-    def turn_ended(self, event: dict[str, Any]) -> bool:
-        return bool(event.get("type") == "result")
 
     def stage_auth(self, home: HomeFiles) -> None:
         if self.api_key is None:

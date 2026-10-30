@@ -1,0 +1,1 @@
+**Removed** (**BREAKING**): `Botbox.session()`, `botbox.Session`, `Agent.session_command`, `Agent.encode`, `Agent.turn_ended`, and `ClaudeAgent.MESSAGE_TYPE` / `PiAgent.MESSAGE_TYPE`. `run()` is the only way to run an agent. See [the migration](../migrations.d/2026-10-30-python-remove-sessions.md).

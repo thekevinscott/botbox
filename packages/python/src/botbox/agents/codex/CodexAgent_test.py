@@ -237,23 +237,6 @@ def describe_command() -> None:
         )
 
 
-def describe_session() -> None:
-    def it_has_no_session_command() -> None:
-        with pytest.raises(
-            NotImplementedError,
-            match=r"^NOT IMPLEMENTED: CodexAgent has no session mode\.$",
-        ):
-            CodexAgent().session_command()
-
-    def it_encodes_nothing() -> None:
-        with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
-            CodexAgent().encode("hi")
-
-    def it_ends_no_turn() -> None:
-        with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
-            CodexAgent().turn_ended({"type": "turn/completed"})
-
-
 def describe_tool_timeout() -> None:
     def it_accepts_no_limit() -> None:
         CodexAgent(tool_timeout=0)

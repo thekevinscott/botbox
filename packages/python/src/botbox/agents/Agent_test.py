@@ -38,25 +38,6 @@ def describe_agent() -> None:
             with pytest.raises(TypeError, match="command"):
                 NoCommand()  # type: ignore[abstract]
 
-    def describe_without_a_session_mode() -> None:
-        def it_has_no_session_command() -> None:
-            with pytest.raises(
-                NotImplementedError, match=r"^NOT IMPLEMENTED: OneShot has no session mode\.$"
-            ):
-                OneShot().session_command()
-
-        def it_encodes_nothing() -> None:
-            with pytest.raises(
-                NotImplementedError, match=r"^NOT IMPLEMENTED: OneShot has no session mode\.$"
-            ):
-                OneShot().encode("hi")
-
-        def it_ends_no_turn() -> None:
-            with pytest.raises(
-                NotImplementedError, match=r"^NOT IMPLEMENTED: OneShot has no session mode\.$"
-            ):
-                OneShot().turn_ended({"type": "turn/completed"})
-
 
 class OneShot(Agent):
     image = "an-agent:latest"

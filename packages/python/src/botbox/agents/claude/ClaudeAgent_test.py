@@ -219,62 +219,6 @@ def describe_command() -> None:
         )
 
 
-def describe_session() -> None:
-    def it_streams_json_both_ways_with_tools_permitted_and_no_mcp() -> None:
-        assert ClaudeAgent().session_command() == (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config"
-        )
-
-    def it_passes_the_model_and_effort_when_set() -> None:
-        assert ClaudeAgent("claude-opus-5", "high").session_command() == (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config"
-            " --model claude-opus-5 --effort high"
-        )
-
-    def it_shell_quotes_the_model_and_effort() -> None:
-        assert ClaudeAgent("a b; id", "$(id)").session_command() == (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config"
-            " --model 'a b; id' --effort '$(id)'"
-        )
-
-    def it_passes_the_model_alone() -> None:
-        assert ClaudeAgent(model="claude-opus-5").session_command() == (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config --model claude-opus-5"
-        )
-
-    def it_passes_the_effort_alone() -> None:
-        assert ClaudeAgent(effort="high").session_command() == (
-            "claude -p --input-format stream-json --output-format stream-json --verbose"
-            " --dangerously-skip-permissions --strict-mcp-config --effort high"
-        )
-
-    def it_encodes_a_message_as_a_user_message() -> None:
-        assert json.loads(ClaudeAgent().encode("it's\nhere")) == {
-            "type": "user",
-            "message": {"role": "user", "content": "it's\nhere"},
-        }
-
-    def it_encodes_on_one_line() -> None:
-        assert "\n" not in ClaudeAgent().encode("two\nlines")
-
-    def it_ends_the_turn_at_the_result() -> None:
-        assert ClaudeAgent().turn_ended({"type": "result", "subtype": "success"}) is True
-
-    def it_compares_the_event_type_by_value() -> None:
-        parsed = "".join(["res", "ult"])
-        assert ClaudeAgent().turn_ended({"type": parsed}) is True
-
-    def it_keeps_the_turn_open_until_then() -> None:
-        agent = ClaudeAgent()
-        assert agent.turn_ended({"type": "assistant"}) is False
-        assert agent.turn_ended({"type": "system", "subtype": "init"}) is False
-        assert agent.turn_ended({}) is False
-
-
 def describe_tool_timeout() -> None:
     def it_sets_the_bash_timeout_and_turns_off_backgrounding() -> None:
         assert ClaudeAgent(tool_timeout=30).env == {
@@ -290,16 +234,6 @@ def describe_tool_timeout() -> None:
             " claude -p hi --output-format json --dangerously-skip-permissions --strict-mcp-config"
         )
 
-    def it_sets_them_on_the_session_command() -> None:
-        assert (
-            ClaudeAgent(tool_timeout=30)
-            .session_command()
-            .startswith(
-                "BASH_DEFAULT_TIMEOUT_MS=30000 BASH_MAX_TIMEOUT_MS=30000"
-                " CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1 claude -p --input-format stream-json "
-            )
-        )
-
     def it_rounds_a_fraction_of_a_millisecond_up() -> None:
         assert ClaudeAgent(tool_timeout=0.0001).env["BASH_MAX_TIMEOUT_MS"] == "1"
 
@@ -310,11 +244,3 @@ def describe_tool_timeout() -> None:
     def it_rejects_a_negative_limit() -> None:
         with pytest.raises(ValueError, match="tool_timeout is in seconds"):
             ClaudeAgent(tool_timeout=-1)
-
-
-def describe_message_type() -> None:
-    def it_names_stream_json_message_types() -> None:
-        assert {member.name: member.value for member in ClaudeAgent.MESSAGE_TYPE} == {
-            "ASSISTANT": "assistant",
-            "USER": "user",
-        }

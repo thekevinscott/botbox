@@ -40,10 +40,6 @@ For any other provider, botbox copies `~/.pi/agent/auth.json` into the box, and 
 
 With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The staged credentials sit outside it.
 
-## Sessions
-
-`PiAgent` has a session mode. See [Holding a session](../guide/holding-a-session).
-
 ## Tool timeout
 
 pi's bash tool has no timeout unless the model asks for one. `tool_timeout` caps every bash call at that many seconds, whatever the model asks for. A call that runs out has its process tree killed, and the model gets "Command timed out after N seconds" and carries on. botbox does this with a pi extension baked into the image, loaded with `-e` only when `tool_timeout` is set.
