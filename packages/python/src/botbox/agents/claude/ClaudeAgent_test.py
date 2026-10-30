@@ -71,6 +71,14 @@ def home() -> "HomeFiles":
     return cast("HomeFiles", Home())
 
 
+def fields(message: object) -> tuple[object, ...]:
+    return (
+        getattr(message, "type", None),
+        getattr(message, "text", None),
+        getattr(message, "event", None),
+    )
+
+
 def describe_the_container() -> None:
     def it_names_its_own_image(agent: ClaudeAgent) -> None:
         assert agent.image == "botbox-claude:latest"
@@ -318,3 +326,50 @@ def describe_message_type() -> None:
             "ASSISTANT": "assistant",
             "USER": "user",
         }
+
+
+def describe_read_message() -> None:
+    def it_reads_an_assistant_message_and_its_text_parts() -> None:
+        event = {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "one "},
+                    {"type": "tool_use", "name": "Bash", "input": {}},
+                    {"type": "text", "text": "two"},
+                ],
+            },
+        }
+        message = ClaudeAgent().read_message(json.dumps(event).encode() + b"\n")
+        assert fields(message) == ("assistant", "one two", event)
+        assert fields(message)[0] == ClaudeAgent.MESSAGE_TYPE.ASSISTANT
+
+    def it_reads_a_tool_result_as_a_user_message_with_no_text() -> None:
+        event = {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "tool_result", "content": "hi"}]},
+        }
+        message = ClaudeAgent().read_message(json.dumps(event).encode())
+        assert fields(message) == ("user", "", event)
+
+    def it_reads_string_content_as_the_text() -> None:
+        event = {"type": "user", "message": {"role": "user", "content": "hi"}}
+        message = ClaudeAgent().read_message(json.dumps(event).encode())
+        assert fields(message) == ("user", "hi", event)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            b'{"type": "system", "subtype": "init"}\n',
+            b'{"type": "result", "result": "done"}\n',
+            b'{"type": "rate_limit_event"}\n',
+            b'{"type": "assistant"}\n',
+            b'{"type": "assistant", "message": "hi"}\n',
+            b"starting\n",
+            b"[1, 2]\n",
+            b"\xff\xfe\n",
+        ],
+    )
+    def it_reads_no_message_from_anything_else(line: bytes) -> None:
+        assert ClaudeAgent().read_message(line) is None

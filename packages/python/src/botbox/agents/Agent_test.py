@@ -57,6 +57,12 @@ def describe_agent() -> None:
             ):
                 OneShot().turn_ended({"type": "turn/completed"})
 
+        def it_reads_no_message() -> None:
+            with pytest.raises(
+                NotImplementedError, match=r"^NOT IMPLEMENTED: OneShot has no session mode\.$"
+            ):
+                OneShot().read_message(b"{}\n")
+
 
 class OneShot(Agent):
     image = "an-agent:latest"

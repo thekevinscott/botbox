@@ -10,6 +10,9 @@ import json5
 
 from botbox.agents.Agent import Agent
 from botbox.agents.HomeFiles import HomeFiles
+from botbox.agents.json_object import json_object
+from botbox.agents.Message import Message
+from botbox.agents.message_from import message_from
 from botbox.agents.pi.OpenRouterKey import OpenRouterKey
 from botbox.agents.with_env import with_env
 
@@ -115,6 +118,14 @@ class PiAgent(Agent):
 
     def turn_ended(self, event: dict[str, Any]) -> bool:
         return bool(event.get("type") == "agent_settled")
+
+    def read_message(self, line: bytes) -> Message | None:
+        event = json_object(line)
+        if event is None or event.get("type") != "message_end":
+            return None
+        message = event.get("message")
+        role = message.get("role") if isinstance(message, dict) else None
+        return message_from(role, message, event)
 
     def stage_auth(self, home: HomeFiles) -> None:
         if self.credential_source is not None:

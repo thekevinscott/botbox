@@ -30,6 +30,9 @@ def describe_botbox() -> None:
         assert not hasattr(botbox, "SessionAgent")
         assert not hasattr(botbox, "InjectingAgent")
 
+    def it_exports_the_message_an_agent_prints() -> None:
+        assert botbox.Message is botbox.agents.Message
+
     def it_raises_its_own_docker_exception() -> None:
         assert botbox.DockerException is DockerException
 

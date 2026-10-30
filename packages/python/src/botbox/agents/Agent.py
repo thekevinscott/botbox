@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from botbox.agents.HomeFiles import HomeFiles
+from botbox.agents.Message import Message
 from botbox.credential_proxy import CredentialSource
 
 NO_SESSION = "NOT IMPLEMENTED: {name} has no session mode."
@@ -13,7 +14,7 @@ class Agent(ABC):
 
     Subclass it and implement `stage_auth` and `command`. An agent whose CLI can hold a live
     session, messages in on stdin and events out on stdout, also overrides `session_command`,
-    `encode` and `turn_ended`.
+    `encode`, `turn_ended` and `read_message`.
     """
 
     image: str
@@ -47,4 +48,8 @@ class Agent(ABC):
 
     def turn_ended(self, event: dict[str, Any]) -> bool:
         """Whether `event`, one line of the CLI's stdout, is the last of a turn."""
+        raise NotImplementedError(NO_SESSION.format(name=type(self).__name__))
+
+    def read_message(self, line: bytes) -> Message | None:
+        """The message `line`, one line of the CLI's stdout, holds; None if it holds none."""
         raise NotImplementedError(NO_SESSION.format(name=type(self).__name__))

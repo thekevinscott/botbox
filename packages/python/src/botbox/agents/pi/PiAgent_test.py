@@ -98,6 +98,14 @@ def staged(home: "HomeFiles", name: str) -> str:
     return home.files[f".pi/agent/{name}"][0].decode()
 
 
+def fields(message: object) -> tuple[object, ...]:
+    return (
+        getattr(message, "type", None),
+        getattr(message, "text", None),
+        getattr(message, "event", None),
+    )
+
+
 def describe_the_container() -> None:
     def it_names_its_own_image(agent: PiAgent) -> None:
         assert agent.image == "botbox-pi:latest"
@@ -418,3 +426,46 @@ def describe_message_type() -> None:
             "BRANCH_SUMMARY": "branchSummary",
             "COMPACTION_SUMMARY": "compactionSummary",
         }
+
+
+def describe_read_message() -> None:
+    def it_reads_a_message_from_its_end() -> None:
+        event = {
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "done"}, {"type": "toolCall", "name": "bash"}],
+            },
+        }
+        message = PiAgent("openrouter").read_message(json.dumps(event).encode() + b"\n")
+        assert fields(message) == ("assistant", "done", event)
+        assert fields(message)[0] == PiAgent.MESSAGE_TYPE.ASSISTANT
+
+    def it_types_a_message_by_its_role() -> None:
+        event = {
+            "type": "message_end",
+            "message": {"role": "toolResult", "content": [{"type": "text", "text": "hi\n"}]},
+        }
+        message = PiAgent("openrouter").read_message(json.dumps(event).encode())
+        assert fields(message) == ("toolResult", "hi\n", event)
+        assert fields(message)[0] == PiAgent.MESSAGE_TYPE.TOOL_RESULT
+
+    def it_reads_string_content_as_the_text() -> None:
+        event = {"type": "message_end", "message": {"role": "system", "content": "be brief"}}
+        message = PiAgent("openrouter").read_message(json.dumps(event).encode())
+        assert fields(message) == ("system", "be brief", event)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            b'{"type": "message_start", "message": {"role": "user", "content": "hi"}}\n',
+            b'{"type": "message_update", "message": {"role": "assistant", "content": []}}\n',
+            b'{"type": "turn_end", "message": {"role": "assistant", "content": []}}\n',
+            b'{"type": "message_end", "message": {"content": "no role"}}\n',
+            b'{"type": "message_end"}\n',
+            b'{"type": "agent_settled"}\n',
+            b"starting\n",
+        ],
+    )
+    def it_reads_no_message_from_anything_else(line: bytes) -> None:
+        assert PiAgent("openrouter").read_message(line) is None
