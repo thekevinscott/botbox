@@ -18,6 +18,8 @@ async with box.session() as live:
 print(box.result.exit_code)
 ```
 
+Code that opens two sessions at once on one `Botbox` now gets `RuntimeError` from the second. Give each concurrent session its own `Botbox`.
+
 ## Deprecations removed
 
 None.

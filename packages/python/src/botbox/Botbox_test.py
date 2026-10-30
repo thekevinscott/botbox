@@ -1027,6 +1027,44 @@ def describe_session() -> None:
         assert box.result is not None
         assert box.result is ENDED
 
+    async def it_refuses_a_second_session_while_one_is_open(talker: Mock, steps: list[str]) -> None:
+        box = Botbox(talker)
+        async with box.session():
+            held_so_far = list(steps)
+            with pytest.raises(RuntimeError, match="already has an open session"):
+                async with box.session():
+                    pass
+            assert steps == held_so_far
+        assert box.result is ENDED
+
+    async def it_refuses_a_second_session_entered_alongside(talker: Mock) -> None:
+        box = Botbox(talker)
+
+        async def talk() -> None:
+            async with box.session():
+                await asyncio.sleep(0)
+
+        outcomes = await asyncio.gather(talk(), talk(), return_exceptions=True)
+        assert outcomes[0] is None
+        assert isinstance(outcomes[1], RuntimeError)
+
+    async def it_opens_another_session_once_one_is_left(talker: Mock) -> None:
+        box = Botbox(talker)
+        async with box.session():
+            pass
+        async with box.session():
+            assert box.result is None
+        assert box.result is ENDED
+
+    async def it_opens_another_session_once_one_fails(talker: Mock) -> None:
+        box = Botbox(talker)
+        with pytest.raises(ValueError, match="boom"):
+            async with box.session():
+                raise ValueError("boom")
+        async with box.session():
+            pass
+        assert box.result is ENDED
+
     async def it_lets_an_agent_refuse_a_session_before_building(
         talker: Mock, docker_build: Mock
     ) -> None:

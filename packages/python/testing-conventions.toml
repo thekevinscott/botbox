@@ -13,7 +13,7 @@ reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["364"]
+lines = ["384"]
 reason = "or -> and is equivalent: credential is None exactly when source is None. Each check narrows a different Optional for mypy"
 
 [[python.exempt]]
@@ -31,5 +31,5 @@ reason = "!= -> < is equivalent: os.write never returns more than it was given"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["322", "399"]
+lines = ["342", "419"]
 reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords. ruff's PLR0917 rules out dropping the marker"

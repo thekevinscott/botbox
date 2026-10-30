@@ -78,6 +78,7 @@ class Botbox:
         self.labels = dict(labels or {})
         self.result: RunResult | None = None
         """How the last session ended, once its block is left."""
+        self._session_open = False
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -240,6 +241,9 @@ class Botbox:
         exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
         mode, before anything starts, and `DockerException` as `run()` does.
 
+        A box holds one session at a time, so `result` is that session's. Opening a second
+        while one is open raises `RuntimeError`; use another `Botbox` to run them side by side.
+
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
         raises `Timeout` with the box's `result`.
@@ -247,6 +251,26 @@ class Botbox:
         `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
         transcripts go to files there too. Events are read from the temp directory's copy.
         """
+        if self._session_open:
+            raise RuntimeError("this Botbox already has an open session; use another Botbox")
+        self._session_open = True
+        try:
+            async with self._session(
+                mounts=mounts, workdir=workdir, timeout=timeout, output=output
+            ) as live:
+                yield live
+        finally:
+            self._session_open = False
+
+    @asynccontextmanager
+    async def _session(
+        self,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+        timeout: float | None = None,
+        output: str | Path | None = None,
+    ) -> AsyncIterator[Session]:
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
         labels = {**env_labels(os.environ), **self.labels}

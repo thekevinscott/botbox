@@ -67,3 +67,14 @@ def describe_session_artifacts() -> None:
         token = scratch.name.split("-")[1]
         assert not scratch.exists()
         assert docker_lines("ps", "-aq", "--filter", f"label=botbox.run={token}") == []
+
+    async def it_refuses_a_second_session_on_the_box_and_keeps_the_first(temp: Path) -> None:
+        box = Botbox(ArtifactAgent())
+        async with box.session() as live:
+            with pytest.raises(RuntimeError, match="already has an open session"):
+                async with box.session():
+                    pass
+            assert (await live.message("hi"))[-1]["result"] == "ready"
+            assert len(list(temp.iterdir())) == 1
+        assert box.result == RunResult(0, oom_killed=False)
+        assert list(temp.iterdir()) == []

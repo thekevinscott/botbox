@@ -90,6 +90,16 @@ def describe_session() -> None:
                 assert talker.result is None
             assert talker.result == RunResult(0, oom_killed=False)
 
+        async def it_keeps_the_open_sessions_result_when_a_second_is_refused(
+            talker: Botbox,
+        ) -> None:
+            async with talker.session() as live:
+                with pytest.raises(RuntimeError, match="already has an open session"):
+                    async with talker.session():
+                        pass
+                await live.message("hi")
+            assert talker.result == RunResult(0, oom_killed=False)
+
         async def it_reads_the_exit_code_from_the_stopped_container(
             box: Botbox, daemon: Daemon, output: Path
         ) -> None:
