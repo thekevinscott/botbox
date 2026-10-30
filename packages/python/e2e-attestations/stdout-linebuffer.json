@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/session_test.py tests/e2e/session_artifacts_test.py",
+  "ran_at": 1793386687,
+  "exit_code": 0,
+  "commit": "5d489d87f377d19a8899f77c15e0b6a9b78f8499",
+  "branch": "stdout-linebuffer"
+}
