@@ -10,11 +10,11 @@ import json5
 
 from botbox.agents.Agent import Agent
 from botbox.agents.HomeFiles import HomeFiles
-from botbox.agents.json_object import json_object
 from botbox.agents.Message import Message
 from botbox.agents.message_from import message_from
 from botbox.agents.pi.OpenRouterKey import OpenRouterKey
 from botbox.agents.with_env import with_env
+from botbox.utils.json_object import json_object
 
 AUTH = "auth.json"
 MODELS = "models.json"
