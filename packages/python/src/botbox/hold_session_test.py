@@ -262,6 +262,8 @@ def describe_hold_session() -> None:
             async with hold(agent, channel, scratch):
                 pytest.fail("yielded")
 
-    def it_takes_home_scratch_and_output_by_keyword_only(agent: Mock, scratch: Path) -> None:
+    def it_takes_home_scratch_and_output_by_keyword_only(
+        agent: Mock, channel: Mock, scratch: Path
+    ) -> None:
         with pytest.raises(TypeError):
-            hold_session(agent, "img", ["cli"], b"", scratch, None)  # type: ignore[call-arg]
+            hold_session(agent, channel, "img", ["cli"], b"", scratch, None)  # type: ignore[call-arg]
