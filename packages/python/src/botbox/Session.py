@@ -13,7 +13,8 @@ class Session:
 
     `stream()` sends a message and yields the turn's events as they arrive; `message()`
     collects them. One turn at a time. `client` is the CLI's attached `docker run`, and
-    `readline` reads its stdout. `result` is set once the session's block is left.
+    `readline` reads its stdout; once it returns b"" it is not called again. `result` is set
+    once the session's block is left.
     """
 
     def __init__(
@@ -28,6 +29,7 @@ class Session:
         self.client = client
         self._readline = readline
         self.turn = False
+        self.over = False
         self.result: RunResult | None = None
         client.add_done_callback(self.ended)
 
@@ -58,8 +60,9 @@ class Session:
         return [event async for event in self.stream(text)]
 
     async def event(self) -> dict[str, Any] | None:
-        """The next event the CLI prints; None once it has exited without another."""
-        while line := await self._readline():
+        """The next event the CLI prints; None once its stdout has ended without another."""
+        while not self.over and (line := await self._readline()):
             if (event := self.agent.parse_event(line)) is not None:
                 return event
+        self.over = True
         return None

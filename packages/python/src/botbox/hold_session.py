@@ -52,12 +52,6 @@ async def hold_session(  # noqa: PLR0913
             print_lines(buffer.close())
             printed.put_nowait(b"")
 
-        async def readline() -> bytes:
-            line = await printed.get()
-            if not line:
-                printed.put_nowait(line)
-            return line
-
         container = await Image(image).run(
             *command,
             stdin=asyncio.subprocess.PIPE,
@@ -70,7 +64,7 @@ async def hold_session(  # noqa: PLR0913
         client.add_done_callback(ended)
         try:
             await send_home(stdin, home)
-            yield Session(agent, stdin, client, readline), container
+            yield Session(agent, stdin, client, printed.get), container
         finally:
             try:
                 client.cancel()

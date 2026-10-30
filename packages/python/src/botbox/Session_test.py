@@ -239,6 +239,13 @@ def describe_Session() -> None:
         assert await session.message("hi") == []
         assert not live.client.done()
 
+    async def it_stops_reading_once_stdout_has_ended(live: Live) -> None:
+        readline = AsyncMock(return_value=b"")
+        session = Session(live.agent, live.stdin, live.client, readline)
+        assert await session.message("one") == []
+        assert await session.message("two") == []
+        readline.assert_awaited_once()
+
     async def it_takes_events_as_the_agent_parses_them(live: Live) -> None:
         live.agent.parse_event = lambda line: {"type": "end", "line": line}
         live.print(b"anything\n")

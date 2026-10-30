@@ -35,3 +35,22 @@ def describe_LineBuffer() -> None:
         for _ in range(256):
             assert buffer.add(b"x" * 65536) == []
         assert buffer.add(b"\n") == [b"x" * 65536 * 256 + b"\n"]
+
+    def describe_a_limit() -> None:
+        def it_passes_on_a_rest_that_reaches_it_unterminated() -> None:
+            buffer = LineBuffer(limit=4)
+            assert buffer.add(b"ab") == []
+            assert buffer.add(b"cd") == [b"abcd"]
+            assert buffer.add(b"e\n") == [b"e\n"]
+
+        def it_leaves_whole_lines_whole() -> None:
+            assert LineBuffer(limit=4).add(b"abcdefgh\n") == [b"abcdefgh\n"]
+
+        def it_keeps_every_byte_in_order() -> None:
+            buffer = LineBuffer(limit=3)
+            chunks = [b"ab", b"cd\nef", b"ghij", b"\nk"]
+            out = [line for chunk in chunks for line in buffer.add(chunk)] + buffer.close()
+            assert b"".join(out) == b"".join(chunks)
+
+        def it_defaults_to_64_mib() -> None:
+            assert LineBuffer().limit == 64 << 20
