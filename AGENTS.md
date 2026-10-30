@@ -24,6 +24,9 @@ Conventions, supervision rules, and per-language style live under
 
 ## Workflow
 
+- **Act on review feedback; don't ask first.** When a review comment or design
+  direction says what to change, make the change and push it. Don't reply with
+  options or ask for a go-ahead. Ask only when the direction is ambiguous.
 - **PRs are S, or at most M.** S is under ~100 changed lines, M under ~400,
   counting tests and docs but not lockfiles or generated files. A change that
   won't fit is several PRs: split it before writing code. If a PR grows past M
