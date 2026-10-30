@@ -7,21 +7,17 @@ from typing import Any
 class FileLines:
     """Lines of a file as another writer appends to it, from `followed`: `tail` following it.
 
-    Call `grew` with each append's size and `end` once nothing more will come. `readline`
-    returns every line, then the unterminated rest, then b"". A cancelled `readline` loses
-    nothing. Call `close` before `followed` stops.
+    Call `end` once nothing more will come. `readline` returns every line, then the
+    unterminated rest, then b"". A cancelled `readline` loses nothing. Call `close` before
+    `followed` stops.
     """
 
     def __init__(self, path: Path, followed: AsyncIterator[bytes]) -> None:
         self.path = path
         self.followed = followed
-        self.written = 0
         self.read = 0
         self.ended = asyncio.Event()
         self.next: asyncio.Future[bytes] | None = None
-
-    def grew(self, size: int) -> None:
-        self.written += size
 
     def end(self) -> None:
         self.ended.set()
@@ -33,13 +29,7 @@ class FileLines:
 
     async def readline(self) -> bytes:
         """The next line, the unterminated rest once ended, then b""."""
-        while self.read < self.written or not self.ended.is_set():
-            if self.ended.is_set():
-                with self.path.open("rb") as file:
-                    file.seek(self.read)
-                    line = file.readline()
-                self.read += len(line)
-                return line
+        while not self.ended.is_set():
             if self.next is None:
                 self.next = asyncio.ensure_future(anext(self.followed, b""))
             ended = asyncio.ensure_future(self.ended.wait())
@@ -56,4 +46,8 @@ class FileLines:
                     continue
                 self.read += len(line)
                 return line
-        return b""
+        with self.path.open("rb") as file:
+            file.seek(self.read)
+            line = file.readline()
+        self.read += len(line)
+        return line

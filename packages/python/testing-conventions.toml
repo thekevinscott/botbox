@@ -76,13 +76,13 @@ reason = "* -> / only lets the internal caller pass scratch and output by positi
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["322", "399"]
+lines = ["323", "403"]
 reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords"
 
 [[python.exempt]]
 path = "src/botbox/write.py"
 rules = ["mutation"]
-lines = ["30", "43"]
+lines = ["61", "74"]
 reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"
 
 [[python.exempt]]
@@ -93,7 +93,7 @@ reason = "#271 docstring-only note. Behavior unchanged. Remove for the next beha
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["364"]
+lines = ["368"]
 reason = "or -> and is equivalent: credential is None exactly when source is None"
 
 [[python.exempt]]
@@ -103,11 +103,6 @@ reason = "Agent base class: type-hint-only change: Agent replaces the SessionAge
 
 [[python.exempt]]
 path = "src/botbox/build_steps.py"
-rules = ["co-change"]
-reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/hold_session.py"
 rules = ["co-change"]
 reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
 

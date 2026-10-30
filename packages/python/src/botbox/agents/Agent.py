@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,10 @@ class Agent(ABC):
     credential_source: CredentialSource | None = None
     """The host credential the proxy sends upstream, so the box never holds it, or None to have
     `stage_auth` copy the login in."""
+    filter_stdout: Callable[[bytes], bytes | None] | None = None
+    """Takes each line of the CLI's stdout, newline kept, and returns the bytes to write, or
+    None to drop it. An error from it ends the run or session. None writes stdout as it comes.
+    """
 
     @abstractmethod
     def stage_auth(self, home: HomeFiles) -> None:

@@ -30,28 +30,28 @@ async def hold_session(  # noqa: PLR0913
     """Start `command` on `image` attached, with `options`, and yield a session on it.
 
     stdout and stderr go to stdout.txt and stderr.txt in `scratch`, and in `output` too if
-    given; events are read from the scratch copy. Leaving the block stops the client if it is
-    still running, through any number of cancels; the container lives on for the caller to
-    remove.
+    given; events are read from the scratch copy. stdout goes through the agent's
+    `filter_stdout` a line at a time; an unterminated last line is written but not read as an
+    event. Leaving the block stops the client if it is still running, through any number of
+    cancels; the container lives on for the caller to remove.
     """
     also = [] if output is None else [output]
     printed = scratch / "stdout.txt"
     with (
-        write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
+        write(
+            *[folder / "stdout.txt" for folder in (scratch, *also)],
+            filter_line=agent.filter_stdout,
+        ) as out,
         write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
     ):
         async with tail(printed, n=None, follow=True) as followed:
             lines = FileLines(printed, followed)
 
-            def print_line(chunk: bytes) -> None:
-                out(chunk)
-                lines.grew(len(chunk))
-
             try:
                 container = await Image(image).run(
                     *command,
                     stdin=asyncio.subprocess.PIPE,
-                    stdout=print_line,
+                    stdout=out,
                     stderr=err,
                     **options,
                 )

@@ -434,10 +434,24 @@ def runner() -> Mock:
         home="/home/user",
         allow=("api.anthropic.com",),
         credential_source=None,
+        filter_stdout=None,
     )
     agent.sessions_dir = ".claude/projects"
     agent.stage_auth.side_effect = lambda home: home.write(".credentials", "token")
     return agent
+
+
+@pytest.fixture
+def filtering(runner: Mock) -> Mock:
+    """The runner, dropping b"drop\\n" from stdout, raising on "boom", upper-casing the rest."""
+
+    def filter_stdout(line: bytes) -> bytes | None:
+        if line.startswith(b"boom"):
+            raise ValueError(line)
+        return None if line == b"drop\n" else line.upper()
+
+    runner.filter_stdout = filter_stdout
+    return runner
 
 
 @pytest.fixture(autouse=True)
@@ -705,6 +719,57 @@ def describe_run() -> None:
         await Botbox(runner).run("true")
         assert (scratch / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (scratch / "stderr.txt").read_bytes() == b"err\n"
+
+    def describe_with_an_agent_that_filters_its_stdout() -> None:
+        async def it_writes_only_what_the_filter_keeps(
+            docker_run: Mock, scratch: Path, output: Path, filtering: Mock
+        ) -> None:
+            async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
+                stdout(b"keep\ndr")
+                stdout(b"op\nlast")
+                return exited(name, 3)
+
+            docker_run.side_effect = attached
+            await Botbox(filtering).run("true", output=output)
+            assert (scratch / "stdout.txt").read_bytes() == b"KEEP\nLAST"
+            assert (output / "stdout.txt").read_bytes() == b"KEEP\nLAST"
+
+        async def it_leaves_stderr_unfiltered(scratch: Path, filtering: Mock) -> None:
+            await Botbox(filtering).run("true")
+            assert (scratch / "stderr.txt").read_bytes() == b"err\n"
+
+        async def it_raises_what_the_filter_raises_mid_run(
+            docker_run: Mock, steps: list[str], output: Path, filtering: Mock
+        ) -> None:
+            async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
+                async def drained() -> int:
+                    stdout(b"keep\nboom\nlost\n")
+                    return 0
+
+                container = Mock(wait=drained)
+                container.name = name
+                return container
+
+            docker_run.side_effect = attached
+            with pytest.raises(ValueError, match="boom"):
+                await Botbox(filtering).run("true", output=output)
+            assert (output / "stdout.txt").read_bytes() == b"KEEP\n"
+            assert "read exit code" not in steps
+            assert f"remove botbox-agent-{TOKEN}" in steps
+
+        async def it_raises_what_the_filter_raises_for_the_rest_at_exit(
+            docker_run: Mock, steps: list[str], output: Path, filtering: Mock
+        ) -> None:
+            async def attached(*_command: str, name: str, stdout: Any, **_: Any) -> Mock:
+                stdout(b"keep\nboom")
+                return exited(name, 0)
+
+            docker_run.side_effect = attached
+            with pytest.raises(ValueError, match="boom"):
+                await Botbox(filtering).run("true", output=output)
+            assert (output / "stdout.txt").read_bytes() == b"KEEP\n"
+            assert "read exit code" not in steps
+            assert f"remove botbox-agent-{TOKEN}" in steps
 
     def describe_the_agent_container() -> None:
         async def it_passes_default_pids_limit_to_the_agent(runner: Mock, docker_run: Mock) -> None:

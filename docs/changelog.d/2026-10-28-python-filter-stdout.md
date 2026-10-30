@@ -1,0 +1,1 @@
+**Added**: `Agent.filter_stdout`, `None` by default. An agent that sets it gets each line of the CLI's stdout, newline included, and the unterminated rest at exit, and botbox writes what it returns to `stdout.txt`; `None` drops the line. Session events are read from the filtered copy. stderr is never filtered. An error raised by the filter ends the run or session with that error.

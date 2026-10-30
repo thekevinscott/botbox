@@ -15,6 +15,7 @@ def describe_agent() -> None:
             "allow",
             "credential_source",
             "dockerfile",
+            "filter_stdout",
             "home",
             "image",
             "sessions_dir",
@@ -28,6 +29,9 @@ def describe_agent() -> None:
 
     def it_has_its_credentials_copied_in_by_default() -> None:
         assert OneShot().credential_source is None
+
+    def it_filters_no_stdout_by_default() -> None:
+        assert OneShot().filter_stdout is None
 
     def describe_abstract_methods() -> None:
         def it_refuses_a_subclass_without_stage_auth() -> None:

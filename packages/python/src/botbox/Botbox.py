@@ -150,7 +150,8 @@ class Botbox:
         well, and transcripts/ there is mounted over the agent's `sessions_dir`. The three files
         are truncated; other files are kept. If writing to one of them fails mid-run, it is
         warned about and dropped, and the run carries on. A path with `:` raises `ValueError`,
-        since Docker can't mount it.
+        since Docker can't mount it. stdout goes through the agent's `filter_stdout`, a line at a
+        time, before it is written; an error from it ends the run with that error.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
         is built. The agent's home is in the container, created by the image, and goes with the
@@ -332,7 +333,10 @@ class Botbox:
         also = [] if output is None else [output]
         try:
             with (
-                write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
+                write(
+                    *[folder / "stdout.txt" for folder in (scratch, *also)],
+                    filter_line=self.agent.filter_stdout,
+                ) as out,
                 write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
             ):
                 container = await Image(image).run(
