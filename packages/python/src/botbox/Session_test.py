@@ -1,14 +1,22 @@
 import asyncio
 import json
 from collections.abc import Iterator
-from functools import partial
+from contextlib import suppress
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.Session import Session
+
+
+def decoded(line: bytes) -> dict[str, Any] | None:
+    """A JSON object line as an event, as the agents decode them."""
+    with suppress(ValueError):
+        event = json.loads(line)
+        if isinstance(event, dict):
+            return event
+    return None
 
 
 def lines(*events: Any) -> bytes:
@@ -22,8 +30,8 @@ class Live:
         self.agent = Mock(
             encode=lambda message: f"<{message}>",
             turn_ended=lambda event: event.get("type") == "end",
+            decode=decoded,
         )
-        self.agent.decode = partial(Agent.decode, self.agent)
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         self.reader = asyncio.StreamReader(limit=1_000_000)

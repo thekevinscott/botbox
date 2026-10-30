@@ -1,15 +1,24 @@
 import asyncio
+import json
 import os
 from collections.abc import Iterator
-from functools import partial
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
-from botbox.agents.Agent import Agent
 from botbox.hold_session import hold_session
+
+
+def decoded(line: bytes) -> dict[str, Any] | None:
+    """A JSON object line as an event, as the agents decode them."""
+    with suppress(ValueError):
+        event = json.loads(line)
+        if isinstance(event, dict):
+            return event
+    return None
 
 
 class Image:
@@ -79,9 +88,11 @@ def abort_writer() -> Iterator[Mock]:
 
 @pytest.fixture
 def agent() -> Mock:
-    agent = Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
-    agent.decode = partial(Agent.decode, agent)
-    return agent
+    return Mock(
+        encode=lambda message: message,
+        turn_ended=lambda event: event == {"type": "end"},
+        decode=decoded,
+    )
 
 
 @pytest.fixture
