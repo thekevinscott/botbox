@@ -76,6 +76,8 @@ class Botbox:
         if labels is not None and "botbox.run" in labels:
             raise ValueError("botbox.run is reserved for botbox cleanup")
         self.labels = dict(labels or {})
+        self.result: RunResult | None = None
+        """How the last session ended, once its block is left."""
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
         self._terminated = False
@@ -235,14 +237,14 @@ class Botbox:
         The same lockdown, home, credentials and mounts as `run()`, with the container labelled
         and its temp directory named the same way. Leaving the block ends the CLI's input, waits
         for it to exit, removes the session's containers and temp directory, and leaves the
-        `RunResult` in the agent's `result`. Cancelling, or an error out of the block, kills the
+        `RunResult` in the box's `result`. Cancelling, or an error out of the block, kills the
         CLI instead and tears down the same way, through any number of further cancels, leaving
         exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
         mode, before anything starts, and `DockerException` as `run()` does.
 
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
-        raises `Timeout` with the agent's `result`.
+        raises `Timeout` with the box's `result`.
 
         `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
         transcripts go to files there too.
@@ -258,7 +260,7 @@ class Botbox:
         home = self._home_files()
         image = await self.build()
         channel = agent.channel = Channel()
-        agent.result = None
+        self.result = None
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         ended = RunResult(-1)
@@ -305,7 +307,7 @@ class Botbox:
             finally:
                 try:
                     agent.channel = None
-                    agent.result = ended
+                    self.result = ended
                 finally:
                     await settle(
                         warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory")
@@ -313,7 +315,7 @@ class Botbox:
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
-            raise Timeout(limit, agent.result or RunResult(-1)) from timed_out
+            raise Timeout(limit, self.result or RunResult(-1)) from timed_out
 
     async def _attach(  # noqa: PLR0913
         self,

@@ -1029,14 +1029,15 @@ def describe_session() -> None:
     async def it_yields_the_agent_on_a_new_channel_and_leaves_its_result(
         talker: Mock, channel: Mock, hold_session: Mock
     ) -> None:
-        talker.result = Mock(name="last session's")
-        async with Botbox(talker).session() as agent:
+        box = Botbox(talker)
+        box.result = Mock(name="last session's")
+        async with box.session() as agent:
             assert agent is talker
             assert talker.channel is channel.return_value
-            assert talker.result is None
+            assert box.result is None
         assert hold_session.call_args.args[1] is channel.return_value
         assert talker.channel is None
-        assert talker.result is ENDED
+        assert box.result is ENDED
 
     async def it_lets_an_agent_refuse_a_session_before_building(
         talker: Mock, docker_build: Mock
@@ -1198,18 +1199,21 @@ def describe_session() -> None:
             failed = CommandFailed()
             agent_exit.side_effect = failed
             with pytest.raises(CommandFailed) as raised:
-                async with Botbox(talker).session():
+                box = Botbox(talker)
+                async with box.session():
                     pass
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp directory"
-            assert asdict(talker.result) == {"exit_code": -1, "oom_killed": None}
+            assert box.result is not None
+            assert asdict(box.result) == {"exit_code": -1, "oom_killed": None}
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
             talker: Mock, steps: list[str]
         ) -> None:
             with pytest.raises(ValueError, match="boom"):
-                async with Botbox(talker).session():
+                box = Botbox(talker)
+                async with box.session():
                     raise ValueError("boom")
             assert run_steps(steps) == [
                 "start proxy",
@@ -1223,13 +1227,15 @@ def describe_session() -> None:
                 "remove temp directory",
                 "warned: remove its temp directory",
             ]
-            assert talker.result.exit_code == -1
+            assert box.result is not None
+            assert box.result.exit_code == -1
 
         async def it_tears_down_when_cancelled_mid_turn(talker: Mock, steps: list[str]) -> None:
             talking = asyncio.Event()
+            box = Botbox(talker)
 
             async def talk() -> None:
-                async with Botbox(talker).session():
+                async with box.session():
                     talking.set()
                     await asyncio.Event().wait()
 
@@ -1250,7 +1256,8 @@ def describe_session() -> None:
                 "remove temp directory",
                 "warned: remove its temp directory",
             ]
-            assert talker.result.exit_code == -1
+            assert box.result is not None
+            assert box.result.exit_code == -1
 
         async def it_raises_a_client_that_failed_to_start(
             talker: Mock, held: Mock, steps: list[str]
@@ -1290,11 +1297,13 @@ def describe_session() -> None:
             talker: Mock, steps: list[str]
         ) -> None:
             with pytest.raises(Timeout) as raised:
-                async with Botbox(talker, timeout=0.01).session():
+                box = Botbox(talker, timeout=0.01)
+                async with box.session():
                     await asyncio.Event().wait()
             assert raised.value.seconds == 0.01
-            assert raised.value.result == talker.result
-            assert talker.result.exit_code == -1
+            assert raised.value.result == box.result
+            assert box.result is not None
+            assert box.result.exit_code == -1
             assert run_steps(steps) == [
                 "start proxy",
                 "hold session",
@@ -1327,10 +1336,11 @@ def describe_session() -> None:
             assert raised.value.seconds == 0.01
 
         async def it_leaves_a_session_that_ends_in_time(talker: Mock) -> None:
-            async with Botbox(talker, timeout=60).session():
+            box = Botbox(talker, timeout=60)
+            async with box.session():
                 pass
-            assert talker.result is not None
-            assert talker.result.exit_code == 3
+            assert box.result is not None
+            assert box.result.exit_code == 3
 
         async def it_holds_no_exit_code_when_the_session_never_started(
             talker: Mock, lockdown: Mock
@@ -1377,11 +1387,12 @@ def describe_session() -> None:
         ) -> None:
             (tmp_path / "stdout.txt").write_text("old")
             (tmp_path / "keep").write_text("keep")
-            async with Botbox(talker).session(output=tmp_path) as live:
+            box = Botbox(talker)
+            async with box.session(output=tmp_path):
                 pass
             assert agent_exit.call_args.args[2] == "err\n"
-            assert live.result is not None
-            assert live.result.exit_code == 3
+            assert box.result is not None
+            assert box.result.exit_code == 3
             assert (tmp_path / "stdout.txt").read_bytes() == b""
             assert (tmp_path / "keep").read_text() == "keep"
 

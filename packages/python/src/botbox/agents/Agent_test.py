@@ -21,7 +21,6 @@ def describe_agent() -> None:
             "dockerfile",
             "home",
             "image",
-            "result",
             "sessions_dir",
         }
 
@@ -77,9 +76,6 @@ def describe_outside_a_session() -> None:
     def it_refuses_a_callback() -> None:
         with pytest.raises(RuntimeError, match="no session open"):
             OneShot().on("reply", print)
-
-    def it_has_no_result_yet() -> None:
-        assert OneShot().result is None
 
 
 def describe_in_a_session() -> None:

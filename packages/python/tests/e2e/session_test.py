@@ -122,7 +122,7 @@ def talk(harness: str, output: Path) -> Talk:
             said.append(await reply_with(replies, "alive"))
             await live.send("What codeword did I give you? Reply with the codeword only.")
             said.append(await reply_with(replies, "heron"))
-        assert live.result is not None
+        assert box.result is not None
         return Talk(
             said,
             [message async for message in first],
@@ -130,7 +130,7 @@ def talk(harness: str, output: Path) -> Talk:
             called_replies,
             called_messages,
             arrivals,
-            live.result,
+            box.result,
         )
 
     return asyncio.run(run())

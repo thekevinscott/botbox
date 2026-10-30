@@ -10,20 +10,21 @@ async with box.session(
 ) as live: ...
 ```
 
-Starts the agent's CLI in its session mode and holds it open, yielding the agent. `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `agent.result`. With `output`, `stdout.txt` holds every line the CLI wrote.
+Starts the agent's CLI in its session mode and holds it open, yielding the agent. `mounts`, `workdir` and `timeout` are as for [`run()`](./run), and so are the lockdown, labels and temp directory. Background processes the agent starts live until the session ends. Leaving the block ends the CLI's input, waits for it to exit and removes the session's containers and temp directory. Then the [`RunResult`](./run-result) is in `box.result`. With `output`, `stdout.txt` holds every line the CLI wrote.
 
 - `output` is as for [`run()`](./run): the CLI's stdout and stderr go to `stdout.txt` and `stderr.txt`, the proxy's output to `proxy.log`, and the transcripts to `transcripts/`. A failing `output` doesn't stop the messages. Read the files for what the session left. A Docker error carries the last 64 KiB of stderr. Omit `output` and the streams, transcripts and proxy log are deleted after the session.
-- `timeout` covers the whole block and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `agent.result`.
-- Cancelling the task, or an `asyncio.timeout` firing, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `agent.result` has `exit_code` -1, and what was written so far stays in `output`.
+- `timeout` covers the whole block and the wait for the CLI to exit. When it runs out, the session tears down as a cancel does and raises [`botbox.Timeout`](./botbox#timeout), whose `result` is `box.result`.
+- Cancelling the task, or an `asyncio.timeout` firing, kills the CLI and tears the session down, even through a second cancel. So does an exception out of the block. `box.result` has `exit_code` -1, and what was written so far stays in `output`.
 - A Docker client that dies while the daemon is up, or a container that never started, raises `DockerException` when the block ends, as `run()` does.
 - Raises `NotImplementedError` for an agent with no session mode, such as `CodexAgent`, before anything is built.
 
 ```python
-async with Botbox(ClaudeAgent()).session() as agent:
+box = Botbox(ClaudeAgent())
+async with box.session() as agent:
     replies = agent.replies
     await agent.send("Fix the failing test.")
     print((await anext(replies)).text)
-print(agent.result.exit_code)
+print(box.result.exit_code)
 ```
 
 ## The agent in a session
@@ -33,7 +34,6 @@ await agent.send(text: str)
 agent.replies -> AsyncIterator[Message]
 agent.messages -> AsyncIterator[Message]
 agent.on(kind: Literal["reply", "message"], callback: Callable[[Message], object])
-agent.result -> RunResult | None
 ```
 
 `await agent.send(text)` writes `text` to the CLI in its harness's input format and returns. It doesn't wait for an answer.

@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Agent, Botbox, ClaudeAgent, RunResult
+from botbox import Botbox, ClaudeAgent, RunResult
 
 
 class ArtifactAgent(ClaudeAgent):
@@ -40,11 +40,9 @@ def describe_session_artifacts() -> None:
         box = Botbox(ArtifactAgent())
         output = tmp_path / "output"
         error = ValueError("caller failed")
-        live: Agent | None = None
         scratches: list[Path] = []
 
         async def run() -> None:
-            nonlocal live
             async with box.session(output=output) as live:
                 scratches.extend(temp.iterdir())
                 assert not (scratches[0] / "home").exists()
@@ -61,8 +59,7 @@ def describe_session_artifacts() -> None:
         else:
             with pytest.raises(ValueError if outcome == "error" else asyncio.CancelledError):
                 await run()
-        assert live is not None
-        assert live.result == (
+        assert box.result == (
             RunResult(0, oom_killed=False) if outcome == "normal" else RunResult(-1)
         )
         assert (output / "transcripts" / "turn.jsonl").read_text() == "transcript\n"

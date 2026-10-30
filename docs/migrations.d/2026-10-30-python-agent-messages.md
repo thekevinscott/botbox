@@ -25,10 +25,11 @@ async with box.session() as agent:
         print(message.type, message.event)
         if message.type == agent.MESSAGE_TYPE.ASSISTANT and message.text:
             break
-print(agent.result)
+print(box.result)
 ```
 
 - `botbox.Session` is gone. Type a session as the agent.
+- A session's `RunResult` is in `box.result`, not on what the block yields.
 - `Agent.parse_event(line)` is gone. A custom agent overrides `read_message(line) -> Message | None` and sets `MESSAGE_TYPE`, a `StrEnum` with an `ASSISTANT` member.
 - Events that aren't messages, such as Claude's `result` or pi's `agent_settled`, are no longer yielded. Read them from `output/stdout.txt`.
 

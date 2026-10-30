@@ -8,7 +8,6 @@ from botbox.agents.Channel import Channel
 from botbox.agents.HomeFiles import HomeFiles
 from botbox.agents.Message import Message
 from botbox.credential_proxy import CredentialSource
-from botbox.RunResult import RunResult
 
 NO_SESSION = "NOT IMPLEMENTED: {name} has no session mode."
 
@@ -21,16 +20,13 @@ class Agent(ABC):
     overrides `session_command`, `encode` and `read_message`.
 
     While `Botbox.session()` holds its CLI open, `send` writes to it, and `messages`, `replies`
-    and `on` hear what it prints. `result` is set once
-    the session's block is left.
+    and `on` hear what it prints.
     """
 
     MESSAGE_TYPE: type[StrEnum]
     """The harness's message types, in its own names; ASSISTANT is the agent's own."""
     channel: Channel | None = None
     """The running session's CLI, or None."""
-    result: RunResult | None = None
-    """How the last session ended, once its block is left."""
 
     image: str
     dockerfile: Path

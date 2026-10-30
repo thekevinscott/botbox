@@ -29,6 +29,8 @@ Botbox(
 
 `Botbox` is an async context manager. Inside `async with Botbox(...) as box:`, SIGTERM cancels the task that entered the block, so a run or session in progress tears down, then the block raises `SystemExit(143)`. Any other cancel propagates as usual. A SIGTERM handler you set yourself is left alone, and off the main thread nothing changes. [`build()`](./build), [`run()`](./run) and [`session()`](./session) work without the block too.
 
+`box.result` is the [`RunResult`](./run-result) of the box's last [`session()`](./session), set once its block is left; `None` before the first and while one is open. `run()` returns its result instead.
+
 Don't fork while a run is in progress. A forked child inherits the run's pipes and the event loop's state. Start a process pool before any run, or use the `spawn` or `forkserver` start method.
 
 A sync caller wraps each call in `asyncio.run(...)`.

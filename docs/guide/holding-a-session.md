@@ -14,7 +14,7 @@ async with Botbox(agent) as box:
         print((await anext(replies)).text)
         await live.send("Now run the tests against it")
         print((await anext(replies)).text)
-    result = live.result
+    result = box.result
 ```
 
 `session()` yields the agent. `await live.send(text)` sends a message and returns without waiting. `live.replies` yields the agent's messages that have text, as they arrive. An agent may say several things in answer to one message, so read until you have what you need. `live.messages` yields every message, the agent's tool calls and their results included. Each [`Message`](../api/session#message) has a `type`, its `text` and the CLI's raw `event`.
@@ -31,7 +31,7 @@ async with Botbox(alice).session() as a, Botbox(bob).session() as b:
     print((await anext(from_b)).text)
 ```
 
-Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `live.result` holds the [`RunResult`](../api/run-result), and the CLI's streams, transcripts and proxy log are in `output`. If the block raises or is cancelled, `live.result` has `exit_code` -1 and `output` keeps what was written.
+Leaving the `async with` block ends the CLI's input, waits for it to exit and tears the session down. Then `box.result` holds the [`RunResult`](../api/run-result), and the CLI's streams, transcripts and proxy log are in `output`. If the block raises or is cancelled, `box.result` has `exit_code` -1 and `output` keeps what was written.
 
 `ClaudeAgent` and `PiAgent` have a session mode. `CodexAgent` does not: to hold a session with a Codex model, run it through pi on OpenRouter, `PiAgent("openrouter", "openai/<model>")`.
 
