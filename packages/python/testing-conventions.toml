@@ -33,3 +33,8 @@ path = "src/botbox/Botbox.py"
 rules = ["mutation"]
 lines = ["225", "302"]
 reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
+
+[[python.exempt]]
+path = "src/botbox/Timeout.py"
+rules = ["co-change"]
+reason = "#315 docstring-only change: drops the session mention. Behavior unchanged. Remove for the next behavioral edit."
