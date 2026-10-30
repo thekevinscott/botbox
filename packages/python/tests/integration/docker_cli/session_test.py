@@ -1,6 +1,7 @@
 """`Botbox.session()` against a fake `docker` on PATH that keeps each container's state."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
 
@@ -75,6 +76,15 @@ def describe_session() -> None:
                 assert (await live.message("hi"))[-1] == {"type": "result", "result": "HI"}
             assert stdout(output).startswith(large)
 
+        async def it_reads_an_event_far_past_a_pipe_chunk(
+            box: Botbox, daemon: Daemon, output: Path
+        ) -> None:
+            large = {"type": "assistant", "said": "x" * (16 << 20)}
+            daemon.agent(SESSION, mode="session", stdout=json.dumps(large) + "\n")
+            async with box.session(output=output) as live:
+                assert (await live.message("hi"))[0] == large
+            assert stdout(output).startswith(json.dumps(large) + "\n")
+
         async def it_ends_a_turn_the_cli_cuts_short_with_what_arrived(
             talker: Botbox, output: Path
         ) -> None:
@@ -115,7 +125,7 @@ def describe_session() -> None:
             ]
 
     def describe_output() -> None:
-        async def it_reads_events_from_its_own_copy_when_the_output_is_truncated(
+        async def it_streams_events_whatever_happens_to_the_output_file(
             talker: Botbox, output: Path
         ) -> None:
             async with talker.session(output=output) as live:
@@ -144,7 +154,7 @@ def describe_session() -> None:
             assert live.result == RunResult(0, oom_killed=False)
             assert list(temp.iterdir()) == []
 
-        async def it_streams_events_from_the_files_it_writes(
+        async def it_writes_what_it_streams_to_the_output(
             talker: Botbox, daemon: Daemon, temp: Path, tmp_path: Path
         ) -> None:
             daemon.agent(SESSION, mode="session", stdout="booting\n", stderr="diagnostic\n")

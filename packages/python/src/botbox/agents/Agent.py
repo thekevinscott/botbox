@@ -1,4 +1,6 @@
+import json
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +15,7 @@ class Agent(ABC):
 
     Subclass it and implement `stage_auth` and `command`. An agent whose CLI can hold a live
     session, messages in on stdin and events out on stdout, also overrides `session_command`,
-    `encode` and `turn_ended`.
+    `encode` and `turn_ended`, and `decode` if its events aren't JSON objects.
     """
 
     image: str
@@ -48,3 +50,11 @@ class Agent(ABC):
     def turn_ended(self, event: dict[str, Any]) -> bool:
         """Whether `event`, one line of the CLI's stdout, is the last of a turn."""
         raise NotImplementedError(NO_SESSION.format(name=type(self).__name__))
+
+    def decode(self, line: bytes) -> dict[str, Any] | None:
+        """The event `line`, one line of the CLI's stdout, holds: a JSON object; None if none."""
+        with suppress(ValueError):
+            event = json.loads(line)
+            if isinstance(event, dict):
+                return event
+        return None

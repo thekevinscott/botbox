@@ -1,11 +1,13 @@
 import asyncio
 import json
 from collections.abc import Iterator
+from functools import partial
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from botbox.agents.Agent import Agent
 from botbox.Session import Session
 
 
@@ -21,6 +23,7 @@ class Live:
             encode=lambda message: f"<{message}>",
             turn_ended=lambda event: event.get("type") == "end",
         )
+        self.agent.decode = partial(Agent.decode, self.agent)
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
         self.reader = asyncio.StreamReader(limit=1_000_000)
@@ -227,6 +230,11 @@ def describe_Session() -> None:
         session = Session(live.agent, live.stdin, live.client, AsyncMock(return_value=b""))
         assert await session.message("hi") == []
         assert not live.client.done()
+
+    async def it_takes_events_as_the_agent_decodes_them(live: Live) -> None:
+        live.agent.decode = lambda line: {"type": "end", "line": line}
+        live.print(b"anything\n")
+        assert await live.session.message("hi") == [{"type": "end", "line": b"anything\n"}]
 
     async def it_propagates_a_reader_failure_without_cancelling_the_client(live: Live) -> None:
         reader = AsyncMock(side_effect=OSError("reader failed"))

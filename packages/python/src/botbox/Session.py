@@ -1,5 +1,4 @@
 import asyncio
-import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import suppress
 from typing import Any
@@ -39,7 +38,7 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines that aren't JSON objects stay in stdout but aren't events. If the
+        Lines the agent can't decode stay in stdout but aren't events. If the
         CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
         end before the next message goes.
         """
@@ -59,10 +58,8 @@ class Session:
         return [event async for event in self.stream(text)]
 
     async def event(self) -> dict[str, Any] | None:
-        """The next JSON object the CLI prints; None once it has exited without another."""
+        """The next event the CLI prints; None once it has exited without another."""
         while line := await self._readline():
-            with suppress(ValueError):
-                event = json.loads(line)
-                if isinstance(event, dict):
-                    return event
+            if (event := self.agent.decode(line)) is not None:
+                return event
         return None

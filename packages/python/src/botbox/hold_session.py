@@ -4,15 +4,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, cast
 
-from posix_tools import tail
-
 from adocker import Container, Image
 from botbox.agents.Agent import Agent
 from botbox.process import settle
 from botbox.send_home import send_home
 from botbox.Session import Session
 from botbox.utils.abort_writer import abort_writer
-from botbox.utils.FileLines import FileLines
+from botbox.utils.Lines import Lines
 from botbox.write import write
 
 
@@ -30,42 +28,48 @@ async def hold_session(  # noqa: PLR0913
     """Start `command` on `image` attached, with `options`, and yield a session on it.
 
     stdout and stderr go to stdout.txt and stderr.txt in `scratch`, and in `output` too if
-    given; events are read from the scratch copy. Leaving the block stops the client if it is
-    still running, through any number of cancels; the container lives on for the caller to
-    remove.
+    given; each stdout line also goes to the session as it is printed. Leaving the block stops
+    the client if it is still running, through any number of cancels; the container lives on
+    for the caller to remove.
     """
     also = [] if output is None else [output]
-    printed = scratch / "stdout.txt"
     with (
         write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
         write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
     ):
-        async with tail(printed, n=None, follow=True) as followed:
-            lines = FileLines(printed, followed)
+        printed: asyncio.Queue[bytes] = asyncio.Queue()
 
-            def print_line(chunk: bytes) -> None:
-                out(chunk)
-                lines.grew(len(chunk))
+        def print_line(line: bytes) -> None:
+            out(line)
+            printed.put_nowait(line)
 
+        def ended(_client: asyncio.Future[int]) -> None:
+            stdout.close()
+            printed.put_nowait(b"")
+
+        async def readline() -> bytes:
+            line = await printed.get()
+            if not line:
+                printed.put_nowait(line)
+            return line
+
+        stdout = Lines(print_line)
+        container = await Image(image).run(
+            *command,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=stdout,
+            stderr=err,
+            **options,
+        )
+        client = cast("asyncio.Task[int]", container.client)
+        stdin = cast("asyncio.StreamWriter", container.stdin)
+        client.add_done_callback(ended)
+        try:
+            await send_home(stdin, home)
+            yield Session(agent, stdin, client, readline), container
+        finally:
             try:
-                container = await Image(image).run(
-                    *command,
-                    stdin=asyncio.subprocess.PIPE,
-                    stdout=print_line,
-                    stderr=err,
-                    **options,
-                )
-                client = cast("asyncio.Task[int]", container.client)
-                stdin = cast("asyncio.StreamWriter", container.stdin)
-                try:
-                    await send_home(stdin, home)
-                    client.add_done_callback(lambda _: lines.end())
-                    yield Session(agent, stdin, client, lines.readline), container
-                finally:
-                    try:
-                        client.cancel()
-                        await settle(asyncio.gather(client, return_exceptions=True))
-                    finally:
-                        abort_writer(stdin)
+                client.cancel()
+                await settle(asyncio.gather(client, return_exceptions=True))
             finally:
-                await lines.close()
+                abort_writer(stdin)

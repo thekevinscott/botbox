@@ -1,12 +1,14 @@
 import asyncio
 import os
 from collections.abc import Iterator
+from functools import partial
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
+from botbox.agents.Agent import Agent
 from botbox.hold_session import hold_session
 
 
@@ -77,7 +79,9 @@ def abort_writer() -> Iterator[Mock]:
 
 @pytest.fixture
 def agent() -> Mock:
-    return Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
+    agent = Mock(encode=lambda message: message, turn_ended=lambda event: event == {"type": "end"})
+    agent.decode = partial(Agent.decode, agent)
+    return agent
 
 
 @pytest.fixture
@@ -104,7 +108,7 @@ def describe_hold_session() -> None:
             assert live.stdin is container.stdin
             assert live.client is container.client
 
-    async def it_streams_the_clis_output_back_to_the_session_from_scratch(
+    async def it_streams_the_clis_output_to_the_session_and_scratch(
         agent: Mock, scratch: Path
     ) -> None:
         async with hold(agent, scratch) as (live, _):
