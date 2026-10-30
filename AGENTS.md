@@ -36,6 +36,9 @@ Conventions, supervision rules, and per-language style live under
   code. A PR based on another branch can auto-merge into it, landing unreviewed
   inside that PR and making its e2e receipt stale.
 - Use `just` for local tasks (`just lint`, `just test`, `just ci`).
+- **Prefer remote CI to running tests locally.** Lint and typecheck locally are
+  fine. Run tests locally when iterating on a specific failure, and let CI run
+  the rest. The e2e receipt below is the exception: it has to be run locally.
 - `just test-e2e` reads `.env` from the checkout root. In a worktree under
   `.worktrees/<name>/`, symlink it first: `ln -s ../../.env .env`.
 - **CI stays red until a PR that touches `src/` or `tests/e2e/` has a fresh
