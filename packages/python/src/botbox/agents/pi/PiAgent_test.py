@@ -404,3 +404,17 @@ def describe_session() -> None:
         assert agent.turn_ended({"type": "agent_end", "willRetry": True}) is False
         assert agent.turn_ended({"type": "response", "command": "prompt"}) is False
         assert agent.turn_ended({}) is False
+
+
+def describe_message_type() -> None:
+    def it_names_rpc_message_roles() -> None:
+        assert {member.name: member.value for member in PiAgent.MESSAGE_TYPE} == {
+            "ASSISTANT": "assistant",
+            "USER": "user",
+            "TOOL_RESULT": "toolResult",
+            "SYSTEM": "system",
+            "BASH_EXECUTION": "bashExecution",
+            "CUSTOM": "custom",
+            "BRANCH_SUMMARY": "branchSummary",
+            "COMPACTION_SUMMARY": "compactionSummary",
+        }

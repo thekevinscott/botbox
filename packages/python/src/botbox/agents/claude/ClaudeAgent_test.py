@@ -310,3 +310,11 @@ def describe_tool_timeout() -> None:
     def it_rejects_a_negative_limit() -> None:
         with pytest.raises(ValueError, match="tool_timeout is in seconds"):
             ClaudeAgent(tool_timeout=-1)
+
+
+def describe_message_type() -> None:
+    def it_names_stream_json_message_types() -> None:
+        assert {member.name: member.value for member in ClaudeAgent.MESSAGE_TYPE} == {
+            "ASSISTANT": "assistant",
+            "USER": "user",
+        }
