@@ -434,6 +434,8 @@ def runner() -> Mock:
         home="/home/user",
         allow=("api.anthropic.com",),
         credential_source=None,
+        channel=None,
+        result=None,
     )
     agent.sessions_dir = ".claude/projects"
     agent.stage_auth.side_effect = lambda home: home.write(".credentials", "token")
@@ -974,31 +976,36 @@ def describe_run() -> None:
 
 @pytest.fixture
 def held(steps: list[str]) -> Mock:
-    """The live session `hold_session` yields: its CLI exits 3 once input ends."""
-    live = Mock(result=None)
+    """The container `hold_session` yields: its CLI exits 3 once input ends."""
+    container = Mock()
 
     def end_input() -> None:
         steps.append("end input")
-        live.client.set_result(3)
+        container.client.set_result(3)
 
-    live.stdin.close.side_effect = end_input
-    return live
+    container.stdin.close.side_effect = end_input
+    return container
+
+
+@pytest.fixture(autouse=True)
+def channel() -> Iterator[Mock]:
+    with patch("botbox.Botbox.Channel", autospec=True) as m:
+        yield m
 
 
 @pytest.fixture(autouse=True)
 def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
     @asynccontextmanager
     async def hold(
-        agent: Any, _image: str, _command: Any, *, scratch: Path, name: str, **_: Any
-    ) -> AsyncIterator[tuple[Mock, Mock]]:
-        held.agent = agent
+        agent: Any, channel: Any, _image: str, _command: Any, *, scratch: Path, name: str, **_: Any
+    ) -> AsyncIterator[Mock]:
+        assert agent.channel is channel
         held.client = asyncio.get_running_loop().create_future()
+        held.name = name
         (scratch / "stderr.txt").write_bytes(b"err\n")
         steps.append("hold session")
         try:
-            container = Mock()
-            container.name = name
-            yield held, container
+            yield held
         finally:
             steps.append("release session")
 
@@ -1008,7 +1015,7 @@ def hold_session(held: Mock, steps: list[str]) -> Iterator[Mock]:
 
 def session_options(hold_session: Mock) -> dict[str, Any]:
     """`hold_session`'s options, with its image and command."""
-    [_agent, image, command] = hold_session.call_args.args
+    [_agent, _channel, image, command] = hold_session.call_args.args
     return {**hold_session.call_args.kwargs, "image": image, "command": list(command)}
 
 
@@ -1019,12 +1026,44 @@ def describe_session() -> None:
         runner.session_command.return_value = "an-agent --stream"
         return runner
 
-    async def it_yields_the_held_session_and_leaves_its_result(talker: Mock, held: Mock) -> None:
-        async with Botbox(talker).session() as live:
-            assert live is held
-            assert live.result is None
-        assert live.result is not None
-        assert live.result is ENDED
+    async def it_yields_the_agent_on_a_new_channel_and_leaves_its_result(
+        talker: Mock, channel: Mock, hold_session: Mock
+    ) -> None:
+        talker.result = Mock(name="last session's")
+        async with Botbox(talker).session() as agent:
+            assert agent is talker
+            assert talker.channel is channel.return_value
+            assert talker.result is None
+        assert hold_session.call_args.args[1] is channel.return_value
+        assert talker.channel is None
+        assert talker.result is ENDED
+
+    async def it_refuses_an_agent_with_a_session_open_before_building(
+        talker: Mock, docker_build: Mock
+    ) -> None:
+        talker.channel = open_ = Mock()
+        with pytest.raises(RuntimeError, match="already has a session open"):
+            async with Botbox(talker).session():
+                pass
+        assert talker.channel is open_
+        docker_build.assert_not_called()
+
+    async def it_refuses_a_second_session_on_the_agent_while_one_is_open(
+        talker: Mock, docker_build: Mock
+    ) -> None:
+        async with Botbox(talker).session():
+            built = docker_build.call_count
+            with pytest.raises(RuntimeError, match="already has a session open"):
+                async with Botbox(talker).session():
+                    pass
+            assert docker_build.call_count == built
+
+    async def it_lets_the_agent_go_when_the_build_fails(talker: Mock, docker_build: Mock) -> None:
+        docker_build.side_effect = CommandFailed()
+        with pytest.raises(CommandFailed):
+            async with Botbox(talker).session():
+                pass
+        assert talker.channel is None
 
     async def it_lets_an_agent_refuse_a_session_before_building(
         talker: Mock, docker_build: Mock
@@ -1181,7 +1220,7 @@ def describe_session() -> None:
 
     def describe_failure() -> None:
         async def it_lets_a_failed_docker_command_through_after_tearing_down(
-            talker: Mock, agent_exit: Mock, held: Mock, steps: list[str]
+            talker: Mock, agent_exit: Mock, steps: list[str]
         ) -> None:
             failed = CommandFailed()
             agent_exit.side_effect = failed
@@ -1191,10 +1230,10 @@ def describe_session() -> None:
             assert raised.value is failed
             assert f"remove {AGENT}" in steps
             assert steps[-1] == "warned: remove its temp directory"
-            assert asdict(held.result) == {"exit_code": -1, "oom_killed": None}
+            assert asdict(talker.result) == {"exit_code": -1, "oom_killed": None}
 
         async def it_tears_down_without_ending_input_when_the_block_fails(
-            talker: Mock, held: Mock, steps: list[str]
+            talker: Mock, steps: list[str]
         ) -> None:
             with pytest.raises(ValueError, match="boom"):
                 async with Botbox(talker).session():
@@ -1211,11 +1250,9 @@ def describe_session() -> None:
                 "remove temp directory",
                 "warned: remove its temp directory",
             ]
-            assert held.result.exit_code == -1
+            assert talker.result.exit_code == -1
 
-        async def it_tears_down_when_cancelled_mid_turn(
-            talker: Mock, held: Mock, steps: list[str]
-        ) -> None:
+        async def it_tears_down_when_cancelled_mid_turn(talker: Mock, steps: list[str]) -> None:
             talking = asyncio.Event()
 
             async def talk() -> None:
@@ -1240,7 +1277,7 @@ def describe_session() -> None:
                 "remove temp directory",
                 "warned: remove its temp directory",
             ]
-            assert held.result.exit_code == -1
+            assert talker.result.exit_code == -1
 
         async def it_raises_a_client_that_failed_to_start(
             talker: Mock, held: Mock, steps: list[str]
@@ -1277,14 +1314,14 @@ def describe_session() -> None:
 
     def describe_timeout() -> None:
         async def it_raises_a_timeout_holding_what_the_session_left(
-            talker: Mock, held: Mock, steps: list[str]
+            talker: Mock, steps: list[str]
         ) -> None:
             with pytest.raises(Timeout) as raised:
                 async with Botbox(talker, timeout=0.01).session():
                     await asyncio.Event().wait()
             assert raised.value.seconds == 0.01
-            assert raised.value.result == held.result
-            assert held.result.exit_code == -1
+            assert raised.value.result == talker.result
+            assert talker.result.exit_code == -1
             assert run_steps(steps) == [
                 "start proxy",
                 "hold session",
@@ -1316,11 +1353,11 @@ def describe_session() -> None:
                     await asyncio.Event().wait()
             assert raised.value.seconds == 0.01
 
-        async def it_leaves_a_session_that_ends_in_time(talker: Mock, held: Mock) -> None:
+        async def it_leaves_a_session_that_ends_in_time(talker: Mock) -> None:
             async with Botbox(talker, timeout=60).session():
                 pass
-            assert held.result is not None
-            assert held.result.exit_code == 3
+            assert talker.result is not None
+            assert talker.result.exit_code == 3
 
         async def it_holds_no_exit_code_when_the_session_never_started(
             talker: Mock, lockdown: Mock

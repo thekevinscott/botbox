@@ -4,12 +4,14 @@ import shlex
 from collections.abc import Mapping
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 from botbox.agents.Agent import Agent
 from botbox.agents.claude.ClaudeApiKey import ClaudeApiKey
 from botbox.agents.claude.ClaudeLogin import ClaudeLogin
 from botbox.agents.HomeFiles import HomeFiles
+from botbox.agents.json_object import json_object
+from botbox.agents.Message import Message
+from botbox.agents.message_from import message_from
 from botbox.agents.with_env import with_env
 
 CREDENTIALS = ".credentials.json"
@@ -91,8 +93,11 @@ class ClaudeAgent(Agent):
     def encode(self, message: str) -> str:
         return json.dumps({"type": "user", "message": {"role": "user", "content": message}})
 
-    def turn_ended(self, event: dict[str, Any]) -> bool:
-        return bool(event.get("type") == "result")
+    def read_message(self, line: bytes) -> Message | None:
+        event = json_object(line)
+        if event is None or event.get("type") not in set(ClaudeMessageType):
+            return None
+        return message_from(event["type"], event.get("message"), event)
 
     def stage_auth(self, home: HomeFiles) -> None:
         if self.api_key is None:

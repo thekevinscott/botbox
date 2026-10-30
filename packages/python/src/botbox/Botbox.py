@@ -14,6 +14,7 @@ from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles
+from botbox.agents.Channel import Channel
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
@@ -25,7 +26,6 @@ from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.send_home import send_home
-from botbox.Session import Session
 from botbox.Timeout import Timeout
 from botbox.warned import warned
 from botbox.write import write
@@ -227,23 +227,26 @@ class Botbox:
         workdir: str | Path | None = None,
         timeout: float | None = None,
         output: str | Path | None = None,
-    ) -> AsyncIterator[Session]:
-        """Start the agent's CLI in its session mode in the locked-down container and hold it open.
+    ) -> AsyncIterator[Agent]:
+        """Start the agent's CLI in its session mode in the locked-down container, hold it open,
+        and yield the agent, which `send`s to it and hears it through `messages`, `replies` and
+        `on`.
 
         The same lockdown, home, credentials and mounts as `run()`, with the container labelled
         and its temp directory named the same way. Leaving the block ends the CLI's input, waits
         for it to exit, removes the session's containers and temp directory, and leaves the
-        `RunResult` in the session's `result`. Cancelling, or an error out of the block, kills the
+        `RunResult` in the agent's `result`. Raises `RuntimeError` if the agent already has a
+        session open. Cancelling, or an error out of the block, kills the
         CLI instead and tears down the same way, through any number of further cancels, leaving
         exit code -1 if none was read. Raises `NotImplementedError` for an agent with no session
         mode, before anything starts, and `DockerException` as `run()` does.
 
         The timeout, `timeout` or else the box's, covers the whole block, from once the image is
         built to the CLI's exit. When it runs out, the session tears down as a cancel does and
-        raises `Timeout` with the session's `result`.
+        raises `Timeout` with the agent's `result`.
 
         `output` is as for `run()`: the CLI's stdout and stderr, the proxy's output and the
-        transcripts go to files there too. Events are read from the temp directory's copy.
+        transcripts go to files there too.
         """
         agent = self.agent
         limit = self.timeout if timeout is None else check_timeout(timeout)
@@ -254,10 +257,9 @@ class Botbox:
         credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
         home = self._home_files()
-        image = await self.build()
+        channel, image = await self._claim_and_build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
-        live = None
         ended = RunResult(-1)
         deadline = asyncio.timeout(limit)
         try:
@@ -281,6 +283,7 @@ class Botbox:
                     try:
                         async with hold_session(
                             agent,
+                            channel,
                             image,
                             (RELAY, "sh", "-c", command),
                             home=home,
@@ -288,10 +291,10 @@ class Botbox:
                             output=output,
                             name=name,
                             **flags,
-                        ) as (live, container):
-                            yield live
-                            live.stdin.close()
-                            client = await live.client
+                        ) as container:
+                            yield agent
+                            cast("asyncio.StreamWriter", container.stdin).close()
+                            client = await cast("asyncio.Task[int]", container.client)
                         stderr = last_stderr(Path(scratch.name))
                         ended = await agent_exit(container, client, stderr)
                     finally:
@@ -300,8 +303,8 @@ class Botbox:
                         )
             finally:
                 try:
-                    if live is not None:
-                        live.result = ended
+                    agent.channel = None
+                    agent.result = ended
                 finally:
                     await settle(
                         warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory")
@@ -309,10 +312,23 @@ class Botbox:
         except TimeoutError as timed_out:
             if limit is None or not deadline.expired():
                 raise
-            result = None if live is None else live.result
-            if result is None:
-                result = RunResult(-1)
-            raise Timeout(limit, result) from timed_out
+            raise Timeout(limit, agent.result or RunResult(-1)) from timed_out
+
+    async def _claim_and_build(self) -> tuple[Channel, str]:
+        """Open a channel on the agent, then build the image; the agent is let go if that fails.
+
+        Claimed before the first await, so a second session on the agent can't start meanwhile.
+        """
+        agent = self.agent
+        if agent.channel is not None:
+            raise RuntimeError(f"{type(agent).__name__} already has a session open")
+        channel = agent.channel = Channel()
+        agent.result = None
+        try:
+            return channel, await self.build()
+        except BaseException:
+            agent.channel = None
+            raise
 
     async def _attach(  # noqa: PLR0913
         self,

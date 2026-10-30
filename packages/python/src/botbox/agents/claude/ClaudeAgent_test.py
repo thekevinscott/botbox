@@ -71,6 +71,14 @@ def home() -> "HomeFiles":
     return cast("HomeFiles", Home())
 
 
+def fields(message: object) -> tuple[object, ...]:
+    return (
+        getattr(message, "type", None),
+        getattr(message, "text", None),
+        getattr(message, "event", None),
+    )
+
+
 def describe_the_container() -> None:
     def it_names_its_own_image(agent: ClaudeAgent) -> None:
         assert agent.image == "botbox-claude:latest"
@@ -261,18 +269,50 @@ def describe_session() -> None:
     def it_encodes_on_one_line() -> None:
         assert "\n" not in ClaudeAgent().encode("two\nlines")
 
-    def it_ends_the_turn_at_the_result() -> None:
-        assert ClaudeAgent().turn_ended({"type": "result", "subtype": "success"}) is True
+    def it_reads_an_assistant_message_and_its_text_parts() -> None:
+        event = {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "one "},
+                    {"type": "tool_use", "name": "Bash", "input": {}},
+                    {"type": "text", "text": "two"},
+                ],
+            },
+        }
+        message = ClaudeAgent().read_message(json.dumps(event).encode() + b"\n")
+        assert fields(message) == ("assistant", "one two", event)
+        assert fields(message)[0] == ClaudeAgent.MESSAGE_TYPE.ASSISTANT
 
-    def it_compares_the_event_type_by_value() -> None:
-        parsed = "".join(["res", "ult"])
-        assert ClaudeAgent().turn_ended({"type": parsed}) is True
+    def it_reads_a_tool_result_as_a_user_message_with_no_text() -> None:
+        event = {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "tool_result", "content": "hi"}]},
+        }
+        message = ClaudeAgent().read_message(json.dumps(event).encode())
+        assert fields(message) == ("user", "", event)
 
-    def it_keeps_the_turn_open_until_then() -> None:
-        agent = ClaudeAgent()
-        assert agent.turn_ended({"type": "assistant"}) is False
-        assert agent.turn_ended({"type": "system", "subtype": "init"}) is False
-        assert agent.turn_ended({}) is False
+    def it_reads_string_content_as_the_text() -> None:
+        event = {"type": "user", "message": {"role": "user", "content": "hi"}}
+        message = ClaudeAgent().read_message(json.dumps(event).encode())
+        assert fields(message) == ("user", "hi", event)
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            b'{"type": "system", "subtype": "init"}\n',
+            b'{"type": "result", "result": "done"}\n',
+            b'{"type": "rate_limit_event"}\n',
+            b'{"type": "assistant"}\n',
+            b'{"type": "assistant", "message": "hi"}\n',
+            b"starting\n",
+            b"[1, 2]\n",
+            b"\xff\xfe\n",
+        ],
+    )
+    def it_reads_no_message_from_anything_else(line: bytes) -> None:
+        assert ClaudeAgent().read_message(line) is None
 
 
 def describe_tool_timeout() -> None:

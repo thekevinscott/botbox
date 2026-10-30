@@ -249,9 +249,9 @@ def describe_session() -> None:
         with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
             CodexAgent().encode("hi")
 
-    def it_ends_no_turn() -> None:
+    def it_reads_no_message() -> None:
         with pytest.raises(NotImplementedError, match="NOT IMPLEMENTED"):
-            CodexAgent().turn_ended({"type": "turn/completed"})
+            CodexAgent().read_message(b"{}\n")
 
 
 def describe_tool_timeout() -> None:

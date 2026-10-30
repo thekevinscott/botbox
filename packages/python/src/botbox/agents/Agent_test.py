@@ -1,5 +1,7 @@
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, get_type_hints
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -12,11 +14,14 @@ if TYPE_CHECKING:
 def describe_agent() -> None:
     def it_declares_what_an_agent_knows() -> None:
         assert set(get_type_hints(Agent)) == {
+            "MESSAGE_TYPE",
             "allow",
+            "channel",
             "credential_source",
             "dockerfile",
             "home",
             "image",
+            "result",
             "sessions_dir",
         }
 
@@ -51,20 +56,95 @@ def describe_agent() -> None:
             ):
                 OneShot().encode("hi")
 
-        def it_ends_no_turn() -> None:
+        def it_reads_no_message() -> None:
             with pytest.raises(
                 NotImplementedError, match=r"^NOT IMPLEMENTED: OneShot has no session mode\.$"
             ):
-                OneShot().turn_ended({"type": "turn/completed"})
+                OneShot().read_message(b"{}\n")
 
 
-def describe_parse_event() -> None:
-    def it_parses_a_json_object() -> None:
-        assert OneShot().parse_event(b'{"type": "end"}\n') == {"type": "end"}
+def describe_outside_a_session() -> None:
+    async def it_refuses_to_send() -> None:
+        with pytest.raises(RuntimeError, match="OneShot has no session open"):
+            await OneShot().send("hi")
 
-    @pytest.mark.parametrize("line", [b"starting\n", b"[1, 2]\n", b"\n", b"\xff\xfe\n", b'{"n":'])
-    def it_holds_no_event_in_anything_else(line: bytes) -> None:
-        assert OneShot().parse_event(line) is None
+    def it_refuses_to_open_messages_or_replies() -> None:
+        with pytest.raises(RuntimeError, match="no session open"):
+            _ = OneShot().messages
+        with pytest.raises(RuntimeError, match="no session open"):
+            _ = OneShot().replies
+
+    def it_refuses_a_callback() -> None:
+        with pytest.raises(RuntimeError, match="no session open"):
+            OneShot().on("reply", print)
+
+    def it_has_no_result_yet() -> None:
+        assert OneShot().result is None
+
+
+def describe_in_a_session() -> None:
+    @pytest.fixture
+    def channel() -> Mock:
+        return Mock(send=AsyncMock())
+
+    @pytest.fixture
+    def agent(channel: Mock) -> "Talker":
+        agent = Talker()
+        agent.channel = channel
+        return agent
+
+    async def it_sends_the_encoded_message_on_one_line(agent: "Talker", channel: Mock) -> None:
+        await agent.send("hi")
+        channel.send.assert_awaited_once_with(b"<hi>\n")
+
+    def it_opens_messages_on_everything(agent: "Talker", channel: Mock) -> None:
+        assert agent.messages is channel.subscribe.return_value
+        [wanted] = channel.subscribe.call_args.args
+        assert wanted(Mock(type="tool", text="")) is True
+
+    def it_opens_replies_on_the_agents_own_messages_with_text(
+        agent: "Talker", channel: Mock
+    ) -> None:
+        assert agent.replies is channel.subscribe.return_value
+        [wanted] = channel.subscribe.call_args.args
+        assert wanted(Mock(type="assistant", text="hi")) is True
+        assert wanted(Mock(type="assistant", text="")) is False
+        assert wanted(Mock(type="tool", text="hi")) is False
+
+    def it_listens_for_replies_or_messages(agent: "Talker", channel: Mock) -> None:
+        agent.on("reply", print)
+        agent.on("message", print)
+        reply, message = (call.args for call in channel.listen.call_args_list)
+        assert reply[1] is message[1] is print
+        assert reply[0](Mock(type="tool", text="hi")) is False
+        assert message[0](Mock(type="tool", text="hi")) is True
+
+    def it_refuses_any_other_kind(agent: "Talker") -> None:
+        with pytest.raises(ValueError, match="'turn'"):
+            agent.on("turn", print)  # type: ignore[arg-type]
+
+
+class TalkerType(StrEnum):
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class Talker(Agent):
+    MESSAGE_TYPE = TalkerType
+    image = "an-agent:latest"
+    dockerfile = Path("/agents/an-agent.Dockerfile")
+    home = "/home/agent"
+    sessions_dir = "sessions"
+    allow = ()
+
+    def stage_auth(self, home: "HomeFiles") -> None:
+        pass
+
+    def command(self, prompt: str) -> str:
+        return prompt
+
+    def encode(self, message: str) -> str:
+        return f"<{message}>"
 
 
 class OneShot(Agent):
