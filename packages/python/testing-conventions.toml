@@ -11,15 +11,16 @@ lines = ["64"]
 reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 
 [[python.exempt]]
-path = "src/botbox/__init__.py"
-rules = ["co-change"]
-reason = "#181 import-only change (botbox.docker -> adocker). Behavioral tests are unchanged. Remove for the next behavioral edit."
+path = "src/botbox/Botbox.py"
+rules = ["mutation"]
+lines = ["364"]
+reason = "or -> and is equivalent: credential is None exactly when source is None. Each check narrows a different Optional for mypy"
 
 [[python.exempt]]
 path = "src/botbox/lockdown.py"
 rules = ["mutation"]
-lines = ["103"]
-reason = "stacklevel 1 -> 0 is equivalent: warnings treats both as the warn call's own frame"
+lines = ["104"]
+reason = "stacklevel 1 -> 0 is equivalent: warnings treats both as the warn call's own frame. ruff's B028 requires an explicit stacklevel"
 
 [[python.exempt]]
 path = "src/botbox/credential_proxy/preloaded.py"
@@ -28,90 +29,7 @@ lines = ["12"]
 reason = "!= -> < is equivalent: os.write never returns more than it was given"
 
 [[python.exempt]]
-path = "src/botbox/credential_proxy/wait_for_socket.py"
-rules = ["mutation"]
-lines = ["28"]
-reason = "> -> >= is equivalent: a monotonic float landing exactly on the deadline makes no observable difference"
-
-[[python.exempt]]
-path = "src/adocker/__init__.py"
-rules = ["co-change"]
-reason = "#251 export-only change: the classes replace the free functions. tests/integration/package_test.py covers the exports."
-
-[[python.exempt]]
-path = "src/botbox/process/__init__.py"
-rules = ["co-change"]
-reason = "#251 export-only change: owner_only and close_held left with StdinPipe."
-
-[[python.exempt]]
-path = "src/adocker/Image/Image.py"
-rules = ["mutation"]
-lines = ["63"]
-reason = "== -> is is equivalent: PIPE is the small int -1, which CPython caches"
-
-[[python.exempt]]
-path = "src/adocker/Image/Image.py"
-rules = ["mutation"]
-lines = ["97"]
-reason = "return_exceptions True -> False is equivalent: either way the error that ends up raised is the client's own, or the cancel"
-
-[[python.exempt]]
-path = "src/adocker/utils/execute.py"
-rules = ["mutation"]
-lines = ["13"]
-reason = "the chunk size is a tuning value: any positive size drains the same bytes"
-
-[[python.exempt]]
-path = "src/adocker/Image/run_args.py"
-rules = ["mutation"]
-lines = ["9"]
-reason = "* -> / only lets the internal caller pass flags by position; Image.run passes them all by keyword"
-
-[[python.exempt]]
-path = "src/botbox/hold_session.py"
-rules = ["mutation"]
-lines = ["24"]
-reason = "* -> / only lets the internal caller pass scratch and output by position; Botbox passes them by keyword"
-
-[[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
 lines = ["322", "399"]
-reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords"
-
-[[python.exempt]]
-path = "src/botbox/write.py"
-rules = ["mutation"]
-lines = ["30", "43"]
-reason = "is -> == is equivalent: targets are distinct paths, so only the first compares equal to itself"
-
-[[python.exempt]]
-path = "src/adocker/Image/Image.py"
-rules = ["co-change"]
-reason = "#271 docstring-only note. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/Botbox.py"
-rules = ["mutation"]
-lines = ["364"]
-reason = "or -> and is equivalent: credential is None exactly when source is None"
-
-[[python.exempt]]
-path = "src/botbox/Session.py"
-rules = ["co-change"]
-reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/build_steps.py"
-rules = ["co-change"]
-reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/hold_session.py"
-rules = ["co-change"]
-reason = "Agent base class: type-hint-only change: Agent replaces the SessionAgent protocol. Behavior unchanged. Remove for the next behavioral edit."
-
-[[python.exempt]]
-path = "src/botbox/agents/__init__.py"
-rules = ["co-change"]
-reason = "Agent base class: export-only change: SessionAgent and InjectingAgent removed. tests/integration/package_test.py covers the exports."
+reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
