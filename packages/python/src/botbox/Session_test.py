@@ -228,6 +228,13 @@ def describe_Session() -> None:
         assert await session.message("hi") == []
         assert not live.client.done()
 
+    async def it_stops_reading_once_stdout_has_ended(live: Live) -> None:
+        readline = AsyncMock(return_value=b"")
+        session = Session(live.agent, live.stdin, live.client, readline)
+        assert await session.message("one") == []
+        assert await session.message("two") == []
+        readline.assert_awaited_once()
+
     async def it_propagates_a_reader_failure_without_cancelling_the_client(live: Live) -> None:
         reader = AsyncMock(side_effect=OSError("reader failed"))
         session = Session(live.agent, live.stdin, live.client, reader)
