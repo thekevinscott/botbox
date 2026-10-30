@@ -1,0 +1,1 @@
+**Added**: `ClaudeAgent.MESSAGE_TYPE` and `PiAgent.MESSAGE_TYPE`, a `StrEnum` each of the message types their CLI prints: `ClaudeMessageType` (`assistant`, `user`) and `PiMessageType` (rpc mode's message roles, from `assistant` to `compactionSummary`).

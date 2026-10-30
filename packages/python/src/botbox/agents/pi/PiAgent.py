@@ -1,6 +1,7 @@
 import json
 import shlex
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -38,8 +39,23 @@ def resolve_allow(provider: str, model: str | None, models: Path, staged: bool) 
     return hosts
 
 
+class PiMessageType(StrEnum):
+    """rpc mode's message roles, as each `message_end` event gives them."""
+
+    ASSISTANT = "assistant"
+    USER = "user"
+    TOOL_RESULT = "toolResult"
+    SYSTEM = "system"
+    BASH_EXECUTION = "bashExecution"
+    CUSTOM = "custom"
+    BRANCH_SUMMARY = "branchSummary"
+    COMPACTION_SUMMARY = "compactionSummary"
+
+
 class PiAgent(Agent):
     """pi, on OpenRouter or any provider defined in models.json."""
+
+    MESSAGE_TYPE = PiMessageType
 
     image = "botbox-pi:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")

@@ -2,6 +2,7 @@ import json
 import math
 import shlex
 from collections.abc import Mapping
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -15,8 +16,18 @@ CREDENTIALS = ".credentials.json"
 API_KEY = "api_key"
 
 
+class ClaudeMessageType(StrEnum):
+    """stream-json's message lines, by their `type`."""
+
+    # stdout also carries "system", "rate_limit_event" and "result" lines, which aren't messages.
+    ASSISTANT = "assistant"
+    USER = "user"
+
+
 class ClaudeAgent(Agent):
     """Claude Code."""
+
+    MESSAGE_TYPE = ClaudeMessageType
 
     image = "botbox-claude:latest"
     dockerfile = Path(__file__).with_name("Dockerfile")
