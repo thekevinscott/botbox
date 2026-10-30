@@ -10,8 +10,8 @@ import pytest
 from botbox.Session import Session
 
 
-def decoded(line: bytes) -> dict[str, Any] | None:
-    """A JSON object line as an event, as the agents decode them."""
+def parsed(line: bytes) -> dict[str, Any] | None:
+    """A JSON object line as an event, as the agents parse them."""
     with suppress(ValueError):
         event = json.loads(line)
         if isinstance(event, dict):
@@ -30,7 +30,7 @@ class Live:
         self.agent = Mock(
             encode=lambda message: f"<{message}>",
             turn_ended=lambda event: event.get("type") == "end",
-            decode=decoded,
+            parse_event=parsed,
         )
         self.stdin = Mock(write=Mock(), drain=AsyncMock(), transport=Mock())
         self.client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
@@ -239,8 +239,8 @@ def describe_Session() -> None:
         assert await session.message("hi") == []
         assert not live.client.done()
 
-    async def it_takes_events_as_the_agent_decodes_them(live: Live) -> None:
-        live.agent.decode = lambda line: {"type": "end", "line": line}
+    async def it_takes_events_as_the_agent_parses_them(live: Live) -> None:
+        live.agent.parse_event = lambda line: {"type": "end", "line": line}
         live.print(b"anything\n")
         assert await live.session.message("hi") == [{"type": "end", "line": b"anything\n"}]
 

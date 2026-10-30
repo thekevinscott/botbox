@@ -38,7 +38,7 @@ class Session:
     async def stream(self, text: str) -> AsyncIterator[dict[str, Any]]:
         """Send `text` and yield the turn's events as they arrive, ending at the turn's end.
 
-        Lines the agent can't decode stay in stdout but aren't events. If the
+        Lines the agent parses no event from stay in stdout but aren't events. If the
         CLI exits mid-turn, the stream ends with what arrived. A turn left early is read to its
         end before the next message goes.
         """
@@ -60,6 +60,6 @@ class Session:
     async def event(self) -> dict[str, Any] | None:
         """The next event the CLI prints; None once it has exited without another."""
         while line := await self._readline():
-            if (event := self.agent.decode(line)) is not None:
+            if (event := self.agent.parse_event(line)) is not None:
                 return event
         return None

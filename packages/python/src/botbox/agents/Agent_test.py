@@ -58,13 +58,13 @@ def describe_agent() -> None:
                 OneShot().turn_ended({"type": "turn/completed"})
 
 
-def describe_decode() -> None:
-    def it_decodes_a_json_object() -> None:
-        assert OneShot().decode(b'{"type": "end"}\n') == {"type": "end"}
+def describe_parse_event() -> None:
+    def it_parses_a_json_object() -> None:
+        assert OneShot().parse_event(b'{"type": "end"}\n') == {"type": "end"}
 
     @pytest.mark.parametrize("line", [b"starting\n", b"[1, 2]\n", b"\n", b"\xff\xfe\n", b'{"n":'])
     def it_holds_no_event_in_anything_else(line: bytes) -> None:
-        assert OneShot().decode(line) is None
+        assert OneShot().parse_event(line) is None
 
 
 class OneShot(Agent):

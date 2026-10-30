@@ -12,8 +12,8 @@ import pytest
 from botbox.hold_session import hold_session
 
 
-def decoded(line: bytes) -> dict[str, Any] | None:
-    """A JSON object line as an event, as the agents decode them."""
+def parsed(line: bytes) -> dict[str, Any] | None:
+    """A JSON object line as an event, as the agents parse them."""
     with suppress(ValueError):
         event = json.loads(line)
         if isinstance(event, dict):
@@ -91,7 +91,7 @@ def agent() -> Mock:
     return Mock(
         encode=lambda message: message,
         turn_ended=lambda event: event == {"type": "end"},
-        decode=decoded,
+        parse_event=parsed,
     )
 
 
