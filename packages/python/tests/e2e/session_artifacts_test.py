@@ -9,7 +9,7 @@ from unittest.mock import patch
 import pytest
 from conftest import docker_lines
 
-from botbox import Botbox, ClaudeAgent, RunResult, Session
+from botbox import Agent, Botbox, ClaudeAgent, RunResult
 
 
 class ArtifactAgent(ClaudeAgent):
@@ -19,7 +19,7 @@ class ArtifactAgent(ClaudeAgent):
             "printf 'transcript\\n' > ~/.claude/projects/turn.jsonl; "
             "echo diagnostic >&2; "
             "while read -r line; do "
-            'echo \'{"type":"result","result":"ready"}\'; done'
+            'echo \'{"type":"assistant","message":{"content":"ready"}}\'; done'
         )
 
 
@@ -40,7 +40,7 @@ def describe_session_artifacts() -> None:
         box = Botbox(ArtifactAgent())
         output = tmp_path / "output"
         error = ValueError("caller failed")
-        live: Session | None = None
+        live: Agent | None = None
         scratches: list[Path] = []
 
         async def run() -> None:
@@ -48,7 +48,9 @@ def describe_session_artifacts() -> None:
             async with box.session(output=output) as live:
                 scratches.extend(temp.iterdir())
                 assert not (scratches[0] / "home").exists()
-                assert (await live.message("hi"))[-1]["result"] == "ready"
+                replies = live.replies
+                await live.send("hi")
+                assert (await anext(replies)).text == "ready"
                 if outcome == "error":
                     raise error
                 if outcome == "cancel":

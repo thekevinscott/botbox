@@ -51,8 +51,10 @@ class Hostile(ClaudeAgent):
         return {HOSTILE!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
-        await live.message("never answered")
+    async with Botbox(Hostile()).session() as agent:
+        await agent.send("never answered")
+        async for _ in agent.messages:
+            pass
 
 asyncio.run(main())
 """
@@ -67,13 +69,15 @@ class Hostile(ClaudeAgent):
         return {HOSTILE!r}
 
 async def main():
-    async with Botbox(Hostile()).session() as live:
+    async with Botbox(Hostile()).session() as agent:
         child = os.fork()
         if child == 0:
             time.sleep(600)
             os._exit(0)
         open(sys.argv[1], "w").write(str(child))
-        await live.message("never answered")
+        await agent.send("never answered")
+        async for _ in agent.messages:
+            pass
 
 asyncio.run(main())
 """
