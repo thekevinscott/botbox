@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/docker_test.py tests/e2e/teardown_test.py",
+  "ran_at": 1793413379,
+  "exit_code": 0,
+  "commit": "2fcf760502cb3e3af1f301035b3c1a974f276d31",
+  "branch": "posix-tools-bump"
+}
