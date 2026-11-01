@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/canary_other_run_test.py",
-  "ran_at": 1793551799,
+  "ran_at": 1793552104,
   "exit_code": 0,
-  "commit": "0811a91f262bbc7812a36bccf3594caf86daf21e",
+  "commit": "9797d834a4c2d606f3be6c55b76232375e4f1a95",
   "branch": "fix-314-canary-probe"
 }
