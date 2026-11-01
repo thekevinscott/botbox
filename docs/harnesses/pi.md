@@ -44,4 +44,8 @@ With `output`, `transcripts/` there is mounted over `~/.pi/agent/sessions`. The 
 
 pi's bash tool has no timeout unless the model asks for one. `tool_timeout` caps every bash call at that many seconds, whatever the model asks for. A call that runs out has its process tree killed, and the model gets "Command timed out after N seconds" and carries on. botbox does this with a pi extension baked into the image, loaded with `-e` only when `tool_timeout` is set.
 
+## Stdout events
+
+The pi image drops `tool_execution_update` events from pi's JSON stdout before Docker captures it. These events repeat the partial tool output and can grow large. `tool_execution_end` still carries the tool's final result, and other events and stderr are unchanged. pi's exit code is preserved.
+
 What runs in the container: [How It Works](../explanation/#pi).
