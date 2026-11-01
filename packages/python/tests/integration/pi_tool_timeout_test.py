@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
+from tempfile import TemporaryFile
 from typing import Any
 from uuid import uuid4
 
@@ -23,27 +24,30 @@ def image() -> str:
 
 async def bash_call(image: str, arguments: dict[str, Any]) -> tuple[dict[str, Any], float]:
     """pi's `tool_execution_end` for the one bash call, and how long the run took."""
-    out, err = bytearray(), bytearray()
     name = f"botbox-test-{uuid4().hex[:12]}"
     started = time.monotonic()
-    try:
-        container = await Image(image).run(
-            *("/fake/model.py", json.dumps(arguments), "-e", EXTENSION),
-            name=name,
-            stdin=None,
-            stdout=out.extend,
-            stderr=err.extend,
-            network="none",
-            env={"BOTBOX_TOOL_TIMEOUT": "2"},
-            mounts=[Mount("bind", str(FAKE_MODEL), "/fake/model.py", read_only=True)],
-            entrypoint="python3",
-        )
-        code = await container.wait()
-    finally:
-        await Container(name).remove()
+    with TemporaryFile() as out, TemporaryFile() as err:
+        try:
+            container = await Image(image).run(
+                *("/fake/model.py", json.dumps(arguments), "-e", EXTENSION),
+                name=name,
+                stdin=None,
+                stdout=out,
+                stderr=err,
+                network="none",
+                env={"BOTBOX_TOOL_TIMEOUT": "2"},
+                mounts=[Mount("bind", str(FAKE_MODEL), "/fake/model.py", read_only=True)],
+                entrypoint="python3",
+            )
+            code = await container.wait()
+        finally:
+            await Container(name).remove()
+        out.seek(0)
+        err.seek(0)
+        output, errors = out.read().decode(), err.read().decode()
     elapsed = time.monotonic() - started
-    assert code == 0, err.decode()
-    events = [json.loads(line) for line in out.decode().splitlines() if line.startswith("{")]
+    assert code == 0, errors
+    events = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
     [end] = [event for event in events if event["type"] == "tool_execution_end"]
     return end, elapsed
 

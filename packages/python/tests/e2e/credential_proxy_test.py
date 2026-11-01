@@ -99,18 +99,19 @@ async def request(jail: Lockdown, method: str, path: str) -> str:
         f"content-length: {len(body)}\r\nconnection: close\r\n\r\n"
     )
     stdin = preloaded(head.encode() + body)
-    out = bytearray()
-    try:
-        await jail.proxy.exec(
-            "socat",
-            "-,ignoreeof",
-            f"UNIX-CONNECT:{jail.credentials.socket}",
-            stdin=stdin,
-            stdout=out.extend,
-        )
-    finally:
-        os.close(stdin)
-    response = HTTPResponse(Raw(bytes(out)))  # type: ignore[arg-type]
+    with tempfile.TemporaryFile() as out:
+        try:
+            await jail.proxy.exec(
+                "socat",
+                "-,ignoreeof",
+                f"UNIX-CONNECT:{jail.credentials.socket}",
+                stdin=stdin,
+                stdout=out,
+            )
+        finally:
+            os.close(stdin)
+        out.seek(0)
+        response = HTTPResponse(Raw(out.read()))  # type: ignore[arg-type]
     response.begin()
     return response.read().decode()
 

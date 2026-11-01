@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/lockdown_test.py tests/e2e/credential_proxy_test.py",
+  "ran_at": 1793553678,
+  "exit_code": 0,
+  "commit": "0811a91f262bbc7812a36bccf3594caf86daf21e",
+  "branch": "one-file-streams"
+}

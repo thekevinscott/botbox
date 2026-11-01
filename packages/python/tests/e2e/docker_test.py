@@ -6,6 +6,7 @@ import subprocess
 from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
+from tempfile import TemporaryFile
 from uuid import uuid4
 
 import pytest
@@ -67,16 +68,18 @@ def describe_docker() -> None:
         read, write = os.pipe()
         os.write(write, b"through stdin")
         os.close(write)
-        stdout = bytearray()
-        try:
-            container = await Image("busybox:latest").run(
-                "sh", "-c", "cat; exit 7", name=name, stdin=read, stdout=stdout.extend
-            )
-            code = await container.wait()
-        finally:
-            os.close(read)
+        with TemporaryFile() as stdout:
+            try:
+                container = await Image("busybox:latest").run(
+                    "sh", "-c", "cat; exit 7", name=name, stdin=read, stdout=stdout
+                )
+                code = await container.wait()
+            finally:
+                os.close(read)
+            stdout.seek(0)
+            output = stdout.read()
         assert code == 7
-        assert stdout == b"through stdin"
+        assert output == b"through stdin"
         assert await Container(name).wait() == 7
         await container.remove()
         assert not exists("container", name)

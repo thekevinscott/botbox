@@ -107,7 +107,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "json5", specifier = ">=0.17.3" },
-    { name = "posix-tools", specifier = ">=0.0.11" },
+    { name = "posix-tools", specifier = ">=0.0.14" },
 ]
 
 [package.metadata.requires-dev]
@@ -340,11 +340,11 @@ wheels = [
 
 [[package]]
 name = "posix-tools"
-version = "0.0.11"
+version = "0.0.14"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f8/ea/09d25ead9072b401afe0e9fdc98104101215e23e62481a7eaab7bcd2fe2b/posix_tools-0.0.11.tar.gz", hash = "sha256:e816839983d5be13d188238b09bf41f50936826d30f9fd2ed1c6dbecee96433b", size = 28645, upload-time = "2026-10-31T02:13:20.575Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/9e/a0ac030596db5898221bd4d51d842f1333d03b664768bf9384c591c87a07/posix_tools-0.0.14.tar.gz", hash = "sha256:344fe1bd63ec03061df4763acbcc09a0731de13075a9dfc4b8e2ecfbfc54a4e5", size = 28882, upload-time = "2026-11-01T17:09:20.065Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/30/66/e695b5c4129dd85d8b46f94bb23b4702ede18ecdacdf39d8bdb4a3d7e1c6/posix_tools-0.0.11-py3-none-any.whl", hash = "sha256:763bde98550d5c59fd0ba1e73fa0373d0cee4471519a0cd32f663c6e81fb3ceb", size = 5480, upload-time = "2026-10-31T02:13:19.337Z" },
+    { url = "https://files.pythonhosted.org/packages/57/03/8b3b6feaa2dfd6973b9afc81e675061b15c882904dd389ca654bbd7b69c3/posix_tools-0.0.14-py3-none-any.whl", hash = "sha256:1abb38eaa1d3011814e8bc2cf597dd69845bfec2ffa5721aa76598c921774fa2", size = 6006, upload-time = "2026-11-01T17:09:18.806Z" },
 ]
 
 [[package]]

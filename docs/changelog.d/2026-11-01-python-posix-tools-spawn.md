@@ -1,0 +1,1 @@
+Changed adocker to use posix-tools 0.0.14 for Docker process cleanup and cancellation. **BREAKING** `Image.run()` and `Container.exec()` output arguments now accept file streams or subprocess descriptors rather than callable sinks; see [the migration note](../migrations.d/2026-11-01-python-posix-tools-spawn.md).

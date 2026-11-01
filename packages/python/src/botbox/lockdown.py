@@ -6,13 +6,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
+from posix_tools import settle
+
 from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
 from botbox.credential_proxy import Credential, CredentialProxy, credential_proxy
-from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
-from botbox.write import write
 
 PROXY_DIR = Path(__file__).with_name("proxy")
 PROXY_CONF = PROXY_DIR / "tinyproxy.conf"
@@ -74,7 +74,7 @@ async def lockdown(  # noqa: PLR0913
     cancels. The volume is removed after it. An owner killed outright leaves both, the sidecar
     stopped, labelled `botbox.run=<token>`.
 
-    The tinyproxy log goes to `scratch/proxy.log` and to `output/proxy.log` when given.
+    The tinyproxy log goes to `output/proxy.log` when given, or `scratch/proxy.log` otherwise.
     With a `credential`, an Envoy sidecar serves it on `credentials.sock` in the same volume, and
     its output goes to `credentials.log` in `output`, or `scratch` without one.
     """
@@ -96,8 +96,7 @@ async def lockdown(  # noqa: PLR0913
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist = "".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities)
-    log = scratch / "proxy.log"
-    also = [] if output is None else [output / "proxy.log"]
+    log = (scratch if output is None else output) / "proxy.log"
 
     def unremoved(error: Exception) -> None:
         warnings.warn(
@@ -105,15 +104,15 @@ async def lockdown(  # noqa: PLR0913
         )
 
     labels = {**(labels or {}), "botbox.run": token}
-    with write(log, *also) as sink:
+    with log.open("wb") as stream:
         async with Volume(volume, labels=labels, on_error=unremoved) as socket:
             proxy = Container(name)
             try:
                 proxy = await image.run(
                     name=name,
                     stdin=asyncio.subprocess.PIPE,
-                    stdout=sink,
-                    stderr=sink,
+                    stdout=stream,
+                    stderr=stream,
                     init=True,
                     labels=labels,
                     user=PROXY_USER,

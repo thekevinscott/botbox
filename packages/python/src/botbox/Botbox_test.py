@@ -516,8 +516,8 @@ def exited(name: str, code: int) -> Mock:
 def image(steps: list[str]) -> Iterator[Mock]:
     async def attached(*_command: str, name: str, stdout: Any, stderr: Any, **_: Any) -> Mock:
         steps.append("run agent")
-        stdout(b"out\xff\n")
-        stderr(b"err\n")
+        os.write(stdout.fileno(), b"out\xff\n")
+        os.write(stderr.fileno(), b"err\n")
         return exited(name, 3)
 
     with patch("botbox.Botbox.Image", autospec=True) as m:
@@ -588,8 +588,8 @@ def hang_forever(steps: list[str]) -> Any:
 
     async def hang(*_command: str, stdout: Any, stderr: Any, **_options: Any) -> Mock:
         steps.append("run agent")
-        stdout(b"partial\n")
-        stderr(b"err\n")
+        os.write(stdout.fileno(), b"partial\n")
+        os.write(stderr.fileno(), b"err\n")
         await asyncio.Event().wait()
         raise AssertionError
 
@@ -694,7 +694,7 @@ def describe_run() -> None:
         runner: Mock, docker_run: Mock, agent_exit: Mock
     ) -> None:
         async def attached(*_command: str, name: str, stderr: Any, **_: Any) -> Mock:
-            stderr(b"x" * 65536 + b"tail")
+            os.write(stderr.fileno(), b"x" * 65536 + b"tail")
             return exited(name, 3)
 
         docker_run.side_effect = attached
@@ -860,7 +860,7 @@ def describe_run() -> None:
             started = asyncio.Event()
 
             async def hang(*_args: object, stdout: Any, **_options: object) -> Mock:
-                stdout(b"partial\n")
+                os.write(stdout.fileno(), b"partial\n")
                 started.set()
                 await asyncio.Event().wait()
                 raise AssertionError
@@ -984,7 +984,7 @@ def setup_failures(runner: Mock, docker_build: Mock, lockdown: Mock) -> dict[str
 
 def describe_run_output() -> None:
     @pytest.mark.parametrize("form", ["path", "string", "relative"])
-    async def it_writes_the_streams_to_the_output_and_the_temp_home(
+    async def it_writes_the_streams_only_to_the_output(
         runner: Mock, agent_exit: Mock, scratch: Path, tmp_path: Path, form: str
     ) -> None:
         output = tmp_path / "nested" / "output"
@@ -997,7 +997,8 @@ def describe_run_output() -> None:
         assert result.exit_code == 3
         assert (output / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (output / "stderr.txt").read_bytes() == b"err\n"
-        assert (scratch / "stdout.txt").read_bytes() == b"out\xff\n"
+        assert not (scratch / "stdout.txt").exists()
+        assert not (scratch / "stderr.txt").exists()
         assert agent_exit.call_args.args[2] == "err\n"
 
     async def it_mounts_transcripts_over_the_sessions_dir(

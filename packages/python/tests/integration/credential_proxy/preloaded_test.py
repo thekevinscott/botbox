@@ -6,6 +6,7 @@ import os
 import secrets
 from collections.abc import AsyncIterator
 from pathlib import Path
+from tempfile import TemporaryFile
 from uuid import uuid4
 
 import pytest
@@ -24,23 +25,19 @@ def digest(data: bytes) -> str:
 
 
 async def docker_run_reading(stdin: int, script: str) -> str:
-    out, err = bytearray(), bytearray()
     name = f"botbox-test-{uuid4().hex[:12]}"
-    try:
-        container = await Image(IMAGE).run(
-            "-c",
-            script,
-            name=name,
-            stdin=stdin,
-            stdout=out.extend,
-            stderr=err.extend,
-            entrypoint="sh",
-        )
-        code = await container.wait()
-    finally:
-        await Container(name).remove()
-    assert code == 0, err.decode()
-    return out.decode().strip()
+    with TemporaryFile() as out, TemporaryFile() as err:
+        try:
+            container = await Image(IMAGE).run(
+                "-c", script, name=name, stdin=stdin, stdout=out, stderr=err, entrypoint="sh"
+            )
+            code = await container.wait()
+        finally:
+            await Container(name).remove()
+        out.seek(0)
+        err.seek(0)
+        assert code == 0, err.read().decode()
+        return out.read().decode().strip()
 
 
 @pytest.fixture

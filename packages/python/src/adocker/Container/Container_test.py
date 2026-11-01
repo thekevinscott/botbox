@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -74,17 +75,16 @@ def describe_Container() -> None:
             assert args == ("exec", "box", "sh", "-c", "x")
             assert options["stdin"] == asyncio.subprocess.DEVNULL
 
-        async def it_drops_stdout_without_a_sink(run_docker: AsyncMock) -> None:
+        async def it_drops_stdout_without_a_stream(run_docker: AsyncMock) -> None:
             await Container("box").exec("cat")
-            drop = run_docker.call_args.kwargs["stdout"]
-            assert drop(b"x" * 10) is None
+            assert run_docker.call_args.kwargs["stdout"] == asyncio.subprocess.DEVNULL
             assert run_docker.call_args.kwargs["stderr"] is None
 
-        async def it_hands_output_to_the_sinks(run_docker: AsyncMock) -> None:
-            out, err = Mock(), Mock()
-            await Container("box").exec("cat", stdout=out, stderr=err)
-            assert run_docker.call_args.kwargs["stdout"] is out
-            assert run_docker.call_args.kwargs["stderr"] is err
+        async def it_hands_output_to_the_streams(run_docker: AsyncMock, tmp_path: Path) -> None:
+            with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+                await Container("box").exec("cat", stdout=out, stderr=err)
+                assert run_docker.call_args.kwargs["stdout"] is out
+                assert run_docker.call_args.kwargs["stderr"] is err
 
         async def it_runs_interactively_on_a_given_stdin(run_docker: AsyncMock) -> None:
             await Container("box").exec("cat", stdin=9)

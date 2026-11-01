@@ -69,14 +69,15 @@ def describe_run() -> None:
         daemon.agent("true", oom_killed=True)
         assert await box.run("true") == RunResult(0, oom_killed=True)
 
-    async def it_drops_an_output_file_that_fails_and_carries_on(
+    async def it_reports_an_output_file_that_fails(
         box: Botbox, daemon: Daemon, tmp_path: Path
     ) -> None:
         daemon.agent("true", stdout="out\n", stderr="err\n", exit=3)
         (tmp_path / "stdout.txt").symlink_to("/dev/full")
-        with pytest.warns(RuntimeWarning, match="stopped writing to .*stdout.txt"):
-            assert await box.run("true", output=tmp_path) == RunResult(3, oom_killed=False)
-        assert (tmp_path / "stderr.txt").read_text() == "err\n"
+        with pytest.raises(DockerException) as raised:
+            await box.run("true", output=tmp_path)
+        assert "No space left on device" in raised.value.stderr
+        assert (tmp_path / "stderr.txt").read_text().startswith("err\n")
 
     def describe_the_result() -> None:
         async def it_returns_only_the_exit_code(box: Botbox, daemon: Daemon) -> None:

@@ -35,15 +35,11 @@ def _failed_exec() -> Iterator[None]:
 
 
 def describe_Container_exec() -> None:
-    async def it_streams_output_to_the_sinks_chunk_by_chunk() -> None:
-        sizes: list[int] = []
-        err = bytearray()
-        await Container("box").exec(
-            "cat", stdout=lambda chunk: sizes.append(len(chunk)), stderr=err.extend
-        )
-        assert sum(sizes) == 128 * 65536
-        assert max(sizes) <= 65536
-        assert bytes(err) == b"done\n"
+    async def it_writes_complete_output_to_files(tmp_path: Path) -> None:
+        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+            await Container("box").exec("cat", stdout=out, stderr=err)
+        assert (tmp_path / "out").read_bytes() == b"x" * (128 * 65536)
+        assert (tmp_path / "err").read_bytes() == b"done\n"
 
     async def it_raises_with_the_end_of_stderr_on_failure(_failed_exec: None) -> None:
         with pytest.raises(DockerException) as raised:

@@ -15,7 +15,6 @@ from adocker import Container, Image, Mount
 from botbox.credential_proxy import Injection, envoy_config, sds_secret
 from botbox.credential_proxy.envoy_config import IMAGE, SECRET_DIR, SECRET_FILE
 from botbox.credential_proxy.stop_container import stop_container
-from botbox.write import write
 
 INJECTION = Injection("api.anthropic.com", "/v1/messages", "Authorization")
 # Envoy's default flush, so only a clean exit gets the last access log lines out.
@@ -40,13 +39,13 @@ async def started(*command: str, log: Path, **options: Any) -> AsyncIterator[Con
     os.write(write_end, sds_secret("Bearer one"))
     os.close(write_end)
     try:
-        with write(log) as sink:
+        with log.open("wb") as stream:
             yield await Image(IMAGE).run(
                 *command,
                 name=name,
                 stdin=stdin,
-                stdout=sink,
-                stderr=sink,
+                stdout=stream,
+                stderr=stream,
                 entrypoint="sh",
                 **options,
             )

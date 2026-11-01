@@ -1,4 +1,5 @@
 import asyncio
+import os
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
@@ -333,7 +334,7 @@ def describe_lockdown() -> None:
             scratch: Path, image: Image
         ) -> None:
             async with jail(scratch):
-                image.options["stdout"](REFUSAL.encode())
+                os.write(image.options["stdout"].fileno(), REFUSAL.encode())
                 assert (scratch / "proxy.log").read_text() == REFUSAL
 
         async def it_waits_for_the_proxy_with_the_client_and_its_output(
@@ -513,15 +514,15 @@ def describe_lockdown() -> None:
             assert steps[-1] == f"remove {VOLUME}"
 
     def describe_with_output() -> None:
-        async def it_writes_the_log_into_output_too(
+        async def it_writes_the_log_only_into_output(
             scratch: Path, tmp_path: Path, image: Image
         ) -> None:
             output = tmp_path / "output"
             output.mkdir()
             async with jail(scratch, output=output):
-                image.options["stdout"](REFUSAL.encode())
+                os.write(image.options["stdout"].fileno(), REFUSAL.encode())
             assert (output / "proxy.log").read_text() == REFUSAL
-            assert (scratch / "proxy.log").read_text() == REFUSAL
+            assert not (scratch / "proxy.log").exists()
 
         async def it_truncates_a_previous_log(scratch: Path, tmp_path: Path) -> None:
             output = tmp_path / "output"
@@ -530,13 +531,13 @@ def describe_lockdown() -> None:
             async with jail(scratch, output=output):
                 assert (output / "proxy.log").read_bytes() == b""
 
-        async def it_warns_and_carries_on_without_an_output_it_cannot_open(
-            scratch: Path, tmp_path: Path, steps: list[str]
+        async def it_raises_before_starting_without_an_output_it_cannot_open(
+            scratch: Path, tmp_path: Path, image: Image
         ) -> None:
-            with pytest.warns(RuntimeWarning, match="stopped writing to"):
+            with pytest.raises(FileNotFoundError):
                 async with jail(scratch, output=tmp_path / "missing"):
-                    steps.append("body")
-            assert "body" in steps
+                    pytest.fail("body ran")
+            assert image.container is None
 
 
 def describe_the_shipped_proxy() -> None:

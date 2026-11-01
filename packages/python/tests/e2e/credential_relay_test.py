@@ -57,37 +57,44 @@ def responses(
         token = uuid4().hex[:12]
         async with lockdown((), root, token, output, credential=CREDENTIAL) as jail:
             flags = box._lockdown_flags(token, b"", jail, [], None)  # noqa: SLF001
-            stdout, stderr = bytearray(), bytearray()
-            agent = await Image(image).run(
-                RELAY,
-                "node",
-                "-e",
-                REQUESTS,
-                name=f"botbox-agent-{token}",
-                rm=True,
-                stdout=stdout.extend,
-                stderr=stderr.extend,
-                **flags,
-            )
-            assert await agent.wait() == 0, stderr.decode()
-            denied_out, denied_err = bytearray(), bytearray()
+            with (
+                (root / "agent.out").open("wb") as stdout,
+                (root / "agent.err").open("wb") as stderr,
+            ):
+                agent = await Image(image).run(
+                    RELAY,
+                    "node",
+                    "-e",
+                    REQUESTS,
+                    name=f"botbox-agent-{token}",
+                    rm=True,
+                    stdout=stdout,
+                    stderr=stderr,
+                    **flags,
+                )
+                code = await agent.wait()
+            assert code == 0, (root / "agent.err").read_text()
             flags["user"] = "101:101"
-            denied = await Image(image).run(
-                RELAY,
-                "sh",
-                "-c",
-                "echo reached",
-                name=f"botbox-agent-{token}-uid101",
-                rm=True,
-                stdout=denied_out.extend,
-                stderr=denied_err.extend,
-                **flags,
-            )
-            denied_code = await denied.wait()
+            with (
+                (root / "denied.out").open("wb") as denied_out,
+                (root / "denied.err").open("wb") as denied_err,
+            ):
+                denied = await Image(image).run(
+                    RELAY,
+                    "sh",
+                    "-c",
+                    "echo reached",
+                    name=f"botbox-agent-{token}-uid101",
+                    rm=True,
+                    stdout=denied_out,
+                    stderr=denied_err,
+                    **flags,
+                )
+                denied_code = await denied.wait()
         return (
-            [json.loads(line) for line in stdout.decode().splitlines()],
+            [json.loads(line) for line in (root / "agent.out").read_text().splitlines()],
             denied_code,
-            denied_err.decode(),
+            (root / "denied.err").read_text(),
             output,
         )
 
@@ -129,18 +136,19 @@ def without_socket(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, str]:
         async with lockdown((), root, token) as jail:
             flags = box._lockdown_flags(token, b"", jail, [], None)  # noqa: SLF001
             flags["env"][CREDENTIALS_ENV] = "1"
-            stderr = bytearray()
-            agent = await Image(image).run(
-                RELAY,
-                "sh",
-                "-c",
-                "echo reached",
-                name=f"botbox-agent-{token}",
-                rm=True,
-                stderr=stderr.extend,
-                **flags,
-            )
-            return await agent.wait(), stderr.decode()
+            with (root / "agent.err").open("wb") as stderr:
+                agent = await Image(image).run(
+                    RELAY,
+                    "sh",
+                    "-c",
+                    "echo reached",
+                    name=f"botbox-agent-{token}",
+                    rm=True,
+                    stderr=stderr,
+                    **flags,
+                )
+                code = await agent.wait()
+            return code, (root / "agent.err").read_text()
 
     return asyncio.run(probe())
 

@@ -1,5 +1,7 @@
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -29,14 +31,18 @@ def release() -> asyncio.Event:
 
 
 @pytest.fixture(autouse=True)
-def execute(calls: list[dict[str, Any]], release: asyncio.Event) -> Iterator[AsyncMock]:
-    async def client(args: list[str], **options: Any) -> int:
-        calls.append({"args": args, **options})
-        options["started"].set_result(None)
-        await release.wait()
-        return 3
+def spawn(calls: list[dict[str, Any]], release: asyncio.Event) -> Iterator[Mock]:
+    @asynccontextmanager
+    async def client(*args: str, **options: Any) -> AsyncIterator[Mock]:
+        calls.append({"args": list(args[1:]), **options})
 
-    with patch("adocker.Image.Image.execute", autospec=True, side_effect=client) as m:
+        async def wait() -> int:
+            await release.wait()
+            return 3
+
+        yield Mock(wait=AsyncMock(side_effect=wait))
+
+    with patch("adocker.Image.Image.spawn", side_effect=client) as m:
         yield m
 
 
@@ -95,11 +101,18 @@ def describe_Image() -> None:
             release.set()
             assert await container.wait() == 3
 
-        async def it_hands_its_sinks_to_the_client(calls: list[dict[str, Any]]) -> None:
-            out, err = Mock(), Mock()
-            await Image("img").run(name="box", stdout=out, stderr=err)
-            assert calls[0]["stdout"] is out
-            assert calls[0]["stderr"] is err
+        async def it_hands_open_streams_to_the_client(
+            calls: list[dict[str, Any]], release: asyncio.Event, tmp_path: Path
+        ) -> None:
+            with (
+                (tmp_path / "out").open("wb") as out,
+                (tmp_path / "err").open("wb") as err,
+            ):
+                container = await Image("img").run(name="box", stdout=out, stderr=err)
+                assert calls[0]["stdout"] is out
+                assert calls[0]["stderr"] is err
+                release.set()
+                await container.wait()
 
         async def it_passes_every_option_as_a_flag(calls: list[dict[str, Any]]) -> None:
             await Image("img").run(
@@ -185,78 +198,30 @@ def describe_Image() -> None:
             writer.close.assert_not_called()
 
         async def it_raises_a_client_that_fails_to_start_and_closes_the_pipe(
-            execute: AsyncMock, pipe: Mock
+            spawn: Mock, pipe: Mock
         ) -> None:
-            execute.side_effect = FileNotFoundError("docker")
+            spawn.side_effect = FileNotFoundError("docker")
             with pytest.raises(FileNotFoundError):
                 await Image("img").run(name="box", stdin=PIPE)
             pipe.release.assert_called_once_with()
             pipe.writer.close.assert_called_once_with()
 
         async def it_raises_a_client_that_fails_to_start_without_a_pipe(
-            execute: AsyncMock,
+            spawn: Mock,
         ) -> None:
-            execute.side_effect = FileNotFoundError("docker")
+            spawn.side_effect = FileNotFoundError("docker")
             with pytest.raises(FileNotFoundError):
                 await Image("img").run(name="box")
 
-        async def it_returns_a_client_that_started_and_then_failed(execute: AsyncMock) -> None:
-            async def client(_args: list[str], **options: Any) -> int:
-                options["started"].set_result(None)
-                raise OSError("disk full")
+        async def it_returns_a_client_that_started_and_then_failed(spawn: Mock) -> None:
+            @asynccontextmanager
+            async def client(*_args: object, **_options: object) -> AsyncIterator[Mock]:
+                yield Mock(wait=AsyncMock(side_effect=OSError("disk full")))
 
-            execute.side_effect = client
+            spawn.side_effect = client
             container = await Image("img").run(name="box")
             with pytest.raises(OSError, match="disk full"):
                 await container.wait()
-
-        async def it_cancels_and_settles_the_client_when_cancelled_before_it_starts(
-            execute: AsyncMock, pipe: Mock
-        ) -> None:
-            starting, release, finished = asyncio.Event(), asyncio.Event(), Mock()
-
-            async def client(_args: list[str], **_options: Any) -> int:
-                starting.set()
-                try:
-                    await asyncio.sleep(3600)
-                finally:
-                    await release.wait()
-                    finished()
-                return 0
-
-            execute.side_effect = client
-            task = asyncio.create_task(Image("img").run(name="box", stdin=PIPE))
-            await starting.wait()
-            task.cancel()
-            await asyncio.sleep(0)
-            task.cancel()
-            await asyncio.sleep(0)
-            release.set()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            finished.assert_called_once_with()
-            pipe.release.assert_called_once_with()
-            pipe.writer.close.assert_called_once_with()
-
-        async def it_raises_the_cancel_when_the_cancelled_client_fails(
-            execute: AsyncMock,
-        ) -> None:
-            starting = asyncio.Event()
-
-            async def client(_args: list[str], **_options: Any) -> int:
-                starting.set()
-                try:
-                    await asyncio.sleep(3600)
-                except asyncio.CancelledError:
-                    raise OSError("kill failed") from None
-                return 0
-
-            execute.side_effect = client
-            task = asyncio.create_task(Image("img").run(name="box"))
-            await starting.wait()
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
 
         async def it_pipes_any_stdin_equal_to_pipe(pipe: Mock) -> None:
             class Fd(int):
@@ -275,7 +240,7 @@ def describe_attach() -> None:
         pipe = StdinPipe()
         started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         with (
-            patch("adocker.Image.Image.execute", AsyncMock(side_effect=OSError("boom"))),
+            patch("adocker.Image.Image.spawn", side_effect=OSError("boom")),
             pytest.raises(OSError, match="boom"),
         ):
             await attach(["run"], pipe, None, None, started)  # type: ignore[arg-type]
@@ -283,8 +248,12 @@ def describe_attach() -> None:
 
     async def it_passes_a_plain_stdin_through() -> None:
         started: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        with patch("adocker.Image.Image.execute", AsyncMock(return_value=0)) as execute:
+
+        @asynccontextmanager
+        async def client(*_args: object, **_options: object) -> AsyncIterator[Mock]:
+            yield Mock(wait=AsyncMock(return_value=0))
+
+        with patch("adocker.Image.Image.spawn", side_effect=client) as spawn:
             assert await attach(["run"], 9, None, None, started) == 0
-        execute.assert_awaited_once_with(
-            ["run"], stdin=9, stdout=DEVNULL, stderr=DEVNULL, started=started
-        )
+        spawn.assert_called_once_with("docker", "run", stdin=9, stdout=DEVNULL, stderr=DEVNULL)
+        assert started.done()

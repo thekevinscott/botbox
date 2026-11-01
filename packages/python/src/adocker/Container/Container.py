@@ -3,7 +3,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from adocker.utils import Sink, Stream, run_docker
+from adocker.utils import Stream, run_docker
 
 
 class Container:
@@ -56,13 +56,13 @@ class Container:
         self,
         *command: str,
         stdin: Stream = asyncio.subprocess.DEVNULL,
-        stdout: Sink | None = None,
-        stderr: Sink | None = None,
+        stdout: Stream = None,
+        stderr: Stream = None,
     ) -> None:
-        """Run `command` in it on `stdin`, handing its output to the `stdout` and `stderr` sinks.
+        """Run `command` in it on `stdin`, writing to the given output streams.
 
-        Without a sink, stdout is dropped. Raises DockerException if it exits non-zero, with
-        the end of its stderr unless that went to a sink.
+        Without `stdout`, output is dropped. Raises DockerException if it exits non-zero, with
+        the end of its stderr unless that was redirected.
         """
         interactive = ["--interactive"] if stdin not in (None, asyncio.subprocess.DEVNULL) else []
         await run_docker(
@@ -71,6 +71,6 @@ class Container:
             self.name,
             *command,
             stdin=stdin,
-            stdout=stdout or (lambda _: None),
+            stdout=asyncio.subprocess.DEVNULL if stdout is None else stdout,
             stderr=stderr,
         )

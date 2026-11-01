@@ -73,7 +73,7 @@ class Client:
 
     async def run(self, *command: str, **options: Any) -> Mock:
         self.command, self.options, self.stdin = command, options, options["stdin"]
-        options["stdout"](b"envoy said this\n")
+        os.write(options["stdout"].fileno(), b"envoy said this\n")
         self.container.name = options["name"]
         self.container.client = asyncio.ensure_future(asyncio.Event().wait())
         return self.container
