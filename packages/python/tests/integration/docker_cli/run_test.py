@@ -467,6 +467,9 @@ def describe_run_output() -> None:
         daemon.agent("sleep 600", stdout="partial\n", stderr="error\n", mode="hang")
         task = asyncio.create_task(box.run("sleep 600", output=tmp_path))
         await daemon.hanging()
+        async with asyncio.timeout(10):
+            while (tmp_path / "stdout.txt").read_text() != "partial\n":
+                await asyncio.sleep(0.01)
         assert (tmp_path / "stdout.txt").read_text() == "partial\n"
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

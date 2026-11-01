@@ -1,0 +1,7 @@
+{
+  "command": "uv run pytest tests/integration/docker_cli/run_test.py -q",
+  "ran_at": 1793551820,
+  "exit_code": 0,
+  "commit": "35302f6593d5f77ed67fc2afb8231aa2056bbee9",
+  "branch": "fix-311-cancel-output"
+}
