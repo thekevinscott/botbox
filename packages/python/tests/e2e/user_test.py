@@ -91,25 +91,28 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, transcripts: Path) -> s
         home = box._home_files()  # noqa: SLF001
         flags = box._lockdown_flags(token, home, jail, volumes, None)  # noqa: SLF001
         flags["user"] = f"{FOREIGN_UID}:{FOREIGN_GID}"
-        stdout, stderr = bytearray(), bytearray()
-        container = await Image(image).run(
-            RELAY,
-            "sh",
-            "-c",
-            script,
-            name=f"botbox-agent-{token}",
-            rm=True,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=stdout.extend,
-            stderr=stderr.extend,
-            **flags,
-        )
-        stdin = cast("asyncio.StreamWriter", container.stdin)
-        await send_home(stdin, home)
-        stdin.close()
-        code = await container.wait()
-    assert code == 0, stderr.decode()
-    return stdout.decode()
+        with (
+            (scratch / "agent.out").open("wb") as stdout,
+            (scratch / "agent.err").open("wb") as stderr,
+        ):
+            container = await Image(image).run(
+                RELAY,
+                "sh",
+                "-c",
+                script,
+                name=f"botbox-agent-{token}",
+                rm=True,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=stdout,
+                stderr=stderr,
+                **flags,
+            )
+            stdin = cast("asyncio.StreamWriter", container.stdin)
+            await send_home(stdin, home)
+            stdin.close()
+            code = await container.wait()
+    assert code == 0, (scratch / "agent.err").read_text()
+    return (scratch / "agent.out").read_text()
 
 
 @pytest.fixture(

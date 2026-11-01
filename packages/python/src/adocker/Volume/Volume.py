@@ -1,8 +1,10 @@
 from collections.abc import Callable, Mapping
 from types import TracebackType
 
+from posix_tools import settle
+
 from adocker.Mount import Mount
-from adocker.utils import run_docker, settle
+from adocker.utils import run_docker
 from adocker.Volume.remove_volume import remove_volume
 
 REMOVE_SECONDS = 30

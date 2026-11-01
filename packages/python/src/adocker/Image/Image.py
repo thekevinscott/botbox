@@ -3,11 +3,13 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from posix_tools import settle, spawn
+
 from adocker.Container import Container
 from adocker.Image.run_args import run_args
 from adocker.Image.StdinPipe import StdinPipe
 from adocker.Mount import Mount
-from adocker.utils import Sink, Stream, execute, run_docker, settle
+from adocker.utils import Stream, run_docker
 
 PIPE = asyncio.subprocess.PIPE
 DEVNULL = asyncio.subprocess.DEVNULL
@@ -30,8 +32,8 @@ class Image:
         *command: str,
         name: str,
         stdin: Stream = DEVNULL,
-        stdout: Sink | Stream = None,
-        stderr: Sink | Stream = None,
+        stdout: Stream = None,
+        stderr: Stream = None,
         init: bool = False,
         rm: bool = False,
         labels: Mapping[str, str] | None = None,
@@ -58,7 +60,7 @@ class Image:
 
         `stdin` is the client's stdin, passed with `--interactive` unless DEVNULL or None.
         PIPE gives the container a `stdin` writer that only this process holds. `stdout` and
-        `stderr` accept a file or a sink; without either, output is dropped. The other options
+        `stderr` accept files; without either, output is dropped. The other options
         are `docker run`'s flags of the same names.
         """
         pipe = await StdinPipe.open() if stdin == PIPE else None
@@ -112,19 +114,21 @@ class Image:
 async def attach(
     args: list[str],
     stdin: Stream | StdinPipe,
-    stdout: Sink | Stream,
-    stderr: Sink | Stream,
+    stdout: Stream,
+    stderr: Stream,
     started: asyncio.Future[None],
 ) -> int:
     """Run the client to its exit, then let go of a stdin pipe's read end."""
     try:
-        return await execute(
-            args,
+        async with spawn(
+            "docker",
+            *args,
             stdin=stdin.read if isinstance(stdin, StdinPipe) else stdin,
             stdout=DEVNULL if stdout is None else stdout,
             stderr=DEVNULL if stderr is None else stderr,
-            started=started,
-        )
+        ) as process:
+            started.set_result(None)
+            return await process.wait()
     finally:
         if isinstance(stdin, StdinPipe):
             stdin.release()

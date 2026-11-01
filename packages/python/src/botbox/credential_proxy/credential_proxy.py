@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
+from posix_tools import settle
+
 from adocker import Container, Image, Volume
 from botbox.credential_proxy.Credential import Credential
 from botbox.credential_proxy.CredentialProxy import CredentialProxy
@@ -18,7 +20,6 @@ from botbox.credential_proxy.preloaded import preloaded
 from botbox.credential_proxy.sds_secret import sds_secret
 from botbox.credential_proxy.stop_container import stop_container
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
-from botbox.process import settle
 
 # envoy's uid in the image. The agent must not run as it.
 USER = "101:101"

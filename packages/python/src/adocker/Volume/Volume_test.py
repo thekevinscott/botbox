@@ -116,6 +116,7 @@ def describe_Volume() -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         removed.assert_called_once_with()
+        run_docker.assert_any_await("volume", "rm", "--force", "v")
 
     async def it_hands_a_failed_removal_to_on_error_when_the_block_raises(
         run_docker: AsyncMock,

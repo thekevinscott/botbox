@@ -10,6 +10,8 @@ from types import TracebackType
 from typing import Any, Self, cast
 from uuid import uuid4
 
+from posix_tools import settle
+
 from adocker import Container, Dockerfile, Image
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
@@ -20,7 +22,6 @@ from botbox.check_timeout import check_timeout
 from botbox.credential_proxy import Credential, CredentialSource
 from botbox.env_labels import env_labels
 from botbox.lockdown import HOME_BYTES_ENV, RELAY, SOCKET_DIR, Lockdown, lockdown
-from botbox.process import settle
 from botbox.remove_within import remove_within
 from botbox.RunResult import RunResult
 from botbox.send_home import send_home

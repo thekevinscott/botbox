@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/docker_test.py tests/e2e/credential_proxy_test.py tests/e2e/credential_relay_test.py tests/e2e/user_test.py tests/e2e/build_test.py tests/e2e/lockdown_test.py tests/e2e/run_test.py",
+  "ran_at": 1793555488,
+  "exit_code": 0,
+  "commit": "d6ba8b96872d512ab2275b2faef6d42e91d01e34",
+  "branch": "drop-execute-settle"
+}

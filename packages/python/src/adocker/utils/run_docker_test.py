@@ -1,7 +1,9 @@
 import asyncio
-from collections.abc import Iterator
-from typing import IO, Any
-from unittest.mock import AsyncMock, patch
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import IO
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -38,16 +40,21 @@ def files() -> list[IO[bytes]]:
 
 
 @pytest.fixture(autouse=True)
-def execute(output: list[bytes], code: list[int], files: list[IO[bytes]]) -> Iterator[AsyncMock]:
-    async def write(
-        _args: object, *, stdout: IO[bytes], stderr: IO[bytes], **_options: object
-    ) -> int:
+def spawn(output: list[bytes], code: list[int], files: list[IO[bytes]]) -> Iterator[Mock]:
+    @asynccontextmanager
+    async def started(
+        *_args: object, stdout: IO[bytes], stderr: IO[bytes], **_options: object
+    ) -> AsyncIterator[Mock]:
         files.extend([stdout, stderr])
-        stdout.write(output[0])
-        stderr.write(output[1])
-        return code[0]
 
-    with patch("adocker.utils.run_docker.execute", autospec=True, side_effect=write) as m:
+        async def wait() -> int:
+            stdout.write(output[0])
+            stderr.write(output[1])
+            return code[0]
+
+        yield Mock(wait=AsyncMock(side_effect=wait))
+
+    with patch("adocker.utils.run_docker.spawn", side_effect=started) as m:
         yield m
 
 
@@ -58,15 +65,15 @@ def describe_run_docker() -> None:
     async def it_returns_stdout() -> None:
         assert await run_docker("version") == '{"Version":"29"}\n'
 
-    async def it_runs_docker_with_no_stdin_by_default(execute: AsyncMock) -> None:
+    async def it_runs_docker_with_no_stdin_by_default(spawn: Mock) -> None:
         await run_docker("version", "--format", "json")
-        [(args, options)] = [(c.args, c.kwargs) for c in execute.await_args_list]
-        assert args == (("version", "--format", "json"),)
+        [(args, options)] = [(c.args, c.kwargs) for c in spawn.call_args_list]
+        assert args == ("docker", "version", "--format", "json")
         assert options["stdin"] == asyncio.subprocess.DEVNULL
 
-    async def it_passes_its_stdin_on(execute: AsyncMock) -> None:
+    async def it_passes_its_stdin_on(spawn: Mock) -> None:
         await run_docker("exec", stdin=9)
-        assert execute.await_args_list[0].kwargs["stdin"] == 9
+        assert spawn.call_args_list[0].kwargs["stdin"] == 9
 
     async def it_writes_to_temp_files_and_closes_them(files: list[IO[bytes]]) -> None:
         await run_docker("version")
@@ -74,14 +81,16 @@ def describe_run_docker() -> None:
         assert files[0] is not files[1]
         assert all(file.closed for file in files)
 
-    async def it_closes_the_files_when_it_fails(execute: AsyncMock, files: list[IO[bytes]]) -> None:
-        side_effect = execute.side_effect
+    async def it_closes_the_files_when_it_fails(spawn: Mock, files: list[IO[bytes]]) -> None:
+        started = spawn.side_effect
 
-        async def failing(*args: object, **options: object) -> int:
-            await side_effect(*args, **options)
-            raise OSError("wait failed")
+        @asynccontextmanager
+        async def failing(*args: object, **options: object) -> AsyncIterator[Mock]:
+            async with started(*args, **options) as process:
+                process.wait.side_effect = OSError("wait failed")
+                yield process
 
-        execute.side_effect = failing
+        spawn.side_effect = failing
         with pytest.raises(OSError, match="wait failed"):
             await run_docker("version")
         assert all(file.closed for file in files)
@@ -115,17 +124,11 @@ def describe_run_docker() -> None:
         output[:] = [b"built\xff", b""]
         assert await run_docker("build") == "built\N{REPLACEMENT CHARACTER}"
 
-    async def it_hands_output_to_sinks_instead(execute: AsyncMock, code: list[int]) -> None:
-        async def sinks(_args: object, *, stdout: Any, stderr: Any, **_options: object) -> int:
-            stdout(b"out")
-            stderr(b"err")
-            return code[0]
-
-        execute.side_effect = sinks
-        out, err = bytearray(), bytearray()
-        assert await run_docker("logs", stdout=out.extend, stderr=err.extend) == ""
-        assert (bytes(out), bytes(err)) == (b"out", b"err")
-        code[0] = 1
-        with pytest.raises(DockerException) as raised:
-            await run_docker("logs", stdout=out.extend, stderr=err.extend)
-        assert raised.value.stderr == ""
+    async def it_hands_output_to_files_instead(tmp_path: Path, code: list[int]) -> None:
+        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+            assert await run_docker("logs", stdout=out, stderr=err) == ""
+            code[0] = 1
+            with pytest.raises(DockerException) as raised:
+                await run_docker("logs", stdout=out, stderr=err)
+            assert raised.value.stderr == ""
+        assert (tmp_path / "out").read_bytes() == b'{"Version":"29"}\n' * 2

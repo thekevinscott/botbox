@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import cast
 
+from posix_tools import settle
+
 from adocker import Container, Dockerfile, Volume
 from botbox.authority import authority
 from botbox.credential_proxy import Credential, CredentialProxy, credential_proxy
-from botbox.process import settle
 from botbox.stop_proxy import stop_proxy
 from botbox.wait_for_proxy import wait_for_proxy
 

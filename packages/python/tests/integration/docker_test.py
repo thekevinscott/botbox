@@ -164,25 +164,25 @@ def describe_docker() -> None:
         install(RECORD)
         await Container("sdk-box").remove()
 
-    async def it_runs_an_attached_run_to_its_exit_into_its_sinks(install: Install) -> None:
+    async def it_runs_an_attached_run_to_its_exit_into_its_files(
+        install: Install, tmp_path: Path
+    ) -> None:
         install(
             "import sys; print(sys.argv[1:], sys.stdin.read()); "
             "print('said this', file=sys.stderr); sys.exit(3)"
         )
-        stdout, stderr = bytearray(), bytearray()
-        container = await Image("busybox").run(
-            "cat",
-            name="box",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=stdout.extend,
-            stderr=stderr.extend,
+        with (tmp_path / "out").open("wb") as stdout, (tmp_path / "err").open("wb") as stderr:
+            container = await Image("busybox").run(
+                "cat", name="box", stdin=asyncio.subprocess.PIPE, stdout=stdout, stderr=stderr
+            )
+            assert container.stdin is not None
+            container.stdin.write(b"hello")
+            container.stdin.close()
+            assert await container.wait() == 3
+        assert (tmp_path / "out").read_bytes() == (
+            b"['run', '--interactive', '--name', 'box', 'busybox', 'cat'] hello\n"
         )
-        assert container.stdin is not None
-        container.stdin.write(b"hello")
-        container.stdin.close()
-        assert await container.wait() == 3
-        assert stdout == b"['run', '--interactive', '--name', 'box', 'busybox', 'cat'] hello\n"
-        assert stderr == b"said this\n"
+        assert (tmp_path / "err").read_bytes() == b"said this\n"
 
     async def it_kills_an_attached_run_that_ignores_the_terminate_when_cancelled(
         install: Install, pids: Path
@@ -225,20 +225,10 @@ def describe_docker() -> None:
                 while marked(marker):
                     await asyncio.sleep(0.01)
 
-    async def it_hands_over_complete_binary_output(install: Install) -> None:
+    async def it_hands_over_complete_binary_output(install: Install, tmp_path: Path) -> None:
         install("import os, sys; os.write(1, b'x' * 131072); os.write(2, b'err\\xff'); sys.exit(3)")
-        out, err = bytearray(), bytearray()
-        container = await Image("image").run(name="box", stdout=out.extend, stderr=err.extend)
-        assert await container.wait() == 3
-        assert out == b"x" * 131072
-        assert err == b"err\xff"
-
-    async def it_fails_the_wait_when_a_sink_fails(install: Install) -> None:
-        install("import os; os.write(1, b'out'); os.write(2, b'err')")
-
-        def full(_chunk: bytes) -> None:
-            raise OSError("disk full")
-
-        container = await Image("image").run(name="box", stdout=full)
-        with pytest.raises(OSError, match="disk full"):
-            await container.wait()
+        with (tmp_path / "out").open("wb") as out, (tmp_path / "err").open("wb") as err:
+            container = await Image("image").run(name="box", stdout=out, stderr=err)
+            assert await container.wait() == 3
+        assert (tmp_path / "out").read_bytes() == b"x" * 131072
+        assert (tmp_path / "err").read_bytes() == b"err\xff"

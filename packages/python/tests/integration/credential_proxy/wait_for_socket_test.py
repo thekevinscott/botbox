@@ -25,18 +25,19 @@ def log(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-async def through() -> AsyncIterator[Container]:
+async def through(tmp_path: Path) -> AsyncIterator[Container]:
     """A running container of the proxy's image, which has socat."""
     image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
     name = f"botbox-test-{uuid4().hex[:12]}"
-    said = bytearray()
-    container = await image.run(
-        "-c", "echo up; exec sleep 60", name=name, entrypoint="sh", stdout=said.extend
-    )
-    while b"up" not in said:
-        await asyncio.sleep(0.05)
-    yield container
-    subprocess.run(["docker", "rm", "--force", name], capture_output=True, check=False)
+    output = tmp_path / "docker.stdout"
+    with output.open("wb") as said:
+        container = await image.run(
+            "-c", "echo up; exec sleep 60", name=name, entrypoint="sh", stdout=said
+        )
+        while b"up" not in output.read_bytes():
+            await asyncio.sleep(0.05)
+        yield container
+        subprocess.run(["docker", "rm", "--force", name], capture_output=True, check=False)
 
 
 def client(container: Container) -> asyncio.Future[int]:
