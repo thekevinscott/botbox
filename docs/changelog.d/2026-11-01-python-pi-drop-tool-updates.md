@@ -1,0 +1,1 @@
+**Changed** (**BREAKING**, see [migration](../migrations.d/2026-11-01-python-pi-drop-tool-updates.md)): The pi image now removes `tool_execution_update` events from stdout before Docker captures it. Other events, stderr, and pi's exit code are unchanged.

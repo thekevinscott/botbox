@@ -7,6 +7,10 @@ RUN apt-get update && \
 
 RUN npm install -g @earendil-works/pi-coding-agent@1.4.0
 
+RUN mv /usr/local/bin/pi /usr/local/bin/pi-unfiltered
+COPY --chmod=755 pi-wrapper /usr/local/bin/pi
+COPY filter_stdout.py /usr/local/lib/botbox/filter-pi-stdout.py
+
 RUN usermod --login user --home /home/user --move-home node && groupmod --new-name user node
 
 # The agent runs as the host's uid, which may not be this one.

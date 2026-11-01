@@ -52,7 +52,17 @@ def main() -> int:
     agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
     agent_dir.mkdir(parents=True, exist_ok=True)
     (agent_dir / "models.json").write_text(json.dumps({"providers": {"fake": provider}}))
-    pi = ["pi", "-p", "go", "--mode", "json", "--provider", "fake", "--model", "fake"]
+    pi = [
+        os.environ.get("PI_EXECUTABLE", "pi"),
+        "-p",
+        "go",
+        "--mode",
+        "json",
+        "--provider",
+        "fake",
+        "--model",
+        "fake",
+    ]
     return subprocess.run([*pi, *sys.argv[2:]]).returncode
 
 
