@@ -1,0 +1,1 @@
+Changed `Botbox.run()` to write stdout, stderr, and the proxy log once, directly to `output` when supplied or to scratch otherwise. `Image.run()` now also accepts open streams for stdout and stderr. **BREAKING** A stream destination that fails during a run now fails the attached Docker client; see [the migration note](../migrations.d/2026-11-01-python-one-file-streams.md).

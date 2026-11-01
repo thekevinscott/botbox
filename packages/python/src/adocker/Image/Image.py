@@ -30,8 +30,8 @@ class Image:
         *command: str,
         name: str,
         stdin: Stream = DEVNULL,
-        stdout: Sink | None = None,
-        stderr: Sink | None = None,
+        stdout: Sink | Stream = None,
+        stderr: Sink | Stream = None,
         init: bool = False,
         rm: bool = False,
         labels: Mapping[str, str] | None = None,
@@ -58,8 +58,8 @@ class Image:
 
         `stdin` is the client's stdin, passed with `--interactive` unless DEVNULL or None.
         PIPE gives the container a `stdin` writer that only this process holds. `stdout` and
-        `stderr` are sinks, handed each chunk of output as it arrives; without one, the
-        output is dropped. The other options are `docker run`'s flags of the same names.
+        `stderr` accept a file or a sink; without either, output is dropped. The other options
+        are `docker run`'s flags of the same names.
         """
         pipe = await StdinPipe.open() if stdin == PIPE else None
         args = run_args(
@@ -112,8 +112,8 @@ class Image:
 async def attach(
     args: list[str],
     stdin: Stream | StdinPipe,
-    stdout: Sink | None,
-    stderr: Sink | None,
+    stdout: Sink | Stream,
+    stderr: Sink | Stream,
     started: asyncio.Future[None],
 ) -> int:
     """Run the client to its exit, then let go of a stdin pipe's read end."""

@@ -19,7 +19,6 @@ from botbox.credential_proxy.sds_secret import sds_secret
 from botbox.credential_proxy.stop_container import stop_container
 from botbox.credential_proxy.wait_for_socket import wait_for_socket
 from botbox.process import settle
-from botbox.write import write
 
 # envoy's uid in the image. The agent must not run as it.
 USER = "101:101"
@@ -56,7 +55,7 @@ async def credential_proxy(  # noqa: PLR0913
     config = envoy_config(credential.injection, SOCKET)
     stdin = preloaded(sds_secret(credential.secret))
     try:
-        with write(log) as sink:
+        with log.open("wb") as stream:
             container = Container(name)
             try:
                 container = await Image(IMAGE).run(
@@ -67,8 +66,8 @@ async def credential_proxy(  # noqa: PLR0913
                     config,
                     name=name,
                     stdin=stdin,
-                    stdout=sink,
-                    stderr=sink,
+                    stdout=stream,
+                    stderr=stream,
                     labels={**(labels or {}), "botbox.run": token},
                     user=USER,
                     pid=f"container:{proxy.name}",

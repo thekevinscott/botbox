@@ -26,7 +26,6 @@ from botbox.RunResult import RunResult
 from botbox.send_home import send_home
 from botbox.Timeout import Timeout
 from botbox.warned import warned
-from botbox.write import write
 
 STDERR_BYTES = 64 * 1024
 
@@ -143,12 +142,11 @@ class Botbox:
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return its exit code.
 
-        stdout, stderr and the proxy's output go to stdout.txt, stderr.txt and proxy.log in the
-        run's temp directory, under `TMPDIR`. With `output`, they go to the same files there as
-        well, and transcripts/ there is mounted over the agent's `sessions_dir`. The three files
-        are truncated; other files are kept. If writing to one of them fails mid-run, it is
-        warned about and dropped, and the run carries on. A path with `:` raises `ValueError`,
-        since Docker can't mount it.
+        stdout, stderr and the proxy's output go to stdout.txt, stderr.txt and proxy.log in
+        `output` when given, or in the run's temp directory under `TMPDIR` otherwise. With
+        `output`, transcripts/ there is mounted over the agent's `sessions_dir`. The three files
+        are truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
+        can't mount it.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
         is built. The agent's home is in the container, created by the image, and goes with the
@@ -228,15 +226,14 @@ class Botbox:
         scratch: Path,
         output: Path | None,
     ) -> RunResult:
-        """Run attached, with `home` on its stdin, writing to `scratch` and `output`, then
-        remove the agent container."""
+        """Run attached, with `home` on its stdin, then remove the agent container."""
         name = f"botbox-agent-{token}"
         container = Container(name)
-        also = [] if output is None else [output]
+        folder = scratch if output is None else output
         try:
             with (
-                write(*[folder / "stdout.txt" for folder in (scratch, *also)]) as out,
-                write(*[folder / "stderr.txt" for folder in (scratch, *also)]) as err,
+                (folder / "stdout.txt").open("wb") as out,
+                (folder / "stderr.txt").open("wb") as err,
             ):
                 container = await Image(image).run(
                     *command,
@@ -251,7 +248,7 @@ class Botbox:
                     await send_home(stdin, home)
                     stdin.close()
                 client = await container.wait()
-            result = await agent_exit(container, client, last_stderr(scratch))
+            result = await agent_exit(container, client, last_stderr(folder / "stderr.txt"))
         finally:
             await settle(warned(remove_within(container), f"remove its agent container {name}"))
         return result
@@ -337,8 +334,8 @@ class Botbox:
         }
 
 
-def last_stderr(scratch: Path) -> str:
-    """The last `STDERR_BYTES` of the run's stderr in `scratch`, for an error."""
-    with (scratch / "stderr.txt").open("rb") as stderr:
+def last_stderr(path: Path) -> str:
+    """Read the last `STDERR_BYTES` of the run's stderr for an error."""
+    with path.open("rb") as stderr:
         stderr.seek(max(0, stderr.seek(0, os.SEEK_END) - STDERR_BYTES))
         return stderr.read().decode(errors="replace")

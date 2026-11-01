@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -100,6 +101,19 @@ def describe_Image() -> None:
             await Image("img").run(name="box", stdout=out, stderr=err)
             assert calls[0]["stdout"] is out
             assert calls[0]["stderr"] is err
+
+        async def it_hands_open_streams_to_the_client(
+            calls: list[dict[str, Any]], release: asyncio.Event, tmp_path: Path
+        ) -> None:
+            with (
+                (tmp_path / "out").open("wb") as out,
+                (tmp_path / "err").open("wb") as err,
+            ):
+                container = await Image("img").run(name="box", stdout=out, stderr=err)
+                assert calls[0]["stdout"] is out
+                assert calls[0]["stderr"] is err
+                release.set()
+                await container.wait()
 
         async def it_passes_every_option_as_a_flag(calls: list[dict[str, Any]]) -> None:
             await Image("img").run(
