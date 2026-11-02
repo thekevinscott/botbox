@@ -23,4 +23,7 @@ jobs:
         with:
           fetch-depth: 0
       - id: scope
-        run: python3 .github/scripts/ci_scope.py "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 .github/scripts/ci_scope.py "$BASE" "$HEAD" >> "$GITHUB_OUTPUT"
