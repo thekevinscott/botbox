@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest -p no:warnings -q tests/e2e/pi_openrouter_test.py tests/e2e/pi_tool_timeout_test.py tests/e2e/api_key_test.py tests/e2e/model_test.py tests/e2e/quoting_test.py --deselect tests/e2e/api_key_test.py::describe_an_api_key_session::it_exits_zero --deselect tests/e2e/api_key_test.py::describe_an_api_key_session::it_gets_a_reply --deselect tests/e2e/api_key_test.py::describe_an_api_key_session::it_sends_the_messages_through_the_credential_proxy --deselect tests/e2e/model_test.py::describe_claude_opus_5_5::it_exits_zero --deselect tests/e2e/model_test.py::describe_claude_opus_5_5::it_reports_no_error",
-  "ran_at": 1793619219,
+  "command": "uv run --env-file ../../.env pytest -p no:warnings -q tests/e2e/api_key_test.py::describe_an_api_key_session::it_exits_zero tests/e2e/api_key_test.py::describe_an_api_key_session::it_gets_a_reply tests/e2e/api_key_test.py::describe_an_api_key_session::it_sends_the_messages_through_the_credential_proxy tests/e2e/model_test.py::describe_claude_opus_5_5::it_exits_zero tests/e2e/model_test.py::describe_claude_opus_5_5::it_reports_no_error",
+  "ran_at": 1793619289,
   "exit_code": 0,
-  "commit": "c7ce14893af52fb69bfa29d7a296a60ccf9c4e3c",
+  "commit": "a6fcfc65c94c84c6863a8326d81388d975fc595e",
   "branch": "e2e-openrouter-key"
 }
