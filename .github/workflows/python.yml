@@ -6,6 +6,8 @@ on:
       - 'packages/python/**'
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
+      - '!packages/python/tests/e2e/**'
+      - '!packages/python/e2e-attestations/**'
       - 'justfile'
       - '.github/workflows/python.yml'
 

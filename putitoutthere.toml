@@ -12,6 +12,7 @@ first_version = "0.0.1"
 build = "hatch"
 globs = [
   "packages/python/!(testing-conventions.toml)",
-  "packages/python/!(changelog.d|migrations.d|e2e-attestations)/**",
+  "packages/python/!(changelog.d|migrations.d|e2e-attestations|tests)/**",
+  "packages/python/tests/!(e2e)/**",
   "LICENSE",
 ]
