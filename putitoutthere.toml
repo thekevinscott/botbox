@@ -13,6 +13,6 @@ build = "hatch"
 globs = [
   "packages/python/!(testing-conventions.toml)",
   "packages/python/!(changelog.d|migrations.d|e2e-attestations|tests)/**",
-  "packages/python/tests/!(e2e)/**",
+  "packages/python/tests/!(e2e|integration)/**",
   "LICENSE",
 ]

@@ -19,6 +19,7 @@ on:
       - '!packages/*/migrations.d/**'
       - '!packages/*/e2e-attestations/**'
       - '!packages/python/tests/e2e/**'
+      - '!packages/python/tests/integration/**'
       - 'putitoutthere.toml'
       - 'LICENSE'
       - '.github/workflows/build-check.yml'
