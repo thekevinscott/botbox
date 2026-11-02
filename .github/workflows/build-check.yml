@@ -18,6 +18,7 @@ on:
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
       - '!packages/*/e2e-attestations/**'
+      - '!packages/python/tests/e2e/**'
       - 'putitoutthere.toml'
       - 'LICENSE'
       - '.github/workflows/build-check.yml'
