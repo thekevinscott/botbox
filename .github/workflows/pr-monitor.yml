@@ -16,4 +16,4 @@ jobs:
     # dispatches, the gate waits until the job is killed.
     timeout-minutes: 45
     steps:
-      - uses: thekevinscott/pr-monitor@v1
+      - uses: thekevinscott/pr-monitor@main
