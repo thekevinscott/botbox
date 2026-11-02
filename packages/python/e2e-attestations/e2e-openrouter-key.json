@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest -p no:warnings -q tests/e2e/pi_openrouter_test.py tests/e2e/pi_tool_timeout_test.py",
+  "ran_at": 1793618905,
+  "exit_code": 0,
+  "commit": "1c2c10a07614d5d2241e19add6164582d7edb249",
+  "branch": "e2e-openrouter-key"
+}
