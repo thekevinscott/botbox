@@ -1,4 +1,4 @@
-"""The pi image: what a command run in it can use."""
+"""The pi image: what a command run inside it can use."""
 
 import asyncio
 import json
