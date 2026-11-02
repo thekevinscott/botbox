@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import API_KEY
+from conftest import ANTHROPIC_API_KEY
 
 from botbox import Botbox, ClaudeAgent, RunResult
 
 
 @pytest.fixture(scope="module")
 def result(output: Path) -> RunResult:
-    agent = ClaudeAgent(model="claude-opus-5-5", api_key=API_KEY)
+    agent = ClaudeAgent(model="claude-opus-5-5", api_key=ANTHROPIC_API_KEY)
     return asyncio.run(Botbox(agent).run(agent.command("say ok"), output=output))
 
 

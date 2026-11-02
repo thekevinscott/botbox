@@ -15,14 +15,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from conftest import API_KEY, docker_lines, leaked, transcripts
+from conftest import ANTHROPIC_API_KEY, docker_lines, leaked, transcripts
 
 from botbox import Botbox, ClaudeAgent, DockerException, HomeFiles, RunResult
 
 
 @pytest.fixture(scope="module")
 def agent() -> ClaudeAgent:
-    return ClaudeAgent(model="claude-opus-5", effort="low", api_key=API_KEY)
+    return ClaudeAgent(model="claude-opus-5", effort="low", api_key=ANTHROPIC_API_KEY)
 
 
 KEEP = "/keep"
@@ -113,7 +113,7 @@ def describe_an_api_key_session() -> None:
     @pytest.mark.usefixtures("result")
     def it_leaves_no_key_in_the_home_env_or_output(kept: Path) -> None:
         assert (kept / "home" / ".claude").is_dir()
-        assert leaked(kept, API_KEY) == []
+        assert leaked(kept, ANTHROPIC_API_KEY) == []
 
     @pytest.mark.usefixtures("result")
     def it_gives_claude_a_placeholder_key(kept: Path) -> None:
@@ -136,7 +136,7 @@ def describe_an_api_key_session() -> None:
         assert [line for line in log.splitlines() if "Proxying refused" in line] == []
 
     def it_keeps_the_key_out_of_the_container_config(config: str) -> None:
-        leaked = API_KEY in config
+        leaked = ANTHROPIC_API_KEY in config
         assert not leaked
 
     def it_keeps_the_staged_files_out_of_the_container_config(
@@ -149,7 +149,7 @@ def describe_an_api_key_session() -> None:
         ]
 
     def it_keeps_the_key_out_of_a_refused_container(tmp_path: Path) -> None:
-        agent = ClaudeAgent(api_key=API_KEY)
+        agent = ClaudeAgent(api_key=ANTHROPIC_API_KEY)
         output = tmp_path / "output"
         with pytest.raises(DockerException) as refused:
             asyncio.run(
@@ -157,15 +157,15 @@ def describe_an_api_key_session() -> None:
             )
         assert refused.value.return_code == 125
         stderr = (output / "stderr.txt").read_text()
-        leaked = API_KEY in stderr or API_KEY in str(refused.value)
+        leaked = ANTHROPIC_API_KEY in stderr or ANTHROPIC_API_KEY in str(refused.value)
         assert not leaked
 
     @pytest.mark.usefixtures("result")
     def it_keeps_the_key_out_of_the_transcript(output: Path) -> None:
-        leaked = any(API_KEY in text for text in transcripts(output).values())
+        leaked = any(ANTHROPIC_API_KEY in text for text in transcripts(output).values())
         assert not leaked
 
     @pytest.mark.usefixtures("result")
     def it_keeps_the_key_out_of_the_proxy_log(output: Path) -> None:
-        leaked = API_KEY in (output / "proxy.log").read_text()
+        leaked = ANTHROPIC_API_KEY in (output / "proxy.log").read_text()
         assert not leaked

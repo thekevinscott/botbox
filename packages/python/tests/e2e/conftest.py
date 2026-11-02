@@ -19,8 +19,8 @@ import pytest
 from botbox import Botbox, ClaudeAgent, Timeout
 
 # A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
-API_KEY = os.environ["ANTHROPIC_API_KEY"]
-if not API_KEY:
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+if not ANTHROPIC_API_KEY:
     raise RuntimeError("ANTHROPIC_API_KEY is empty")
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 if not OPENROUTER_API_KEY:
