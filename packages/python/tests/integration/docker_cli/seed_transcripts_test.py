@@ -1,4 +1,4 @@
-"""`Botbox.run(transcripts=...)` seeds the run's transcripts from an earlier run's folder."""
+"""Transcripts already in `output/transcripts/` are seen by the run and kept beside its own."""
 
 from pathlib import Path
 
@@ -13,35 +13,25 @@ def files(root: Path) -> dict[str, str]:
 
 
 @pytest.fixture
-def earlier(tmp_path: Path) -> Path:
-    directory = tmp_path / "earlier"
-    (directory / "-old").mkdir(parents=True)
-    (directory / "-old" / "old.jsonl").write_text('{"type": "earlier"}\n')
+def output(tmp_path: Path) -> Path:
+    directory = tmp_path / "output"
+    (directory / "transcripts" / "-old").mkdir(parents=True)
+    (directory / "transcripts" / "-old" / "old.jsonl").write_text('{"type": "earlier"}\n')
     return directory
 
 
 def describe_seeded_transcripts() -> None:
-    async def it_keeps_the_earlier_sessions_beside_the_new_ones(
-        box: Botbox, earlier: Path, tmp_path: Path
-    ) -> None:
-        output = tmp_path / "output"
-        await box.run("true", output=output, transcripts=earlier)
+    async def it_keeps_the_earlier_sessions_beside_the_new_ones(box: Botbox, output: Path) -> None:
+        await box.run("true", output=output)
         assert files(output / "transcripts") == {
             "-old/old.jsonl": '{"type": "earlier"}\n',
             "-work/abc.jsonl": '{"type": "user"}\n',
         }
 
-    async def it_leaves_the_source_folder_as_it_was(
-        box: Botbox, earlier: Path, tmp_path: Path
+    async def it_mounts_them_over_the_sessions_dir(
+        box: Botbox, daemon: Daemon, output: Path
     ) -> None:
-        await box.run("true", output=tmp_path / "output", transcripts=earlier)
-        assert files(earlier) == {"-old/old.jsonl": '{"type": "earlier"}\n'}
-
-    async def it_mounts_the_outputs_copy_over_the_sessions_dir(
-        box: Botbox, daemon: Daemon, earlier: Path, tmp_path: Path
-    ) -> None:
-        output = tmp_path / "output"
-        await box.run("true", output=output, transcripts=earlier)
+        await box.run("true", output=output)
         [run] = daemon.runs("botbox-agent-")
         sessions = f"{box.agent.home}/{box.agent.sessions_dir}"
         assert volume(run, sessions) == (str(output / "transcripts"), "rw")

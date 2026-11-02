@@ -40,7 +40,18 @@ print((output / "stdout.txt").read_text())
 
 `stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
 output directory is created or reused, before setup starts; other files in the directory,
-`transcripts/` included, are preserved. Use a separate directory for each concurrent run. The
+`transcripts/` included, are preserved. Sessions already in `transcripts/` are visible to the
+agent, so reusing an `output` directory continues from its sessions. To start from another run's
+sessions, copy its `transcripts/` into the new `output` first:
+
+```python
+import shutil
+
+shutil.copytree("runs/first/transcripts", "runs/second/transcripts")
+result = await box.run(command, output="runs/second")
+```
+
+Use a separate directory for each concurrent run. The
 files remain after success, failure, timeout or cancellation. If build or credential
 staging fails, all three are empty. `proxy.log` holds everything the proxy container printed,
 its startup output included; if the proxy won't start, the error also carries the last 64 KiB
