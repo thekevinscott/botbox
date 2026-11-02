@@ -5,17 +5,12 @@ sessions it can see before pi starts its own.
 """
 
 import asyncio
-import os
 from pathlib import Path
 
 import pytest
+from conftest import OPENROUTER_API_KEY
 
 from botbox import Botbox, PiAgent
-
-# A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-if not OPENROUTER_API_KEY:
-    raise RuntimeError("OPENROUTER_API_KEY is empty")
 
 
 def sessions(root: Path) -> set[str]:
