@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from conftest import API_KEY
+from conftest import ANTHROPIC_API_KEY
 
 from botbox import Botbox, ClaudeAgent
 
@@ -12,7 +12,7 @@ from botbox import Botbox, ClaudeAgent
 @pytest.fixture(scope="module")
 def output(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("quoting")
-    agent = ClaudeAgent(model="nope; echo INJECTED", api_key=API_KEY)
+    agent = ClaudeAgent(model="nope; echo INJECTED", api_key=ANTHROPIC_API_KEY)
     asyncio.run(Botbox(agent).run(agent.command("say ok"), output=output))
     return output
 
