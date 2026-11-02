@@ -22,6 +22,9 @@ from botbox import Botbox, ClaudeAgent, Timeout
 API_KEY = os.environ["ANTHROPIC_API_KEY"]
 if not API_KEY:
     raise RuntimeError("ANTHROPIC_API_KEY is empty")
+OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+if not OPENROUTER_API_KEY:
+    raise RuntimeError("OPENROUTER_API_KEY is empty")
 
 LINE = 'printf "%s\\t" "{name}"; ({command}) 2>&1 | tr "\\n" " "; echo'
 

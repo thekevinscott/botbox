@@ -7,19 +7,13 @@ into a mount on the way out, and the test scans that and the run's output for th
 
 import asyncio
 import json
-import os
 import re
 from pathlib import Path
 
 import pytest
-from conftest import leaked, transcripts
+from conftest import OPENROUTER_API_KEY, leaked, transcripts
 
 from botbox import Botbox, PiAgent, RunResult
-
-# A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-if not OPENROUTER_API_KEY:
-    raise RuntimeError("OPENROUTER_API_KEY is empty")
 
 KEEP = "/keep"
 
