@@ -188,6 +188,13 @@ def describe_command() -> None:
     def it_resumes_a_named_session_and_quotes_its_id() -> None:
         assert ClaudeAgent().command("again", resume="a b; id").endswith(" --resume 'a b; id'")
 
+    def it_treats_a_string_equal_to_true_as_a_session_id() -> None:
+        class SessionId(str):
+            def __eq__(self, other: object) -> bool:
+                return other is True
+
+        assert ClaudeAgent().command("again", resume=SessionId("abc")).endswith(" --resume abc")
+
     def it_runs_claude_in_print_mode_with_json_output_tools_permitted_and_no_mcp() -> None:
         assert ClaudeAgent().command("Fix the tests") == (
             "claude -p 'Fix the tests' --output-format json --dangerously-skip-permissions"

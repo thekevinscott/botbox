@@ -1,3 +1,4 @@
+from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, get_type_hints
 
@@ -25,6 +26,9 @@ def describe_agent() -> None:
 
     def it_types_the_egress_allowlist_as_a_tuple_of_hosts() -> None:
         assert get_type_hints(Agent)["allow"] == tuple[str, ...]
+
+    def it_starts_a_new_session_by_default() -> None:
+        assert signature(Agent.command).parameters["resume"].default is False
 
     def it_has_its_credentials_copied_in_by_default() -> None:
         assert OneShot().credential_source is None

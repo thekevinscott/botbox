@@ -216,6 +216,18 @@ def describe_command() -> None:
     def it_resumes_a_named_session_and_quotes_its_id() -> None:
         assert CodexAgent().command("again", resume="a b; id").endswith(" 'a b; id' again")
 
+    def it_uses_the_resume_subcommand_for_a_named_session() -> None:
+        assert CodexAgent().command("again", resume="abc").startswith("codex exec resume ")
+
+    def it_treats_a_string_equal_to_true_as_a_session_id() -> None:
+        class SessionId(str):
+            def __eq__(self, other: object) -> bool:
+                return other is True
+
+        command = CodexAgent().command("again", resume=SessionId("abc"))
+        assert command.startswith("codex exec resume ")
+        assert command.endswith(" abc again")
+
     def it_runs_codex_exec_with_json_output_and_no_sandbox_of_its_own() -> None:
         assert CodexAgent().command("Fix the tests") == (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"

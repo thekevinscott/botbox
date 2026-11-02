@@ -300,6 +300,17 @@ def describe_command() -> None:
             .endswith(" --session 'a b; id'")
         )
 
+    def it_treats_a_string_equal_to_true_as_a_session_id() -> None:
+        class SessionId(str):
+            def __eq__(self, other: object) -> bool:
+                return other is True
+
+        assert (
+            PiAgent("openrouter")
+            .command("again", resume=SessionId("abc"))
+            .endswith(" --session abc")
+        )
+
     def it_runs_pi_in_print_mode_with_json_output() -> None:
         assert PiAgent(provider="openrouter").command("Fix the tests") == (
             "pi -p 'Fix the tests' --mode json"
