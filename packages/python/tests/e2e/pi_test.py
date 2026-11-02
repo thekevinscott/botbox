@@ -2,39 +2,33 @@
 
 import asyncio
 import json
-import shlex
 from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import OPENROUTER_API_KEY
 
 from botbox import Botbox, PiAgent, RunResult
 
-INTEGRATION = Path(__file__).parents[1] / "integration"
-SLEEPS = json.dumps({"command": "sleep 30; echo finished"})
+PROMPT = (
+    "Run this exact bash command, with no timeout: sleep 30; echo finished. "
+    "Then reply with what the tool returned."
+)
 
 
 @pytest.fixture(scope="module")
 def result(output: Path) -> RunResult:
-    box = Botbox(PiAgent("openrouter", api_key="unused"))
+    box = Botbox(PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY))
     return asyncio.run(box.run("python3 -c 'print(6 * 7)'", output=output))
 
 
 @pytest.fixture(scope="module")
 def timed_out(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
-    """The bash call a fake model asked for, run by pi with the shipped extension loaded."""
+    """The real model's bash call, run by pi with the shipped extension loaded."""
     output = tmp_path_factory.mktemp("tool-timeout")
-    command = "BOTBOX_TOOL_TIMEOUT=2 " + shlex.join(
-        [
-            "python3",
-            "/fake/fake_model_test.py",
-            SLEEPS,
-            "-e",
-            "/usr/local/lib/botbox/tool-timeout.ts",
-        ]
-    )
-    box = Botbox(PiAgent("openrouter", api_key="unused"), timeout=25)
-    run = box.run(command, mounts=[(INTEGRATION, "/fake", "ro")], output=output)
+    agent = PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY, tool_timeout=2)
+    box = Botbox(agent, timeout=60)
+    run = box.run(agent.command(PROMPT), output=output)
     assert asyncio.run(run).exit_code == 0, (output / "stderr.txt").read_text()
     lines = (output / "stdout.txt").read_text().splitlines()
     [end] = [json.loads(line) for line in lines if line.startswith('{"type":"tool_execution_end"')]

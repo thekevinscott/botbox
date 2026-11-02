@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/pi_test.py tests/e2e/pi_stdout_filter_test.py",
+  "ran_at": 1793619790,
+  "exit_code": 0,
+  "commit": "1501da0ac7482fefdafcd2e9d4a80de464e648b2",
+  "branch": "fix-331-real-pi"
+}
