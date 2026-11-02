@@ -182,6 +182,12 @@ def describe_api_key() -> None:
 
 
 def describe_command() -> None:
+    def it_continues_the_latest_session() -> None:
+        assert ClaudeAgent().command("again", resume=True).endswith(" --continue")
+
+    def it_resumes_a_named_session_and_quotes_its_id() -> None:
+        assert ClaudeAgent().command("again", resume="a b; id").endswith(" --resume 'a b; id'")
+
     def it_runs_claude_in_print_mode_with_json_output_tools_permitted_and_no_mcp() -> None:
         assert ClaudeAgent().command("Fix the tests") == (
             "claude -p 'Fix the tests' --output-format json --dangerously-skip-permissions"

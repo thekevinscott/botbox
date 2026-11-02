@@ -290,6 +290,16 @@ def describe_api_key() -> None:
 
 
 def describe_command() -> None:
+    def it_continues_the_latest_session() -> None:
+        assert PiAgent("openrouter").command("again", resume=True).endswith(" --continue")
+
+    def it_resumes_a_named_session_and_quotes_its_id() -> None:
+        assert (
+            PiAgent("openrouter")
+            .command("again", resume="a b; id")
+            .endswith(" --session 'a b; id'")
+        )
+
     def it_runs_pi_in_print_mode_with_json_output() -> None:
         assert PiAgent(provider="openrouter").command("Fix the tests") == (
             "pi -p 'Fix the tests' --mode json"

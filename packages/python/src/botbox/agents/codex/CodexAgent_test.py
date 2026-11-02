@@ -210,6 +210,12 @@ def describe_api_key() -> None:
 
 
 def describe_command() -> None:
+    def it_continues_the_latest_session() -> None:
+        assert CodexAgent().command("again", resume=True).endswith(" --last again")
+
+    def it_resumes_a_named_session_and_quotes_its_id() -> None:
+        assert CodexAgent().command("again", resume="a b; id").endswith(" 'a b; id' again")
+
     def it_runs_codex_exec_with_json_output_and_no_sandbox_of_its_own() -> None:
         assert CodexAgent().command("Fix the tests") == (
             "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
