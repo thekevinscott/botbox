@@ -1,15 +1,21 @@
-"""A pi run seeded with an earlier run's transcripts sees its sessions and keeps them."""
+"""A real pi run on OpenRouter, seeded with an earlier run's transcripts, billed.
+
+Needs OPENROUTER_API_KEY. The first run writes a session; the second, seeded from it, lists the
+sessions it can see before pi starts its own.
+"""
 
 import asyncio
-import json
+import os
 from pathlib import Path
 
 import pytest
 
 from botbox import Botbox, PiAgent
 
-INTEGRATION = Path(__file__).parents[1] / "integration"
-ECHO = json.dumps({"command": "echo hi"})
+# A module global, never a fixture or test argument: pytest prints arguments in tracebacks.
+OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+if not OPENROUTER_API_KEY:
+    raise RuntimeError("OPENROUTER_API_KEY is empty")
 
 
 def sessions(root: Path) -> set[str]:
@@ -22,16 +28,17 @@ def contents(root: Path) -> dict[str, bytes]:
 
 @pytest.fixture(scope="module")
 def box() -> Botbox:
-    return Botbox(PiAgent("openrouter", api_key="unused"), timeout=120)
+    return Botbox(PiAgent("openrouter", "openai/gpt-4o-mini", api_key=OPENROUTER_API_KEY))
 
 
 @pytest.fixture(scope="module")
 def first(box: Botbox, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A pi session against the fake model, written to the first run's transcripts."""
+    """A pi session on OpenRouter, written to the first run's transcripts."""
     output = tmp_path_factory.mktemp("first")
-    command = f"python3 /fake/fake_model_test.py '{ECHO}'"
-    result = asyncio.run(box.run(command, mounts=[(INTEGRATION, "/fake", "ro")], output=output))
+    command = box.agent.command("Reply with exactly: pong")
+    result = asyncio.run(box.run(command, output=output))
     assert result.exit_code == 0, (output / "stderr.txt").read_text()
+    assert "pong" in (output / "stdout.txt").read_text()
     assert sessions(output / "transcripts"), "pi wrote no session under sessions_dir"
     return output / "transcripts"
 
@@ -54,17 +61,10 @@ def second(
     root = f"{box.agent.home}/{box.agent.sessions_dir}"
     command = (
         f"(cd {root} && find . -name '*.jsonl' | cut -c3- | sort > /tmp/seen)"
-        f" && python3 /fake/fake_model_test.py '{ECHO}' > /dev/null"
+        f" && ({box.agent.command('Reply with exactly: pong')}) > /dev/null"
         " && cat /tmp/seen"
     )
-    result = asyncio.run(
-        box.run(
-            command,
-            mounts=[(INTEGRATION, "/fake", "ro")],
-            output=output,
-            transcripts=first,
-        )
-    )
+    result = asyncio.run(box.run(command, output=output, transcripts=first))
     assert result.exit_code == 0, (output / "stderr.txt").read_text()
     return output
 
