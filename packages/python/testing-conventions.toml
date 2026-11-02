@@ -38,3 +38,9 @@ reason = "* -> / on the private _attach and _lockdown_flags only widens how thei
 path = "src/botbox/Timeout.py"
 rules = ["co-change"]
 reason = "#315 docstring-only change: drops the session mention. Behavior unchanged. Remove for the next behavioral edit."
+
+[[python.exempt]]
+path = "src/botbox/agents/codex/CodexAgent.py"
+rules = ["mutation"]
+lines = ["66"]
+reason = "is True -> == True is equivalent: bool values compare identically, and all str values already satisfy isinstance(resume, str) on the other side of the or"
