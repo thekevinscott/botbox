@@ -5,8 +5,6 @@ on:
     types: [opened, synchronize, reopened, edited]
     paths:
       - 'packages/**'
-      - '!packages/python/tests/e2e/**'
-      - '!packages/python/e2e-attestations/**'
       - 'docs/changelog.d/**'
       - 'docs/migrations.d/**'
       - '.github/workflows/changelog.yml'
@@ -16,7 +14,12 @@ permissions:
   pull-requests: read
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   enforce:
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
     name: Changelog fragment added
     runs-on: ubuntu-latest
     steps:

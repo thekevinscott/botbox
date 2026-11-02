@@ -53,6 +53,9 @@ docs-build:
 gha-lint:
     npx --yes testing-conventions workflow-lint
 
+test-ci-scripts:
+    cd packages/python && uv run pytest ../../.github/scripts
+
 # ---- Aggregates ----------------------------------------------------------
 
 test: test-unit test-integration

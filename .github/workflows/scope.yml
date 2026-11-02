@@ -1,0 +1,26 @@
+name: Scope
+
+on:
+  workflow_call:
+    outputs:
+      scope:
+        value: ${{ jobs.scope.outputs.scope }}
+      gates:
+        value: ${{ jobs.scope.outputs.gates }}
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    name: Scope
+    runs-on: ubuntu-latest
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+      gates: ${{ steps.scope.outputs.gates }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - id: scope
+        run: python3 .github/scripts/ci_scope.py "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"

@@ -18,8 +18,6 @@ on:
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
       - '!packages/*/e2e-attestations/**'
-      - '!packages/python/tests/e2e/**'
-      - '!packages/python/tests/integration/**'
       - 'putitoutthere.toml'
       - 'LICENSE'
       - '.github/workflows/build-check.yml'
@@ -28,5 +26,10 @@ permissions:
   contents: read
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   build-check:
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
     uses: thekevinscott/putitoutthere/.github/workflows/build.yml@v0
