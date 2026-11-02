@@ -54,7 +54,7 @@ class ClaudeAgent(Agent):
         self.login = ClaudeLogin(self.host_home / CREDENTIALS)
         self.credential_source = self.login if api_key is None else ClaudeApiKey(api_key)
 
-    def command(self, prompt: str) -> str:
+    def command(self, prompt: str, resume: str | bool = False) -> str:
         command = (
             f"claude -p {shlex.quote(prompt)} --output-format json --dangerously-skip-permissions"
             " --strict-mcp-config"
@@ -63,6 +63,10 @@ class ClaudeAgent(Agent):
             command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
             command += f" --effort {shlex.quote(self.effort)}"
+        if resume is True:
+            command += " --continue"
+        elif isinstance(resume, str):
+            command += f" --resume {shlex.quote(resume)}"
         return with_env(self.env, command)
 
     def stage_auth(self, home: HomeFiles) -> None:

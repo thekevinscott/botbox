@@ -62,15 +62,20 @@ class CodexAgent(Agent):
             CodexLogin(self.host_home / AUTH) if api_key is None else CodexApiKey(api_key)
         )
 
-    def command(self, prompt: str) -> str:
-        command = (
-            "codex exec --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
+    def command(self, prompt: str, resume: str | bool = False) -> str:
+        command = "codex exec resume" if resume is True or isinstance(resume, str) else "codex exec"
+        command += (
+            " --json --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
             " --disable plugins --disable apps --config analytics.enabled=false"
         )
         if self.model is not None:
             command += f" --model {shlex.quote(self.model)}"
         if self.effort is not None:
             command += f" --config {shlex.quote(f'model_reasoning_effort={self.effort}')}"
+        if resume is True:
+            command += " --last"
+        elif isinstance(resume, str):
+            command += f" {shlex.quote(resume)}"
         return f"{command} {shlex.quote(prompt)}"
 
     def stage_auth(self, home: HomeFiles) -> None:

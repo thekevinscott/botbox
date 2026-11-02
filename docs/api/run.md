@@ -41,14 +41,23 @@ print((output / "stdout.txt").read_text())
 `stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
 output directory is created or reused, before setup starts; other files in the directory,
 `transcripts/` included, are preserved. Sessions already in `transcripts/` are visible to the
-agent, so reusing an `output` directory continues from its sessions. To start from another run's
-sessions, copy its `transcripts/` into the new `output` first:
+agent. To continue one, pass `resume=True` for the latest session or its ID for a specific one,
+and use the same `workdir` on both runs:
+
+```python
+agent = ClaudeAgent()
+box = Botbox(agent)
+await box.run(agent.command("Remember this"), output="runs/first", workdir=agent.home)
+await box.run(agent.command("Recall it", resume=True), output="runs/first", workdir=agent.home)
+```
+
+To continue from another run's sessions, copy its `transcripts/` into the new `output` first:
 
 ```python
 import shutil
 
 shutil.copytree("runs/first/transcripts", "runs/second/transcripts")
-result = await box.run(command, output="runs/second")
+result = await box.run(agent.command("Recall it", resume=True), output="runs/second", workdir=agent.home)
 ```
 
 Use a separate directory for each concurrent run. The

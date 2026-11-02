@@ -48,12 +48,14 @@ class OneShot(Agent):
 
     def stage_auth(self, home: "HomeFiles") -> None: ...
 
-    def command(self, prompt: str) -> str:
+    def command(self, prompt: str, resume: str | bool = False) -> str:
+        del resume
         return prompt
 
 
 class NoStageAuth(Agent):
-    def command(self, prompt: str) -> str:
+    def command(self, prompt: str, resume: str | bool = False) -> str:
+        del resume
         return prompt
 
 

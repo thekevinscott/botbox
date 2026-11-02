@@ -15,7 +15,7 @@ from botbox import Botbox, ClaudeAgent, PiAgent
 def reply(output: Path, kind: str) -> str:
     events = [json.loads(line) for line in (output / "stdout.txt").read_text().splitlines()]
     if kind == "claude":
-        return next(event["result"] for event in events if event.get("type") == "result")
+        return str(next(event["result"] for event in events if event.get("type") == "result"))
     messages = [
         event["message"]
         for event in events
