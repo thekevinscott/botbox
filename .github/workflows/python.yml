@@ -6,10 +6,10 @@ on:
       - 'packages/python/**'
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
-      - '!packages/python/tests/e2e/**'
-      - '!packages/python/e2e-attestations/**'
       - 'justfile'
       - '.github/workflows/python.yml'
+      - '.github/workflows/scope.yml'
+      - '.github/scripts/**'
 
 permissions:
   contents: read
@@ -19,7 +19,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   lint:
+    needs: scope
+    if: needs.scope.outputs.scope != 'e2e'
     name: Lint
     runs-on: ubuntu-latest
     steps:
@@ -31,6 +36,7 @@ jobs:
       - run: just lint
 
   typecheck:
+    needs: scope
     name: Typecheck
     runs-on: ubuntu-latest
     steps:
@@ -42,6 +48,8 @@ jobs:
       - run: just typecheck
 
   unit:
+    needs: scope
+    if: contains(fromJSON('["unit", "full"]'), needs.scope.outputs.scope)
     name: Unit (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
@@ -57,6 +65,8 @@ jobs:
       - run: just test-unit
 
   integration:
+    needs: scope
+    if: contains(fromJSON('["integration", "full"]'), needs.scope.outputs.scope)
     name: Integration (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
@@ -72,6 +82,8 @@ jobs:
       - run: just test-integration
 
   shellcheck:
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
     name: Shellcheck
     runs-on: ubuntu-latest
     steps:
@@ -83,6 +95,8 @@ jobs:
       - run: just shellcheck
 
   relay-coverage:
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
     name: Relay coverage
     runs-on: ubuntu-latest
     steps:
@@ -92,3 +106,16 @@ jobs:
           python-version: '3.12'
       - uses: taiki-e/install-action@just
       - run: just test-relay-coverage
+
+  ci-scripts:
+    name: CI scripts
+    needs: scope
+    if: needs.scope.outputs.scope == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.12'
+      - uses: taiki-e/install-action@just
+      - run: just test-ci-scripts

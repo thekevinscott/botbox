@@ -19,19 +19,21 @@ on:
       - 'packages/**'
       - '!packages/*/changelog.d/**'
       - '!packages/*/migrations.d/**'
-      - '!packages/python/tests/e2e/**'
-      - '!packages/python/e2e-attestations/**'
       - '.github/workflows/conventions.yml'
 
 permissions:
   contents: read
 
 jobs:
+  scope:
+    uses: ./.github/workflows/scope.yml
+
   python:
     name: Python
+    needs: scope
     uses: thekevinscott/testing-conventions/.github/workflows/testing-conventions.yml@v0
     with:
       languages: '["python"]'
       source: packages/python
       run_e2e: true
-
+      gates: ${{ needs.scope.outputs.gates }}
