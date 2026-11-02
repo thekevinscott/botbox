@@ -290,6 +290,27 @@ def describe_api_key() -> None:
 
 
 def describe_command() -> None:
+    def it_continues_the_latest_session() -> None:
+        assert PiAgent("openrouter").command("again", resume=True).endswith(" --continue")
+
+    def it_resumes_a_named_session_and_quotes_its_id() -> None:
+        assert (
+            PiAgent("openrouter")
+            .command("again", resume="a b; id")
+            .endswith(" --session 'a b; id'")
+        )
+
+    def it_treats_a_string_equal_to_true_as_a_session_id() -> None:
+        class SessionId(str):
+            def __eq__(self, other: object) -> bool:
+                return other is True
+
+        assert (
+            PiAgent("openrouter")
+            .command("again", resume=SessionId("abc"))
+            .endswith(" --session abc")
+        )
+
     def it_runs_pi_in_print_mode_with_json_output() -> None:
         assert PiAgent(provider="openrouter").command("Fix the tests") == (
             "pi -p 'Fix the tests' --mode json"

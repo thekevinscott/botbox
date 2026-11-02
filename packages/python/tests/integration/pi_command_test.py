@@ -76,8 +76,12 @@ def describe_quoting() -> None:
 def describe_appended_flags() -> None:
     def it_hands_pi_flags_a_subclass_appends_to_the_command() -> None:
         class Terse(PiAgent):
-            def command(self, prompt: str) -> str:
-                return super().command(prompt) + " --append-system-prompt " + shlex.quote("X Y")
+            def command(self, prompt: str, resume: str | bool = False) -> str:
+                return (
+                    super().command(prompt, resume)
+                    + " --append-system-prompt "
+                    + shlex.quote("X Y")
+                )
 
         assert argv(Terse("openrouter", "m").command("hi"))[-2:] == [
             "--append-system-prompt",

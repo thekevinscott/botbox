@@ -77,13 +77,17 @@ class PiAgent(Agent):
             )
             self.credential_source = None
 
-    def command(self, prompt: str) -> str:
+    def command(self, prompt: str, resume: str | bool = False) -> str:
         command = f"pi -p {shlex.quote(prompt)} --mode json"
         # pi 1.0 rejects --provider without --model; before, it ignored it and picked the default.
         if self.model is not None:
             command += f" --provider {shlex.quote(self.provider)} --model {shlex.quote(self.model)}"
         if self.tool_timeout:
             command += f" -e {TOOL_TIMEOUT_EXTENSION}"
+        if resume is True:
+            command += " --continue"
+        elif isinstance(resume, str):
+            command += f" --session {shlex.quote(resume)}"
         return with_env(self.env, command)
 
     def stage_auth(self, home: HomeFiles) -> None:

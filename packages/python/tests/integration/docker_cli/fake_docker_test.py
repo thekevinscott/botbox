@@ -133,10 +133,11 @@ else:
         home = sys.stdin.buffer.read(int(envs["BOTBOX_HOME_BYTES"]))
         (state / f"{name}.home").write_bytes(home)
     # Without a transcripts mount, the transcript stays in the container's own home.
-    with contextlib.suppress(StopIteration):
-        session = volume("/home/user/.claude/projects") / "-work"
-        session.mkdir(parents=True, exist_ok=True)
-        (session / "abc.jsonl").write_text('{"type": "user"}\\n')
+    for sessions in ("/home/user/.claude/projects", "/home/user/.pi/agent/sessions"):
+        with contextlib.suppress(StopIteration):
+            session = volume(sessions) / "-work"
+            session.mkdir(parents=True, exist_ok=True)
+            (session / "abc.jsonl").write_text('{"type": "user"}\\n')
     sys.stdout.write(agent.get("stdout", ""))
     sys.stderr.write(agent.get("stderr", ""))
     sys.stdout.flush()

@@ -29,5 +29,5 @@ class Agent(ABC):
         copy of the host's, or a placeholder when the credential proxy sends the real one."""
 
     @abstractmethod
-    def command(self, prompt: str) -> str:
+    def command(self, prompt: str, resume: str | bool = False) -> str:
         """The agent's CLI invocation for `prompt`, as a shell string for `run()`."""
