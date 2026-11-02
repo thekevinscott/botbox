@@ -1,7 +1,7 @@
 {
   "command": "uv run --env-file ../../.env pytest tests/e2e/resume_test.py",
-  "ran_at": 1793621399,
+  "ran_at": 1793622830,
   "exit_code": 0,
-  "commit": "561633a3df2d8493ab7ece3d9c913a9803a7bd70",
+  "commit": "e93ea73a3d692c6bb71942294f482e18ae1ad89d",
   "branch": "seed-transcripts-320"
 }
