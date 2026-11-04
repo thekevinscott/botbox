@@ -41,6 +41,11 @@ def describe_Container() -> None:
         await Container("box").remove()
         run_docker.assert_awaited_once_with("rm", "--force", "box")
 
+    async def it_commits_to_an_image(run_docker: AsyncMock) -> None:
+        image = await Container("box").commit("snapshot:one")
+        assert image.tag == "snapshot:one"
+        run_docker.assert_awaited_once_with("commit", "box", "snapshot:one")
+
     async def it_inspects(run_docker: AsyncMock) -> None:
         run_docker.return_value = '[{"State": {"Status": "exited"}}]'
         assert await Container("box").inspect() == {"State": {"Status": "exited"}}

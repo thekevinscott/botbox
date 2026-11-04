@@ -69,6 +69,10 @@ def pipe() -> Iterator[Any]:
 
 
 def describe_Image() -> None:
+    async def it_removes_a_tag_used_by_a_container(run_docker: AsyncMock) -> None:
+        await Image("snapshot:one").remove()
+        run_docker.assert_awaited_once_with("image", "rm", "--force", "snapshot:one")
+
     async def it_inspects(run_docker: AsyncMock) -> None:
         run_docker.return_value = '[{"Id": "sha256:abc"}]'
         assert await Image("x:latest").inspect() == {"Id": "sha256:abc"}

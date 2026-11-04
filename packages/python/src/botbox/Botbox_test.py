@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
+from adocker import DockerException
 from botbox.Botbox import Botbox
+from botbox.RunResult import RunResult
 
 LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
 
@@ -608,6 +610,133 @@ def stuck_lockdown(*_args: object, **_options: object) -> Any:
 
 
 def describe_run() -> None:
+    async def it_keeps_a_named_agent_and_its_owned_volume(
+        runner: Mock, docker_run: Mock, jail: Mock, steps: list[str]
+    ) -> None:
+        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        wrapped = Mock(
+            inspect=AsyncMock(side_effect=[missing, {"Config": {"Labels": {"botbox.run": TOKEN}}}])
+        )
+        with patch("botbox.Botbox.Container", return_value=wrapped):
+            result = await Botbox(runner).run("true", keep="saved")
+        assert result == RunResult(3, ENDED.oom_killed, "saved")
+        assert docker_run.call_args.kwargs["name"] == "saved"
+        assert jail.volume.keep is True
+        assert not any(step == "remove saved" for step in steps)
+
+    async def it_rejects_an_existing_keep_name_before_build(
+        runner: Mock, docker_build: Mock, jail: Mock
+    ) -> None:
+        wrapped = Mock(inspect=AsyncMock(return_value={"Config": {"Labels": {}}}))
+        with (
+            patch("botbox.Botbox.Container", return_value=wrapped),
+            pytest.raises(ValueError, match="already exists"),
+        ):
+            await Botbox(runner).run("true", keep="saved")
+        docker_build.assert_not_called()
+        assert not hasattr(jail.volume, "keep") or jail.volume.keep is not True
+
+    async def it_removes_a_volume_when_the_named_agent_never_started(
+        runner: Mock, docker_run: Mock, jail: Mock
+    ) -> None:
+        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        wrapped = Mock(inspect=AsyncMock(side_effect=[missing, missing]))
+        docker_run.side_effect = FileNotFoundError("docker")
+        jail.volume.keep = False
+        with (
+            patch("botbox.Botbox.Container", return_value=wrapped),
+            pytest.raises(FileNotFoundError),
+        ):
+            await Botbox(runner).run("true", keep="saved")
+        assert jail.volume.keep is False
+
+    async def it_uses_a_supplied_image_for_a_restart(
+        runner: Mock, image: Mock, docker_build: Mock
+    ) -> None:
+        await Botbox(runner)._run(  # noqa: SLF001
+            "true",
+            mounts=(),
+            workdir=None,
+            timeout=None,
+            output=None,
+            keep=None,
+            image="snapshot:one",
+        )
+        image.assert_called_once_with("snapshot:one")
+        docker_build.assert_not_called()
+
+    async def it_restarts_from_a_snapshot_and_removes_the_old_resources(
+        runner: Mock, image: Mock
+    ) -> None:
+        snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
+        new = {"Config": {"Image": "snapshot:one"}}
+        container = Mock(
+            inspect=AsyncMock(side_effect=[old, new]),
+            commit=AsyncMock(return_value=snapshot),
+            remove=AsyncMock(),
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            patch("botbox.Botbox.Volume", autospec=True) as volume,
+            patch.object(Botbox, "_run", new_callable=AsyncMock, return_value=ENDED) as run,
+        ):
+            result = await Botbox(runner).restart("saved", "cat ~/memo")
+        assert result is ENDED
+        container.commit.assert_awaited_once_with(f"botbox-restart:{TOKEN}cdef0123456789abcdef")
+        container.remove.assert_awaited_once()
+        volume.assert_called_once_with("botbox-run-oldtoken")
+        volume.return_value.remove.assert_awaited_once()
+        assert run.call_args.kwargs["keep"] == "saved"
+        assert run.call_args.kwargs["image"] == snapshot.tag
+        snapshot.remove.assert_awaited_once()
+        image.assert_not_called()
+
+    async def it_rejects_a_container_without_a_run_label(runner: Mock) -> None:
+        container = Mock(inspect=AsyncMock(return_value={"Config": {"Labels": {}}}))
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            pytest.raises(ValueError, match="not a botbox run container"),
+        ):
+            await Botbox(runner).restart("other", "true")
+        container.commit.assert_not_called()
+
+    async def it_keeps_the_snapshot_when_replacement_setup_fails(runner: Mock) -> None:
+        snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
+        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
+        container = Mock(
+            inspect=AsyncMock(side_effect=[old, missing]),
+            commit=AsyncMock(return_value=snapshot),
+            remove=AsyncMock(),
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            patch("botbox.Botbox.Volume", autospec=True),
+            patch.object(Botbox, "_run", new_callable=AsyncMock, side_effect=RuntimeError("setup")),
+            pytest.raises(RuntimeError, match="setup"),
+        ):
+            await Botbox(runner).restart("saved", "true")
+        snapshot.remove.assert_not_awaited()
+
+    async def it_does_not_remove_a_snapshot_if_another_image_owns_the_name(runner: Mock) -> None:
+        snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
+        other = {"Config": {"Image": "other:one"}}
+        container = Mock(
+            inspect=AsyncMock(side_effect=[old, other]),
+            commit=AsyncMock(return_value=snapshot),
+            remove=AsyncMock(),
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            patch("botbox.Botbox.Volume", autospec=True),
+            patch.object(Botbox, "_run", new_callable=AsyncMock, side_effect=RuntimeError("setup")),
+            pytest.raises(RuntimeError, match="setup"),
+        ):
+            await Botbox(runner).restart("saved", "true")
+        snapshot.remove.assert_not_awaited()
+
     async def it_returns_how_the_agent_container_ended(runner: Mock) -> None:
         assert await Botbox(runner).run("claude -p hi") is ENDED
 
