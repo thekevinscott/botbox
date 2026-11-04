@@ -1145,10 +1145,12 @@ def describe_run() -> None:
             assert result.exit_code == 3
 
         async def it_starts_the_clock_once_the_image_is_built(
-            runner: Mock, docker_build: Mock, output: Path
+            runner: Mock, docker_build: Mock, image: Mock, output: Path
         ) -> None:
-            async def slow_build(*_args: object, **_options: object) -> None:
+            async def slow_build(*_args: object, **_options: object) -> Mock:
                 await asyncio.sleep(0.05)
+                built: Mock = image.return_value
+                return built
 
             docker_build.side_effect = slow_build
             result = await Botbox(runner, timeout=0.02).run("true", output=output)
