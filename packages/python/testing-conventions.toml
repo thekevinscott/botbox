@@ -31,8 +31,8 @@ reason = "!= -> < is equivalent: os.write never returns more than it was given"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["199", "244", "265", "328", "411"]
-reason = "* -> / on restart, _setup, _run, _attach and _lockdown_flags only widens how callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
+lines = ["199", "244", "265", "328", "384", "411"]
+reason = "* -> / on restart, _setup, _run, _attach, _prepare_output and _lockdown_flags only widens how callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
 
 [[python.exempt]]
 path = "src/botbox/wait_for_proxy.py"
