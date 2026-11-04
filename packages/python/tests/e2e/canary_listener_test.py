@@ -38,7 +38,7 @@ def bridge(box: Botbox) -> Iterator[tuple[str, str]]:
     name = f"botbox-e2e-canary-{secrets.token_hex(6)}"
     server = [
         *("docker", "run", "--detach", "--rm", "--name", name, "--network", "bridge"),
-        *("--user", "root", "--entrypoint", "node", asyncio.run(box.build()), "-e", LISTENER),
+        *("--user", "root", "--entrypoint", "node", asyncio.run(box.build()).tag, "-e", LISTENER),
     ]
     subprocess.run(server, check=True, capture_output=True)
     try:

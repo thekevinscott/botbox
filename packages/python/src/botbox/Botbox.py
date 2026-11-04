@@ -128,19 +128,20 @@ class Botbox:
         self._terminated = True
         task.cancel()
 
-    async def build(self) -> str:
-        """Build the agent's image, then `dockerfile` on top, and return the final tag.
+    async def build(self) -> Image:
+        """Build the agent's image, then `dockerfile` on top, and return the final image.
 
         Built on every call; Docker's layer cache keeps an unchanged build fast. Concurrent
         builds of one tag, from any process, all succeed, and the tag ends on whichever finished
         last. Cancelling stops the build in progress. A failed build raises `DockerException`.
         """
         steps = build_steps(self.agent, self.dockerfile)
+        image: Image
         for step in steps:
-            await Dockerfile(step.file, context=step.context).build(
+            image = await Dockerfile(step.file, context=step.context).build(
                 step.tag, contexts=step.contexts
             )
-        return steps[-1].tag
+        return image
 
     async def run(  # noqa: PLR0913
         self,
@@ -230,7 +231,7 @@ class Botbox:
             raise
         await Volume(f"botbox-run-{token}").remove()
         try:
-            return await self._run(command, setup, workdir=workdir, keep=name, image=image.tag)
+            return await self._run(command, setup, workdir=workdir, keep=name, image=image)
         finally:
 
             async def remove_used_image() -> None:
@@ -269,7 +270,7 @@ class Botbox:
         *,
         workdir: str | Path | None,
         keep: str | None,
-        image: str,
+        image: Image,
     ) -> RunResult:
         agent = self.agent
         limit, labels, volumes, source, credential, output, home = setup
@@ -330,7 +331,7 @@ class Botbox:
     async def _attach(  # noqa: PLR0913
         self,
         token: str,
-        image: str,
+        image: Image,
         command: Sequence[str],
         *,
         home: bytes,
@@ -349,7 +350,7 @@ class Botbox:
                 (folder / "stderr.txt").open("ab") as err,
             ):
                 start = err.tell()
-                container = await Image(image).run(
+                container = await image.run(
                     *command,
                     name=name,
                     stdin=asyncio.subprocess.PIPE if home else asyncio.subprocess.DEVNULL,

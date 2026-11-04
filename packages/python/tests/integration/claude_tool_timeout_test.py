@@ -103,7 +103,7 @@ def api() -> Iterator[tuple[str, list[dict[str, Any]]]]:
 
 @pytest.fixture(scope="module")
 def image() -> str:
-    return asyncio.run(Botbox(ClaudeAgent()).build())
+    return asyncio.run(Botbox(ClaudeAgent()).build()).tag
 
 
 def claude(image: str, url: str, command: str) -> tuple[subprocess.CompletedProcess[str], float]:

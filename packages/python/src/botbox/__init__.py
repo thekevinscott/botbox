@@ -1,6 +1,6 @@
 """botbox - run a coding agent inside a locked-down Docker container."""
 
-from adocker import DockerException
+from adocker import DockerException, Image
 from botbox.agents import Agent, ClaudeAgent, CodexAgent, HomeFiles, PiAgent
 from botbox.Botbox import Botbox
 from botbox.credential_proxy import Credential, CredentialsExpired, CredentialSource, Injection
@@ -17,6 +17,7 @@ __all__ = [
     "CredentialsExpired",
     "DockerException",
     "HomeFiles",
+    "Image",
     "Injection",
     "PiAgent",
     "RunResult",

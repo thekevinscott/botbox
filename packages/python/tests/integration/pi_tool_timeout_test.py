@@ -19,7 +19,7 @@ EXTENSION = "/usr/local/lib/botbox/tool-timeout.ts"
 
 @pytest.fixture(scope="module")
 def image() -> str:
-    return asyncio.run(Botbox(PiAgent("openrouter", api_key="unused")).build())
+    return asyncio.run(Botbox(PiAgent("openrouter", api_key="unused")).build()).tag
 
 
 async def bash_call(image: str, arguments: dict[str, Any]) -> tuple[dict[str, Any], float]:

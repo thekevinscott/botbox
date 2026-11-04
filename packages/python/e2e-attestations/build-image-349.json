@@ -1,0 +1,7 @@
+{
+  "command": "uv run --env-file ../../.env pytest tests/e2e/build_test.py tests/e2e/canary_listener_test.py tests/e2e/credential_relay_test.py tests/e2e/network_test.py tests/e2e/user_test.py",
+  "ran_at": 1793809946,
+  "exit_code": 0,
+  "commit": "8e96e9110d47b61bb18ad6492bc1f3e9ac42d720",
+  "branch": "build-image-349"
+}

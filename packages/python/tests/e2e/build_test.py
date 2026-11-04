@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import pytest
 
-from botbox import Botbox, ClaudeAgent, DockerException
+from botbox import Botbox, ClaudeAgent, DockerException, Image
 
 OTHER_BUILD = """
 import asyncio, sys
@@ -75,7 +75,7 @@ async def other_build(agent: SlowAgent) -> asyncio.subprocess.Process:
 def build(box: Botbox) -> str:
     """The tag, or the error's stderr."""
     try:
-        return asyncio.run(box.build())
+        return asyncio.run(box.build()).tag
     except DockerException as error:
         return error.stderr.strip()
 
@@ -95,13 +95,14 @@ def agent(tmp_path: Path) -> Iterator[SlowAgent]:
 def describe_build() -> None:
     async def it_builds_one_tag_twice_at_once(agent: SlowAgent) -> None:
         box = Botbox(agent)
-        tags = await asyncio.gather(box.build(), box.build())
-        assert list(tags) == [agent.image, agent.image]
+        images = await asyncio.gather(box.build(), box.build())
+        assert all(isinstance(image, Image) for image in images)
+        assert [image.tag for image in images] == [agent.image, agent.image]
 
     async def it_builds_one_tag_while_another_process_builds_it(agent: SlowAgent) -> None:
         other = await other_build(agent)
         await until(lambda: clients(agent) == 1)
-        assert await Botbox(agent).build() == agent.image
+        assert (await Botbox(agent).build()).tag == agent.image
         assert await other.wait() == 0
 
     def describe_cancelled_mid_build() -> None:
@@ -144,4 +145,4 @@ def describe_concurrent_builds_in_separate_processes() -> None:
         layer = tmp_path / "Dockerfile"
         layer.write_text("FROM botbox-claude:latest\nRUN echo layer > /tmp/layer\n")
         box = Botbox(ClaudeAgent(), dockerfile=layer)
-        assert build_concurrently(box) == [asyncio.run(box.build())] * PROCESSES
+        assert build_concurrently(box) == [asyncio.run(box.build()).tag] * PROCESSES

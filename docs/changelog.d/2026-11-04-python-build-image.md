@@ -1,0 +1,1 @@
+**Changed** (**BREAKING**): `Botbox.build()` returns a `botbox.Image` rather than a tag string. Use `.tag` when passing the image to a Docker command. See [migration instructions](../migrations.d/2026-11-04-python-build-image.md).

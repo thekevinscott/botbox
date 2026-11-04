@@ -7,7 +7,6 @@ from uuid import uuid4
 
 import pytest
 
-from adocker import Image
 from botbox import Botbox, ClaudeAgent
 from botbox.credential_proxy import Credential, Injection
 from botbox.lockdown import CREDENTIALS_ENV, RELAY, lockdown
@@ -61,7 +60,7 @@ def responses(
                 (root / "agent.out").open("wb") as stdout,
                 (root / "agent.err").open("wb") as stderr,
             ):
-                agent = await Image(image).run(
+                agent = await image.run(
                     RELAY,
                     "node",
                     "-e",
@@ -79,7 +78,7 @@ def responses(
                 (root / "denied.out").open("wb") as denied_out,
                 (root / "denied.err").open("wb") as denied_err,
             ):
-                denied = await Image(image).run(
+                denied = await image.run(
                     RELAY,
                     "sh",
                     "-c",
@@ -137,7 +136,7 @@ def without_socket(tmp_path_factory: pytest.TempPathFactory) -> tuple[int, str]:
             flags = box._lockdown_flags(token, b"", jail, [], None)  # noqa: SLF001
             flags["env"][CREDENTIALS_ENV] = "1"
             with (root / "agent.err").open("wb") as stderr:
-                agent = await Image(image).run(
+                agent = await image.run(
                     RELAY,
                     "sh",
                     "-c",
