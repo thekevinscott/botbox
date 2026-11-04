@@ -16,8 +16,9 @@ async def wait_for_proxy(
     with the end of `output` past `start` if `client` exits or `timeout` passes."""
     deadline = time.monotonic() + timeout
     while True:
-        with suppress(OSError):
-            if READY in output.read_bytes()[start:]:
+        with suppress(OSError), output.open("rb") as log:
+            log.seek(start)
+            if READY in log.read():
                 return
         if client.done() or time.monotonic() > deadline:
             cause = client.exception() if client.done() else None

@@ -63,6 +63,14 @@ def describe_wait_for_proxy() -> None:
         await wait_for_proxy(client, output, 30, start=len(earlier))
         sleep.assert_awaited_once_with(POLL)
 
+    async def it_reads_from_start_without_loading_the_whole_log(
+        output: Path, client: Mock
+    ) -> None:
+        earlier = b"old run\n" + READY + b"x" * (1024 * 1024)
+        output.write_bytes(earlier + READY)
+        with patch.object(Path, "read_bytes", side_effect=AssertionError("whole-log read")):
+            await wait_for_proxy(client, output, 30, start=len(earlier))
+
     async def it_polls_until_the_proxy_says_it_is_listening(
         output: Path, client: Mock, sleep: AsyncMock
     ) -> None:
