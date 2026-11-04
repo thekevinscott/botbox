@@ -7,7 +7,11 @@ from botbox.RunResult import RunResult
 
 def describe_run_result() -> None:
     def it_holds_the_exit_code_and_whether_memory_ran_out() -> None:
-        assert [f.name for f in dataclasses.fields(RunResult)] == ["exit_code", "oom_killed"]
+        assert [f.name for f in dataclasses.fields(RunResult)] == [
+            "exit_code",
+            "oom_killed",
+            "container_name",
+        ]
 
     def it_leaves_the_oom_kill_unknown_by_default() -> None:
         assert RunResult(0).oom_killed is None

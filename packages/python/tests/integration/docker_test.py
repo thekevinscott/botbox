@@ -164,6 +164,21 @@ def describe_docker() -> None:
         install(RECORD)
         await Container("sdk-box").remove()
 
+    async def it_commits_a_container_and_removes_the_image(
+        install: Install, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "commands"
+        install(
+            f"import json, sys; open({str(out)!r}, 'a').write(json.dumps(sys.argv[1:]) + '\\n')"
+        )
+        image = await Container("sdk-box").commit("sdk-snapshot:one")
+        await image.remove()
+        assert image.tag == "sdk-snapshot:one"
+        assert [json.loads(line) for line in out.read_text().splitlines()] == [
+            ["commit", "sdk-box", "sdk-snapshot:one"],
+            ["image", "rm", "--force", "sdk-snapshot:one"],
+        ]
+
     async def it_runs_an_attached_run_to_its_exit_into_its_files(
         install: Install, tmp_path: Path
     ) -> None:

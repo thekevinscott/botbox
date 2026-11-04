@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import warnings
 from collections.abc import Iterator
 from contextlib import suppress
 from pathlib import Path
@@ -178,6 +179,63 @@ async def cancelled(task: asyncio.Task[object], *, twice: bool = False) -> float
 
 
 def describe_run() -> None:
+    async def it_keeps_the_agent_and_volume_without_a_volume_warning(
+        box: Botbox, runs: Runs, output: Path
+    ) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        with warnings.catch_warnings(record=True) as warnings_seen:
+            warnings.simplefilter("always")
+            result = await box.run("echo kept", output=output, keep=name)
+        assert not [warning for warning in warnings_seen if "volume" in str(warning.message)]
+        assert result == RunResult(0, oom_killed=False, container_name=name)
+        [token] = runs.tokens
+        assert containers(token) == [name]
+        assert volumes(token) == [f"botbox-run-{token}"]
+        assert runs.scratches() == []
+
+    async def it_keeps_the_agent_after_cancellation(box: Botbox, runs: Runs) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        task = asyncio.create_task(box.run("sleep 600", keep=name))
+        async with asyncio.timeout(120):
+            while name not in docker_lines("ps", "--format", "{{.Names}}"):
+                await asyncio.sleep(0.1)
+        await cancelled(task)
+        [token] = runs.tokens
+        assert containers(token) == [name]
+        assert volumes(token) == [f"botbox-run-{token}"]
+
+    async def it_keeps_the_agent_after_timeout(box: Botbox, runs: Runs) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        with pytest.raises(Timeout) as raised:
+            await box.run("sleep 600", keep=name, timeout=2)
+        assert raised.value.result.container_name == name
+        [token] = runs.tokens
+        assert containers(token) == [name]
+        assert volumes(token) == [f"botbox-run-{token}"]
+
+    async def it_rejects_an_existing_name_without_leaking(box: Botbox, runs: Runs) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        await box.run("true", keep=name)
+        [token] = runs.tokens
+        with pytest.raises(ValueError, match="already exists"):
+            await box.run("true", keep=name)
+        assert containers(token) == [name]
+        assert volumes(token) == [f"botbox-run-{token}"]
+        assert len(runs.tokens) == 1
+
+    async def it_restarts_on_the_kept_filesystem(box: Botbox, runs: Runs, output: Path) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        await box.run("echo remembered > ~/remembered", keep=name)
+        [old_token] = runs.tokens
+        result = await box.restart(name, "cat ~/remembered", output=output)
+        assert result == RunResult(0, oom_killed=False, container_name=name)
+        assert (output / "stdout.txt").read_text() == "remembered\n"
+        assert volumes(old_token) == []
+        assert containers(old_token) == []
+        [new_token] = runs.tokens - {old_token}
+        assert containers(new_token) == [name]
+        assert volumes(new_token) == [f"botbox-run-{new_token}"]
+
     async def it_labels_all_three_containers_from_botbox_labels(runs: Runs, env_run: str) -> None:
         task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
         try:

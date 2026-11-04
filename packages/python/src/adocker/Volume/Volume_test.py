@@ -44,6 +44,13 @@ def describe_Volume() -> None:
         async with Volume("v"):
             assert run_docker.await_args_list == [call("volume", "create", "v")]
 
+    async def it_keeps_a_volume_until_explicit_removal(run_docker: AsyncMock) -> None:
+        async with Volume("v", keep=True) as volume:
+            pass
+        assert run_docker.await_args_list == [call("volume", "create", "v")]
+        await volume.remove()
+        assert run_docker.await_args_list[-1] == REMOVE
+
     async def it_removes_it_when_the_block_raises(run_docker: AsyncMock) -> None:
         with pytest.raises(KeyError):
             async with Volume("v", labels={"botbox.run": "x"}):

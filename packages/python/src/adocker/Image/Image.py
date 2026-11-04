@@ -5,7 +5,7 @@ from typing import Any
 
 from posix_tools import settle, spawn
 
-from adocker.Container import Container
+from adocker.Container.Container import Container
 from adocker.Image.run_args import run_args
 from adocker.Image.StdinPipe import StdinPipe
 from adocker.Mount import Mount
@@ -20,6 +20,10 @@ class Image:
 
     def __init__(self, tag: str) -> None:
         self.tag = tag
+
+    async def remove(self) -> None:
+        """Remove this image tag after its replacement container exists."""
+        await run_docker("image", "rm", "--force", self.tag)
 
     async def inspect(self) -> dict[str, Any]:
         """Its id, tags and config. Raises DockerException if there is no such image."""

@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from posix_tools import settle
 
-from adocker import Container, Dockerfile, Image
+from adocker import Container, DockerException, Dockerfile, Image, Volume
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles
@@ -132,7 +132,7 @@ class Botbox:
             )
         return steps[-1].tag
 
-    async def run(
+    async def run(  # noqa: PLR0913
         self,
         command: str,
         *,
@@ -140,6 +140,7 @@ class Botbox:
         workdir: str | Path | None = None,
         timeout: float | None = None,
         output: str | Path | None = None,
+        keep: str | None = None,
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return its exit code.
 
@@ -171,7 +172,75 @@ class Botbox:
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
         out, the run tears down as a cancel does and raises `Timeout` with `exit_code` -1.
         """
+        return await self._run(
+            command, mounts=mounts, workdir=workdir, timeout=timeout, output=output, keep=keep
+        )
+
+    async def restart(  # noqa: PLR0913
+        self,
+        name: str,
+        command: str,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+        timeout: float | None = None,
+        output: str | Path | None = None,
+    ) -> RunResult:
+        """Run on a kept container's filesystem with a fresh proxy and lockdown.
+
+        Committing the container includes its home. For agents without a credential source,
+        the committed image contains the real staged credential. The image tag is removed after
+        the replacement exists; if setup fails before then, the snapshot remains on the daemon.
+        """
+        previous = Container(name)
+        details = await previous.inspect()
+        token = details["Config"]["Labels"].get("botbox.run")
+        if not token:
+            raise ValueError(f"{name} is not a botbox run container")
+        image = await previous.commit(f"botbox-restart:{uuid4().hex}")
+        await previous.remove()
+        await Volume(f"botbox-run-{token}").remove()
+        try:
+            return await self._run(
+                command,
+                mounts=mounts,
+                workdir=workdir,
+                timeout=timeout,
+                output=output,
+                keep=name,
+                image=image.tag,
+            )
+        finally:
+
+            async def remove_used_image() -> None:
+                try:
+                    replacement = await Container(name).inspect()
+                except DockerException:
+                    return  # The image remains available if replacement setup failed.
+                if replacement["Config"]["Image"] == image.tag:
+                    await warned(image.remove(), f"remove its restart image {image.tag}")
+
+            await settle(remove_used_image())
+
+    async def _run(  # noqa: PLR0913
+        self,
+        command: str,
+        *,
+        mounts: Sequence[Mount],
+        workdir: str | Path | None,
+        timeout: float | None,
+        output: str | Path | None,
+        keep: str | None,
+        image: str | None = None,
+    ) -> RunResult:
         agent = self.agent
+        if keep is not None:
+            try:
+                await Container(keep).inspect()
+            except DockerException:
+                pass
+            else:
+                raise ValueError(f"container {keep} already exists")
         limit = self.timeout if timeout is None else check_timeout(timeout)
         labels = {**env_labels(os.environ), **self.labels}
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
@@ -179,7 +248,8 @@ class Botbox:
         credential = None if source is None else source.read()
         output = self._prepare_output(output, volumes)
         home = self._home_files()
-        image = await self.build()
+        if image is None:
+            image = await self.build()
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         deadline = asyncio.timeout(limit)
@@ -199,19 +269,34 @@ class Botbox:
                     self._following(jail, source, credential),
                 ):
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
-                    result = await self._attach(
-                        token,
-                        image,
-                        (RELAY, "sh", "-c", command),
-                        home=home,
-                        flags=flags,
-                        scratch=Path(scratch.name),
-                        output=output,
-                    )
+                    try:
+                        result = await self._attach(
+                            token,
+                            image,
+                            (RELAY, "sh", "-c", command),
+                            home=home,
+                            flags=flags,
+                            scratch=Path(scratch.name),
+                            output=output,
+                            keep=keep,
+                        )
+                    finally:
+                        if keep is not None:
+
+                            async def mark_owned_volume() -> None:
+                                try:
+                                    details = await Container(keep).inspect()
+                                except DockerException:
+                                    return
+                                jail.volume.keep = (
+                                    details["Config"]["Labels"].get("botbox.run") == token
+                                )
+
+                            await settle(mark_owned_volume())
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                raise Timeout(limit, RunResult(-1)) from timed_out
+                raise Timeout(limit, RunResult(-1, container_name=keep)) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return result
@@ -226,9 +311,10 @@ class Botbox:
         flags: dict[str, Any],
         scratch: Path,
         output: Path | None,
+        keep: str | None = None,
     ) -> RunResult:
         """Run attached, with `home` on its stdin, then remove the agent container."""
-        name = f"botbox-agent-{token}"
+        name = keep if keep is not None else f"botbox-agent-{token}"
         container = Container(name)
         folder = scratch if output is None else output
         try:
@@ -251,8 +337,9 @@ class Botbox:
                 client = await container.wait()
             result = await agent_exit(container, client, last_stderr(folder / "stderr.txt"))
         finally:
-            await settle(warned(remove_within(container), f"remove its agent container {name}"))
-        return result
+            if keep is None:
+                await settle(warned(remove_within(container), f"remove its agent container {name}"))
+        return result if keep is None else RunResult(result.exit_code, result.oom_killed, keep)
 
     def _credential_source(self) -> CredentialSource | None:
         """The agent's credential for the proxy to send, or None to have it copied in."""

@@ -894,7 +894,11 @@ def describe_run() -> None:
             docker_run.side_effect = hang
             with pytest.raises(Timeout) as raised:
                 await Botbox(runner, timeout=0.01).run("sleep 600")
-            assert asdict(raised.value.result) == {"exit_code": -1, "oom_killed": None}
+            assert asdict(raised.value.result) == {
+                "exit_code": -1,
+                "oom_killed": None,
+                "container_name": None,
+            }
 
         async def it_raises_a_timeout_holding_what_the_run_left(
             runner: Mock, docker_run: Mock, steps: list[str], output: Path
