@@ -190,6 +190,9 @@ def describe_run() -> None:
         assert result == RunResult(0, oom_killed=False, container_name=name)
         [token] = runs.tokens
         assert containers(token) == [name]
+        assert docker_lines(
+            "inspect", "--format", '{{index .Config.Labels "botbox.keep"}}', name
+        ) == [name]
         assert volumes(token) == [f"botbox-run-{token}"]
         assert runs.scratches() == []
 
@@ -222,6 +225,18 @@ def describe_run() -> None:
         assert containers(token) == [name]
         assert volumes(token) == [f"botbox-run-{token}"]
         assert len(runs.tokens) == 1
+
+    async def it_rejects_a_proxy_sidecar_as_a_restart_target(box: Botbox, runs: Runs) -> None:
+        task = asyncio.create_task(box.run("sleep 600"))
+        try:
+            await runs.started()
+            [token] = runs.tokens
+            proxy = f"botbox-proxy-{token}"
+            with pytest.raises(ValueError, match="not a botbox run container"):
+                await box.restart(proxy, "true")
+            assert proxy in containers(token)
+        finally:
+            await cancelled(task)
 
     async def it_restarts_on_the_kept_filesystem(box: Botbox, runs: Runs, output: Path) -> None:
         name = f"botbox-kept-{uuid4().hex[:12]}"
