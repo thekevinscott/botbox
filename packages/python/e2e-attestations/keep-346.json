@@ -1,7 +1,7 @@
 {
-  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py",
-  "ran_at": 1793760989,
+  "command": "uv run --env-file ../../.env pytest tests/e2e/run_test.py tests/e2e/credential_relay_test.py tests/e2e/network_test.py",
+  "ran_at": 1793761446,
   "exit_code": 0,
-  "commit": "7f6f125c55c8b295a713b50770eb0ada41794551",
+  "commit": "397f3e7c2c71a62af464ffd5d3640b214535f268",
   "branch": "keep-346"
 }
