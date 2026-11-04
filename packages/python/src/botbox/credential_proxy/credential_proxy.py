@@ -49,14 +49,15 @@ async def credential_proxy(  # noqa: PLR0913
 
     It serves `credentials.sock` in `volume`, beside the socket of the container `proxy`, and
     joins `proxy`'s PID namespace, so it dies with that container's init. The secret lives on a
-    tmpfs inside it, reached only through its stdin. Its output goes to `log`. Leaving the block
-    removes it; an owner killed outright leaves it labelled `botbox.run=<token>`.
+    tmpfs inside it, reached only through its stdin. Its output is appended to `log`. Leaving the
+    block removes it; an owner killed outright leaves it labelled `botbox.run=<token>`.
     """
     name = f"botbox-credentials-{token}"
     config = envoy_config(credential.injection, SOCKET)
     stdin = preloaded(sds_secret(credential.secret))
     try:
-        with log.open("wb") as stream:
+        with log.open("ab") as stream:
+            start = stream.tell()
             container = Container(name)
             try:
                 container = await Image(IMAGE).run(
@@ -82,7 +83,7 @@ async def credential_proxy(  # noqa: PLR0913
                     entrypoint="sh",
                 )
                 client = cast("asyncio.Task[int]", container.client)
-                await wait_for_socket(proxy, SOCKET, client, log, READY_SECONDS)
+                await wait_for_socket(proxy, SOCKET, client, log, READY_SECONDS, start=start)
                 yield CredentialProxy(container, SOCKET)
             finally:
                 await settle(stop_container(container))

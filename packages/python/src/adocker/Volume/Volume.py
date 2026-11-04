@@ -25,11 +25,13 @@ class Volume:
         labels: Mapping[str, str] | None = None,
         remove_seconds: float = REMOVE_SECONDS,
         on_error: Callable[[Exception], None] | None = None,
+        keep: bool = False,
     ) -> None:
         self.name = name
         self.labels = dict(labels or {})
         self.remove_seconds = remove_seconds
         self.on_error = on_error
+        self.keep = keep
 
     async def __aenter__(self) -> "Volume":
         flags = [flag for item in self.labels.items() for flag in ("--label", "=".join(item))]
@@ -42,6 +44,8 @@ class Volume:
         error: BaseException | None,
         _traceback: TracebackType | None,
     ) -> None:
+        if self.keep:
+            return
         try:
             await settle(remove_volume(self.name, self.remove_seconds))
         except Exception as failure:
@@ -49,6 +53,10 @@ class Volume:
                 self.on_error(failure)
             elif error is None:
                 raise
+
+    async def remove(self) -> None:
+        """Remove this volume once no container uses it."""
+        await remove_volume(self.name, self.remove_seconds)
 
     def mount(self, target: str, *, read_only: bool = False) -> Mount:
         """This volume mounted at `target` in a container, for `Image.run`'s `mounts`."""

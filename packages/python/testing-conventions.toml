@@ -1,19 +1,19 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["83-84", "116"]
+lines = ["93-94", "126"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["62"]
+lines = ["72"]
 reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["267"]
+lines = ["380"]
 reason = "or -> and is equivalent: credential is None exactly when source is None. Each check narrows a different Optional for mypy"
 
 [[python.exempt]]
@@ -31,8 +31,20 @@ reason = "!= -> < is equivalent: os.write never returns more than it was given"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["225", "302"]
-reason = "* -> / on the private _attach and _lockdown_flags only widens how their callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
+lines = ["199", "248", "269", "335", "391", "418"]
+reason = "* -> / on restart, _setup, _run, _attach, _prepare_output and _lockdown_flags only widens how callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
+
+[[python.exempt]]
+path = "src/botbox/wait_for_proxy.py"
+rules = ["mutation"]
+lines = ["13"]
+reason = "* -> / before start only widens how callers may pass it"
+
+[[python.exempt]]
+path = "src/botbox/credential_proxy/wait_for_socket.py"
+rules = ["mutation"]
+lines = ["18"]
+reason = "* -> / before start only widens how callers may pass it"
 
 [[python.exempt]]
 path = "src/botbox/Timeout.py"

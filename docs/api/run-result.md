@@ -6,6 +6,7 @@ How a run ended.
 | ----------- | -------------------------------------------------------------------------- |
 | `exit_code` | The command's exit code, or -1 when none came back. |
 | `oom_killed` | Whether the kernel killed a process in the agent container, the agent or a child, for running out of memory. Read from Docker's `State.OOMKilled`. `None` when botbox read no record, as after a timeout. |
+| `container_name` | The kept agent container's name, or `None` without `keep`. Also set on a `Timeout` result. |
 
 The streams, proxy log and transcripts are files in the run's [`output`](./run) directory. Without `output`, the streams, proxy log and transcripts are deleted after the run.
 

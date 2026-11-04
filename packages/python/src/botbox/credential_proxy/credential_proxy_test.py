@@ -121,7 +121,7 @@ def constants() -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def wait_for_socket(steps: list[str]) -> Iterator[AsyncMock]:
-    async def ready(*_: object) -> None:
+    async def ready(*_: object, **_kwargs: object) -> None:
         await asyncio.sleep(0)
         steps.append("ready")
 
@@ -228,13 +228,23 @@ def describe_credential_proxy() -> None:
             pass
         assert log.read_bytes() == b"envoy said this\n"
 
+    async def it_appends_and_waits_past_a_previous_log(
+        log: Path, wait_for_socket: AsyncMock
+    ) -> None:
+        log.write_bytes(b"earlier\n")
+        async with start(log):
+            pass
+        assert log.read_bytes() == b"earlier\nenvoy said this\n"
+        assert wait_for_socket.call_args.kwargs == {"start": len(b"earlier\n")}
+
     async def it_waits_for_the_socket_before_yielding(
         log: Path, steps: list[str], wait_for_socket: AsyncMock, client: Client
     ) -> None:
         async with start(log):
             steps.append("yielded")
-        (through, socket, waited, waited_log, timeout), _ = wait_for_socket.call_args
+        (through, socket, waited, waited_log, timeout), kwargs = wait_for_socket.call_args
         assert (through, socket, waited_log, timeout) == (PROXY, SOCKET, log, 30)
+        assert kwargs == {"start": 0}
         assert waited is client.container.client
         assert steps == ["ready", "yielded", "stop botbox-credentials-t"]
 

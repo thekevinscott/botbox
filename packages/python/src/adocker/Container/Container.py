@@ -1,9 +1,12 @@
 import asyncio
 import json
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from adocker.utils import Stream, run_docker
+
+if TYPE_CHECKING:
+    from adocker.Image.Image import Image
 
 
 class Container:
@@ -43,6 +46,13 @@ class Container:
     async def remove(self) -> None:
         """Remove it, running or not."""
         await run_docker("rm", "--force", self.name)
+
+    async def commit(self, tag: str) -> "Image":
+        """Commit its writable filesystem to an image named `tag`."""
+        from adocker.Image.Image import Image
+
+        await run_docker("commit", self.name, tag)
+        return Image(tag)
 
     async def inspect(self) -> dict[str, Any]:
         """Its state and config. Raises DockerException if there is no such container."""

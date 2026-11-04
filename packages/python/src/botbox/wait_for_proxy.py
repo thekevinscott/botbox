@@ -9,19 +9,22 @@ ERROR_BYTES = 64 * 1024
 READY = b"botbox-proxy: listening\n"
 
 
-async def wait_for_proxy(client: asyncio.Future[int], output: Path, timeout: float) -> None:
-    """Return once the proxy says in `output` that it is listening. Raise with the end of
-    `output` if `client` exits or `timeout` passes."""
+async def wait_for_proxy(
+    client: asyncio.Future[int], output: Path, timeout: float, *, start: int
+) -> None:
+    """Return once the proxy says in `output`, past byte `start`, that it is listening. Raise
+    with the end of `output` past `start` if `client` exits or `timeout` passes."""
     deadline = time.monotonic() + timeout
     while True:
-        with suppress(OSError):
-            if READY in output.read_bytes():
+        with suppress(OSError), output.open("rb") as log:
+            log.seek(start)
+            if READY in log.read():
                 return
         if client.done() or time.monotonic() > deadline:
             cause = client.exception() if client.done() else None
             text = ""
             with suppress(OSError), output.open("rb") as log:
-                log.seek(max(0, log.seek(0, 2) - ERROR_BYTES))
+                log.seek(max(start, log.seek(0, 2) - ERROR_BYTES))
                 text = log.read().decode(errors="replace")
             raise RuntimeError(f"botbox proxy did not start:\n{text}") from cause
         await asyncio.sleep(POLL)

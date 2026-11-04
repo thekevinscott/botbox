@@ -7,12 +7,12 @@ from contextlib import AbstractAsyncContextManager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import Any, NamedTuple, Self, cast
 from uuid import uuid4
 
 from posix_tools import settle
 
-from adocker import Container, Dockerfile, Image
+from adocker import Container, DockerException, Dockerfile, Image, Volume
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles
@@ -29,6 +29,16 @@ from botbox.Timeout import Timeout
 from botbox.warned import warned
 
 STDERR_BYTES = 64 * 1024
+
+
+class _Setup(NamedTuple):
+    limit: float | None
+    labels: dict[str, str]
+    volumes: list[tuple[str, str, str]]
+    source: CredentialSource | None
+    credential: Credential | None
+    output: Path | None
+    home: bytes
 
 
 class Botbox:
@@ -132,7 +142,7 @@ class Botbox:
             )
         return steps[-1].tag
 
-    async def run(
+    async def run(  # noqa: PLR0913
         self,
         command: str,
         *,
@@ -140,14 +150,15 @@ class Botbox:
         workdir: str | Path | None = None,
         timeout: float | None = None,
         output: str | Path | None = None,
+        keep: str | None = None,
     ) -> RunResult:
         """Run `command` as `sh -c` in the locked-down container and return its exit code.
 
         stdout, stderr and the proxy's output go to stdout.txt, stderr.txt and proxy.log in
         `output` when given, or in the run's temp directory under `TMPDIR` otherwise. With
         `output`, transcripts/ there is mounted over the agent's `sessions_dir`. The three files
-        are truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
-        can't mount it.
+        are truncated and a stale credentials.log removed; other files are kept. A path with `:`
+        raises `ValueError`, since Docker can't mount it.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
         is built. The agent's home is in the container, created by the image, and goes with the
@@ -171,18 +182,101 @@ class Botbox:
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
         out, the run tears down as a cancel does and raises `Timeout` with `exit_code` -1.
         """
-        agent = self.agent
+        if keep is not None:
+            try:
+                await Container(keep).inspect()
+            except DockerException:
+                pass
+            else:
+                raise ValueError(f"container {keep} already exists")
+        setup = self._setup(mounts=mounts, workdir=workdir, timeout=timeout, output=output)
+        return await self._run(command, setup, workdir=workdir, keep=keep, image=await self.build())
+
+    async def restart(  # noqa: PLR0913
+        self,
+        name: str,
+        command: str,
+        *,
+        mounts: Sequence[Mount] = (),
+        workdir: str | Path | None = None,
+        timeout: float | None = None,
+        output: str | Path | None = None,
+    ) -> RunResult:
+        """Run on a kept container's filesystem with a fresh proxy and lockdown.
+
+        Logs are appended to the files already in `output`, with nothing marking where the
+        restart begins. A caller that needs the boundary can print a marker line first, or pass
+        a new `output`.
+
+        Mounts, `workdir`, `output` and the credentials are checked before the old container is
+        touched, so a rejected restart leaves it in place. Committing the container includes its
+        home. For agents without a credential source,
+        the committed image contains the real staged credential. The image tag is removed after
+        the replacement exists; if setup fails before then, the snapshot remains on the daemon.
+        """
+        previous = Container(name)
+        details = await previous.inspect()
+        token = details["Config"]["Labels"].get("botbox.run")
+        if not token:
+            raise ValueError(f"{name} is not a botbox run container")
+        setup = self._setup(
+            mounts=mounts, workdir=workdir, timeout=timeout, output=output, append=True
+        )
+        image = await previous.commit(f"botbox-restart:{uuid4().hex}")
+        try:
+            await previous.remove()
+        except BaseException:
+            await settle(warned(image.remove(), f"remove its restart image {image.tag}"))
+            raise
+        await Volume(f"botbox-run-{token}").remove()
+        try:
+            return await self._run(command, setup, workdir=workdir, keep=name, image=image.tag)
+        finally:
+
+            async def remove_used_image() -> None:
+                try:
+                    replacement = await Container(name).inspect()
+                except DockerException:
+                    return  # The image remains available if replacement setup failed.
+                if replacement["Config"]["Image"] == image.tag:
+                    await warned(image.remove(), f"remove its restart image {image.tag}")
+
+            await settle(remove_used_image())
+
+    def _setup(
+        self,
+        *,
+        mounts: Sequence[Mount],
+        workdir: str | Path | None,
+        timeout: float | None,
+        output: str | Path | None,
+        append: bool = False,
+    ) -> _Setup:
+        """Check the arguments and stage the credentials and output, before any Docker work."""
         limit = self.timeout if timeout is None else check_timeout(timeout)
         labels = {**env_labels(os.environ), **self.labels}
-        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        volumes = bind_mounts(mounts, workdir=workdir, home=self.agent.home)
         source = self._credential_source()
         credential = None if source is None else source.read()
-        output = self._prepare_output(output, volumes)
+        prepared = self._prepare_output(output, volumes, append=append)
         home = self._home_files()
-        image = await self.build()
+        return _Setup(limit, labels, volumes, source, credential, prepared, home)
+
+    async def _run(
+        self,
+        command: str,
+        setup: _Setup,
+        *,
+        workdir: str | Path | None,
+        keep: str | None,
+        image: str,
+    ) -> RunResult:
+        agent = self.agent
+        limit, labels, volumes, source, credential, output, home = setup
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         deadline = asyncio.timeout(limit)
+        kept = False
         try:
             allow = (*agent.allow, *self.allow)
             try:
@@ -199,19 +293,36 @@ class Botbox:
                     self._following(jail, source, credential),
                 ):
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
-                    result = await self._attach(
-                        token,
-                        image,
-                        (RELAY, "sh", "-c", command),
-                        home=home,
-                        flags=flags,
-                        scratch=Path(scratch.name),
-                        output=output,
-                    )
+                    try:
+                        result = await self._attach(
+                            token,
+                            image,
+                            (RELAY, "sh", "-c", command),
+                            home=home,
+                            flags=flags,
+                            scratch=Path(scratch.name),
+                            output=output,
+                            keep=keep,
+                        )
+                    finally:
+                        if keep is not None:
+
+                            async def mark_owned_volume() -> None:
+                                nonlocal kept
+                                try:
+                                    details = await Container(keep).inspect()
+                                except DockerException:
+                                    return
+                                kept = details["Config"]["Labels"].get("botbox.run") == token
+                                jail.volume.keep = kept
+
+                            await settle(mark_owned_volume())
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                raise Timeout(limit, RunResult(-1)) from timed_out
+                raise Timeout(
+                    limit, RunResult(-1, container_name=keep if kept else None)
+                ) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return result
@@ -226,16 +337,18 @@ class Botbox:
         flags: dict[str, Any],
         scratch: Path,
         output: Path | None,
+        keep: str | None = None,
     ) -> RunResult:
         """Run attached, with `home` on its stdin, then remove the agent container."""
-        name = f"botbox-agent-{token}"
+        name = keep if keep is not None else f"botbox-agent-{token}"
         container = Container(name)
         folder = scratch if output is None else output
         try:
             with (
-                (folder / "stdout.txt").open("wb") as out,
-                (folder / "stderr.txt").open("wb") as err,
+                (folder / "stdout.txt").open("ab") as out,
+                (folder / "stderr.txt").open("ab") as err,
             ):
+                start = err.tell()
                 container = await Image(image).run(
                     *command,
                     name=name,
@@ -249,10 +362,12 @@ class Botbox:
                     await send_home(stdin, home)
                     stdin.close()
                 client = await container.wait()
-            result = await agent_exit(container, client, last_stderr(folder / "stderr.txt"))
+            stderr = last_stderr(folder / "stderr.txt", start)
+            result = await agent_exit(container, client, stderr)
         finally:
-            await settle(warned(remove_within(container), f"remove its agent container {name}"))
-        return result
+            if keep is None:
+                await settle(warned(remove_within(container), f"remove its agent container {name}"))
+        return result if keep is None else RunResult(result.exit_code, result.oom_killed, keep)
 
     def _credential_source(self) -> CredentialSource | None:
         """The agent's credential for the proxy to send, or None to have it copied in."""
@@ -273,18 +388,21 @@ class Botbox:
         return home.archive()
 
     def _prepare_output(
-        self, output: str | Path | None, volumes: list[tuple[str, str, str]]
+        self, output: str | Path | None, volumes: list[tuple[str, str, str]], *, append: bool
     ) -> Path | None:
-        """Truncate the stream files in `output` and mount its transcripts/ over `sessions_dir`."""
+        """Truncate the log files in `output`, unless appending, and mount its transcripts/ over
+        `sessions_dir`."""
         if output is None:
             return None
         output = Path(output).resolve()
         if ":" in str(output):
             raise ValueError(f"output {output} contains ':', which Docker can't mount")
         output.mkdir(parents=True, exist_ok=True)
-        (output / "stdout.txt").open("wb").close()
-        (output / "stderr.txt").open("wb").close()
-        (output / "proxy.log").open("wb").close()
+        if not append:
+            (output / "stdout.txt").open("wb").close()
+            (output / "stderr.txt").open("wb").close()
+            (output / "proxy.log").open("wb").close()
+            (output / "credentials.log").unlink(missing_ok=True)
         (output / "transcripts").mkdir(exist_ok=True)
         sessions = f"{self.agent.home}/{self.agent.sessions_dir}"
         volumes.append((str(output / "transcripts"), sessions, "rw"))
@@ -335,8 +453,8 @@ class Botbox:
         }
 
 
-def last_stderr(path: Path) -> str:
-    """Read the last `STDERR_BYTES` of the run's stderr for an error."""
+def last_stderr(path: Path, start: int) -> str:
+    """Read the last `STDERR_BYTES` of the run's stderr past byte `start`, for an error."""
     with path.open("rb") as stderr:
-        stderr.seek(max(0, stderr.seek(0, os.SEEK_END) - STDERR_BYTES))
+        stderr.seek(max(start, stderr.seek(0, os.SEEK_END) - STDERR_BYTES))
         return stderr.read().decode(errors="replace")

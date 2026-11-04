@@ -104,7 +104,8 @@ async def lockdown(  # noqa: PLR0913
         )
 
     labels = {**(labels or {}), "botbox.run": token}
-    with log.open("wb") as stream:
+    with log.open("ab") as stream:
+        start = stream.tell()
         async with Volume(volume, labels=labels, on_error=unremoved) as socket:
             proxy = Container(name)
             try:
@@ -125,7 +126,7 @@ async def lockdown(  # noqa: PLR0913
                     mounts=[socket.mount(SOCKET_DIR)],
                 )
                 await wait_for_proxy(
-                    cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS
+                    cast("asyncio.Task[int]", proxy.client), log, PROXY_READY_SECONDS, start=start
                 )
                 if credential is None:
                     yield Lockdown(proxy, socket, envs)

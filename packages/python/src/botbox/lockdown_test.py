@@ -140,7 +140,7 @@ def docker_volume(steps: list[str], volume_fails: dict[str, Exception]) -> Itera
 
 @pytest.fixture(autouse=True)
 def wait(steps: list[str]) -> Iterator[AsyncMock]:
-    async def up(*_args: object) -> None:
+    async def up(*_args: object, **_kwargs: object) -> None:
         await asyncio.sleep(0)
         steps.append("proxy up")
 
@@ -347,6 +347,7 @@ def describe_lockdown() -> None:
             assert client is image.container.client
             assert output == scratch / "proxy.log"
             assert timeout == 30
+            assert wait.call_args.kwargs["start"] == 0
             assert steps.index("proxy up") < steps.index("body")
 
         async def it_starts_nothing_when_the_log_will_not_open(
@@ -524,12 +525,15 @@ def describe_lockdown() -> None:
             assert (output / "proxy.log").read_text() == REFUSAL
             assert not (scratch / "proxy.log").exists()
 
-        async def it_truncates_a_previous_log(scratch: Path, tmp_path: Path) -> None:
+        async def it_appends_and_waits_past_a_previous_log(
+            scratch: Path, tmp_path: Path, wait: AsyncMock
+        ) -> None:
             output = tmp_path / "output"
             output.mkdir()
             (output / "proxy.log").write_text(REFUSAL)
             async with jail(scratch, output=output):
-                assert (output / "proxy.log").read_bytes() == b""
+                assert (output / "proxy.log").read_text() == REFUSAL
+            assert wait.call_args.kwargs["start"] == len(REFUSAL.encode())
 
         async def it_raises_before_starting_without_an_output_it_cannot_open(
             scratch: Path, tmp_path: Path, image: Image

@@ -1,0 +1,1 @@
+Added `Botbox.run(keep=name)` to retain the agent container and its socket volume after exit, cancellation or timeout. `RunResult.container_name` reports the retained name. `Botbox.restart(name, command, ...)` continues from the kept filesystem under a fresh lockdown, appending to the log files in `output`.
