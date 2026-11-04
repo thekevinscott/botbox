@@ -694,6 +694,7 @@ def describe_run() -> None:
         volume.return_value.remove.assert_awaited_once()
         assert run.call_args.kwargs["keep"] == "saved"
         assert run.call_args.kwargs["image"] == snapshot.tag
+        assert run.call_args.kwargs["restarting"] is True
         snapshot.remove.assert_awaited_once()
         image.assert_not_called()
 
@@ -800,6 +801,7 @@ def describe_run() -> None:
             None,
             credential=None,
             labels={},
+            suffix="",
         )
 
     async def it_runs_and_tears_down_in_order(runner: Mock, steps: list[str]) -> None:
@@ -1157,7 +1159,13 @@ def describe_run_output() -> None:
     ) -> None:
         await Botbox(runner).run("true", output=tmp_path / "output")
         lockdown.assert_called_once_with(
-            ("api.anthropic.com",), scratch, TOKEN, tmp_path / "output", credential=None, labels={}
+            ("api.anthropic.com",),
+            scratch,
+            TOKEN,
+            tmp_path / "output",
+            credential=None,
+            labels={},
+            suffix="",
         )
 
     @pytest.mark.usefixtures("file_run")
@@ -1174,6 +1182,41 @@ def describe_run_output() -> None:
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
+
+    @pytest.mark.usefixtures("file_run")
+    async def it_clears_earlier_restarts_files(runner: Mock, tmp_path: Path) -> None:
+        (tmp_path / "stdout.1.txt").write_text("restart one")
+        (tmp_path / "proxy.2.log").write_text("restart two")
+        await Botbox(runner).run("true", output=tmp_path)
+        assert not (tmp_path / "stdout.1.txt").exists()
+        assert not (tmp_path / "proxy.2.log").exists()
+
+    @pytest.mark.usefixtures("file_run")
+    async def it_numbers_a_restarts_files_and_keeps_earlier_attempts(
+        runner: Mock, lockdown: Mock, agent_exit: Mock, tmp_path: Path
+    ) -> None:
+        (tmp_path / "stdout.txt").write_text("first")
+        (tmp_path / "stderr.txt").write_text("first")
+        (tmp_path / "proxy.log").write_text("first")
+        (tmp_path / "stdout.1.txt").write_text("second")
+        await Botbox(runner)._run(  # noqa: SLF001
+            "true",
+            mounts=(),
+            workdir=None,
+            timeout=None,
+            output=tmp_path,
+            keep=None,
+            restarting=True,
+        )
+        assert (tmp_path / "stdout.txt").read_text() == "first"
+        assert (tmp_path / "stderr.txt").read_text() == "first"
+        assert (tmp_path / "proxy.log").read_text() == "first"
+        assert (tmp_path / "stdout.1.txt").read_text() == "second"
+        assert (tmp_path / "stdout.2.txt").read_bytes() == b"out\xff\n"
+        assert (tmp_path / "stderr.2.txt").read_bytes() == b"err\n"
+        assert (tmp_path / "proxy.2.log").read_bytes() == b""
+        assert lockdown.call_args.kwargs["suffix"] == ".2"
+        assert agent_exit.call_args.args[2] == "err\n"
 
     async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
         runner: Mock, docker_build: Mock, tmp_path: Path
@@ -1326,5 +1369,5 @@ def describe_credential_injection() -> None:
     ) -> None:
         injector.credential_source = None
         await Botbox(injector).run("true")
-        assert lockdown.call_args.kwargs == {"credential": None, "labels": {}}
+        assert lockdown.call_args.kwargs == {"credential": None, "labels": {}, "suffix": ""}
         credentials.following.assert_not_called()

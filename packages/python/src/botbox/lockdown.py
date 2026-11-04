@@ -60,6 +60,7 @@ async def lockdown(  # noqa: PLR0913
     *,
     credential: Credential | None = None,
     labels: Mapping[str, str] | None = None,
+    suffix: str = "",
 ) -> AsyncIterator[Lockdown]:
     """Start the run's proxy and yield what a locked-down container needs to reach it.
 
@@ -76,7 +77,8 @@ async def lockdown(  # noqa: PLR0913
 
     The tinyproxy log goes to `output/proxy.log` when given, or `scratch/proxy.log` otherwise.
     With a `credential`, an Envoy sidecar serves it on `credentials.sock` in the same volume, and
-    its output goes to `credentials.log` in `output`, or `scratch` without one.
+    its output goes to `credentials.log` in `output`, or `scratch` without one. `suffix` goes
+    before each log's extension: `.1` names them `proxy.1.log` and `credentials.1.log`.
     """
     image = await Dockerfile(PROXY_DIR / "Dockerfile").build(PROXY_IMAGE)
 
@@ -96,7 +98,8 @@ async def lockdown(  # noqa: PLR0913
     # CONNECT's URL is `host:port`; plain HTTP's is `http://host[:port]/path`.
     authorities = (re.escape(authority(host)) for host in allow)
     allowlist = "".join(f"^{a}(:443)?$\n^http://{a}(:80)?(/|$)\n" for a in authorities)
-    log = (scratch if output is None else output) / "proxy.log"
+    logs = scratch if output is None else output
+    log = logs / f"proxy{suffix}.log"
 
     def unremoved(error: Exception) -> None:
         warnings.warn(
@@ -130,7 +133,7 @@ async def lockdown(  # noqa: PLR0913
                 if credential is None:
                     yield Lockdown(proxy, socket, envs)
                 else:
-                    credential_log = (scratch if output is None else output) / "credentials.log"
+                    credential_log = logs / f"credentials{suffix}.log"
                     async with credential_proxy(
                         credential,
                         proxy=proxy,

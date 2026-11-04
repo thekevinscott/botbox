@@ -16,6 +16,7 @@ from adocker import Container, DockerException, Dockerfile, Image, Volume
 from adocker import Mount as DockerMount
 from botbox.agent_exit import agent_exit
 from botbox.agents import Agent, HomeFiles
+from botbox.attempts import clear_attempts, next_attempt
 from botbox.bind_mounts import Mount, bind_mounts
 from botbox.build_steps import build_steps
 from botbox.check_timeout import check_timeout
@@ -147,7 +148,8 @@ class Botbox:
         stdout, stderr and the proxy's output go to stdout.txt, stderr.txt and proxy.log in
         `output` when given, or in the run's temp directory under `TMPDIR` otherwise. With
         `output`, transcripts/ there is mounted over the agent's `sessions_dir`. The three files
-        are truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
+        are truncated, and earlier restarts' numbered files (`stdout.1.txt` and so on) are
+        removed; other files are kept. A path with `:` raises `ValueError`, since Docker
         can't mount it.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
@@ -188,6 +190,9 @@ class Botbox:
     ) -> RunResult:
         """Run on a kept container's filesystem with a fresh proxy and lockdown.
 
+        Earlier attempts' files in `output` are kept. This attempt's are numbered one past the
+        highest there: `stdout.1.txt`, `stderr.1.txt`, `proxy.1.log`, then `.2`, and so on.
+
         Committing the container includes its home. For agents without a credential source,
         the committed image contains the real staged credential. The image tag is removed after
         the replacement exists; if setup fails before then, the snapshot remains on the daemon.
@@ -209,6 +214,7 @@ class Botbox:
                 output=output,
                 keep=name,
                 image=image.tag,
+                restarting=True,
             )
         finally:
 
@@ -232,6 +238,7 @@ class Botbox:
         output: str | Path | None,
         keep: str | None,
         image: str | None = None,
+        restarting: bool = False,
     ) -> RunResult:
         agent = self.agent
         if keep is not None:
@@ -246,7 +253,7 @@ class Botbox:
         volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
         source = self._credential_source()
         credential = None if source is None else source.read()
-        output = self._prepare_output(output, volumes)
+        output, suffix = self._prepare_output(output, volumes, restarting=restarting)
         home = self._home_files()
         if image is None:
             image = await self.build()
@@ -265,6 +272,7 @@ class Botbox:
                         output,
                         credential=credential,
                         labels=labels,
+                        suffix=suffix,
                     ) as jail,
                     self._following(jail, source, credential),
                 ):
@@ -279,6 +287,7 @@ class Botbox:
                             scratch=Path(scratch.name),
                             output=output,
                             keep=keep,
+                            suffix=suffix,
                         )
                     finally:
                         if keep is not None:
@@ -312,6 +321,7 @@ class Botbox:
         scratch: Path,
         output: Path | None,
         keep: str | None = None,
+        suffix: str = "",
     ) -> RunResult:
         """Run attached, with `home` on its stdin, then remove the agent container."""
         name = keep if keep is not None else f"botbox-agent-{token}"
@@ -319,8 +329,8 @@ class Botbox:
         folder = scratch if output is None else output
         try:
             with (
-                (folder / "stdout.txt").open("wb") as out,
-                (folder / "stderr.txt").open("wb") as err,
+                (folder / f"stdout{suffix}.txt").open("wb") as out,
+                (folder / f"stderr{suffix}.txt").open("wb") as err,
             ):
                 container = await Image(image).run(
                     *command,
@@ -335,7 +345,8 @@ class Botbox:
                     await send_home(stdin, home)
                     stdin.close()
                 client = await container.wait()
-            result = await agent_exit(container, client, last_stderr(folder / "stderr.txt"))
+            stderr = last_stderr(folder / f"stderr{suffix}.txt")
+            result = await agent_exit(container, client, stderr)
         finally:
             if keep is None:
                 await settle(warned(remove_within(container), f"remove its agent container {name}"))
@@ -360,22 +371,36 @@ class Botbox:
         return home.archive()
 
     def _prepare_output(
-        self, output: str | Path | None, volumes: list[tuple[str, str, str]]
-    ) -> Path | None:
-        """Truncate the stream files in `output` and mount its transcripts/ over `sessions_dir`."""
+        self,
+        output: str | Path | None,
+        volumes: list[tuple[str, str, str]],
+        *,
+        restarting: bool = False,
+    ) -> tuple[Path | None, str]:
+        """Truncate this attempt's stream files in `output`, mount its transcripts/ over
+        `sessions_dir`, and return it with the suffix for this attempt's file names.
+
+        A run clears earlier restarts' files and uses no suffix. A restart numbers its files
+        one past the highest already there: `stdout.1.txt`, then `stdout.2.txt`.
+        """
         if output is None:
-            return None
+            return None, ""
         output = Path(output).resolve()
         if ":" in str(output):
             raise ValueError(f"output {output} contains ':', which Docker can't mount")
         output.mkdir(parents=True, exist_ok=True)
-        (output / "stdout.txt").open("wb").close()
-        (output / "stderr.txt").open("wb").close()
-        (output / "proxy.log").open("wb").close()
+        if restarting:
+            suffix = f".{next_attempt(output)}"
+        else:
+            clear_attempts(output)
+            suffix = ""
+        (output / f"stdout{suffix}.txt").open("wb").close()
+        (output / f"stderr{suffix}.txt").open("wb").close()
+        (output / f"proxy{suffix}.log").open("wb").close()
         (output / "transcripts").mkdir(exist_ok=True)
         sessions = f"{self.agent.home}/{self.agent.sessions_dir}"
         volumes.append((str(output / "transcripts"), sessions, "rw"))
-        return output
+        return output, suffix
 
     def _lockdown_flags(  # noqa: PLR0913
         self,
