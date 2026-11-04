@@ -629,6 +629,17 @@ def describe_run() -> None:
         assert jail.volume.keep is True
         assert not any(step == "remove saved" for step in steps)
 
+    @pytest.mark.parametrize("owner", ["000000000000", "zzzzzzzzzzzz"])
+    async def it_leaves_a_volume_another_run_owns_under_the_name(
+        runner: Mock, jail: Mock, owner: str
+    ) -> None:
+        missing = CommandFailed("no such container")
+        other = {"Config": {"Labels": {"botbox.run": owner}}}
+        wrapped = Mock(inspect=AsyncMock(side_effect=[missing, other]))
+        with patch("botbox.Botbox.Container", return_value=wrapped):
+            await Botbox(runner).run("true", keep="saved")
+        assert jail.volume.keep is False
+
     async def it_rejects_an_existing_keep_name_before_build(
         runner: Mock, docker_build: Mock, jail: Mock
     ) -> None:
@@ -669,7 +680,7 @@ def describe_run() -> None:
     ) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
         old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
-        new = {"Config": {"Image": "snapshot:one"}}
+        new = {"Config": {"Image": "".join(("snapshot:", "one"))}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, new]),
             commit=AsyncMock(return_value=snapshot),
@@ -736,10 +747,13 @@ def describe_run() -> None:
             await Botbox(runner).restart("saved", "true")
         snapshot.remove.assert_not_awaited()
 
-    async def it_does_not_remove_a_snapshot_if_another_image_owns_the_name(runner: Mock) -> None:
+    @pytest.mark.parametrize("owner", ["other:one", "zzz:one"])
+    async def it_does_not_remove_a_snapshot_if_another_image_owns_the_name(
+        runner: Mock, owner: str
+    ) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
         old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
-        other = {"Config": {"Image": "other:one"}}
+        other = {"Config": {"Image": owner}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, other]),
             commit=AsyncMock(return_value=snapshot),
