@@ -8,7 +8,6 @@ from uuid import uuid4
 import pytest
 from conftest import LINE
 
-from adocker import Image
 from botbox import Agent, Botbox, ClaudeAgent, CodexAgent, HomeFiles, PiAgent
 from botbox.lockdown import RELAY, lockdown
 from botbox.send_home import send_home
@@ -95,7 +94,7 @@ async def run_as_foreign_uid(box: Botbox, scratch: Path, transcripts: Path) -> s
             (scratch / "agent.out").open("wb") as stdout,
             (scratch / "agent.err").open("wb") as stderr,
         ):
-            container = await Image(image).run(
+            container = await image.run(
                 RELAY,
                 "sh",
                 "-c",

@@ -70,9 +70,12 @@ def build_steps() -> Iterator[Mock]:
 
 
 @pytest.fixture(autouse=True)
-def dockerfile(steps: list[str]) -> Iterator[Mock]:
-    async def build(tag: str, **_options: Any) -> None:
+def dockerfile(steps: list[str], image: Mock) -> Iterator[Mock]:
+    async def build(tag: str, **_options: Any) -> Mock:
         steps.append(f"build {tag}")
+        built: Mock = image.return_value
+        built.tag = tag
+        return built
 
     with patch("botbox.Botbox.Dockerfile", autospec=True) as m:
         m.return_value.build.side_effect = build
@@ -355,12 +358,16 @@ def describe_build() -> None:
         await Botbox(agent, dockerfile=layer).build()
         build_steps.assert_called_once_with(agent, layer)
 
-    async def it_returns_the_last_steps_tag(agent: Mock) -> None:
-        assert await Botbox(agent).build() == "an-agent-123:latest"
+    async def it_returns_the_last_steps_image(agent: Mock, image: Mock) -> None:
+        built = await Botbox(agent).build()
+        assert built is image.return_value
+        assert built.tag == "an-agent-123:latest"
 
-    async def it_returns_the_only_steps_tag(agent: Mock, build_steps: Mock) -> None:
+    async def it_returns_the_only_steps_image(agent: Mock, build_steps: Mock, image: Mock) -> None:
         build_steps.return_value = [AGENT_STEP]
-        assert await Botbox(agent).build() == "an-agent:latest"
+        built = await Botbox(agent).build()
+        assert built is image.return_value
+        assert built.tag == "an-agent:latest"
 
     async def it_builds_each_steps_dockerfile_in_its_context(
         agent: Mock, dockerfile: Mock, docker_build: Mock
@@ -580,7 +587,7 @@ def settle(steps: list[str]) -> Iterator[Mock]:
 
 def agent_options(docker_run: Mock, image: Mock) -> dict[str, Any]:
     """The agent's `Image.run` options, with its image and command."""
-    [tag] = image.call_args.args
+    tag = image.return_value.tag
     return {**docker_run.call_args.kwargs, "image": tag, "command": list(docker_run.call_args.args)}
 
 
@@ -671,8 +678,9 @@ def describe_run() -> None:
     ) -> None:
         box = Botbox(runner)
         setup = box._setup(mounts=(), workdir=None, timeout=None, output=None)  # noqa: SLF001
-        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
-        image.assert_called_once_with("snapshot:one")
+        image.return_value.tag = "snapshot:one"
+        await box._run("true", setup, workdir=None, keep=None, image=image.return_value)  # noqa: SLF001
+        image.return_value.run.assert_awaited_once()
         docker_build.assert_not_called()
 
     async def it_restarts_from_a_snapshot_and_removes_the_old_resources(
@@ -699,7 +707,7 @@ def describe_run() -> None:
         volume.assert_called_once_with("botbox-run-oldtoken")
         volume.return_value.remove.assert_awaited_once()
         assert run.call_args.kwargs["keep"] == "saved"
-        assert run.call_args.kwargs["image"] == snapshot.tag
+        assert run.call_args.kwargs["image"] is snapshot
         assert setup.call_args.kwargs["append"] is True
         assert run.call_args.args[1] is setup.return_value
         snapshot.remove.assert_awaited_once()
@@ -1252,7 +1260,7 @@ def describe_run_output() -> None:
         assert (tmp_path / "keep").read_text() == "keep"
 
     @pytest.mark.usefixtures("file_run")
-    async def it_appends_a_restarts_streams(runner: Mock, tmp_path: Path) -> None:
+    async def it_appends_a_restarts_streams(runner: Mock, tmp_path: Path, image: Mock) -> None:
         (tmp_path / "stdout.txt").write_bytes(b"first\n")
         (tmp_path / "stderr.txt").write_bytes(b"first\n")
         (tmp_path / "proxy.log").write_bytes(b"first\n")
@@ -1261,21 +1269,21 @@ def describe_run_output() -> None:
         setup = box._setup(  # noqa: SLF001
             mounts=(), workdir=None, timeout=None, output=tmp_path, append=True
         )
-        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
+        await box._run("true", setup, workdir=None, keep=None, image=image.return_value)  # noqa: SLF001
         assert (tmp_path / "stdout.txt").read_bytes() == b"first\nout\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"first\nerr\n"
         assert (tmp_path / "proxy.log").read_bytes() == b"first\n"
         assert (tmp_path / "credentials.log").read_bytes() == b"first\n"
 
     async def it_leaves_a_previous_runs_stderr_out_of_the_error(
-        runner: Mock, agent_exit: Mock, tmp_path: Path
+        runner: Mock, agent_exit: Mock, tmp_path: Path, image: Mock
     ) -> None:
         (tmp_path / "stderr.txt").write_bytes(b"first\n")
         box = Botbox(runner)
         setup = box._setup(  # noqa: SLF001
             mounts=(), workdir=None, timeout=None, output=tmp_path, append=True
         )
-        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
+        await box._run("true", setup, workdir=None, keep=None, image=image.return_value)  # noqa: SLF001
         assert agent_exit.call_args.args[2] == "err\n"
 
     async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(

@@ -104,7 +104,7 @@ def layer(tmp_path: Path) -> Path:
 def describe_build() -> None:
     def describe_without_a_dockerfile() -> None:
         async def it_returns_the_agents_tag() -> None:
-            assert await Botbox(ClaudeAgent()).build() == "botbox-claude:latest"
+            assert (await Botbox(ClaudeAgent()).build()).tag == "botbox-claude:latest"
 
         async def it_builds_the_shipped_claude_dockerfile_with_buildx(buildx: Buildx) -> None:
             await Botbox(ClaudeAgent()).build()
@@ -124,23 +124,24 @@ def describe_build() -> None:
             assert buildx.builds[0]["contexts"] == {"botbox": str(RELAY_DIR)}
 
         async def it_builds_the_pi_image_for_pi(buildx: Buildx) -> None:
-            assert await Botbox(PiAgent(provider="openrouter")).build() == "botbox-pi:latest"
+            assert (await Botbox(PiAgent(provider="openrouter")).build()).tag == "botbox-pi:latest"
             assert buildx.builds[0]["file"].parts[-2:] == ("pi", "Dockerfile")
 
         async def it_builds_the_codex_image_for_codex(buildx: Buildx) -> None:
-            assert await Botbox(CodexAgent()).build() == "botbox-codex:latest"
+            assert (await Botbox(CodexAgent()).build()).tag == "botbox-codex:latest"
             assert buildx.builds[0]["file"].parts[-2:] == ("codex", "Dockerfile")
 
     def describe_with_a_dockerfile() -> None:
         async def it_builds_the_agent_image_then_the_layer(buildx: Buildx, layer: Path) -> None:
-            tag = await Botbox(ClaudeAgent(), dockerfile=layer).build()
+            tag = (await Botbox(ClaudeAgent(), dockerfile=layer).build()).tag
             assert [b["tag"] for b in buildx.builds] == ["botbox-claude:latest", tag]
             assert buildx.builds[1]["text"] == LAYER
             assert buildx.builds[1]["context"] == layer.parent
             assert buildx.builds[1]["contexts"] == {}
 
         async def it_returns_a_tag_other_than_the_agents(layer: Path) -> None:
-            assert await Botbox(ClaudeAgent(), dockerfile=layer).build() != "botbox-claude:latest"
+            image = await Botbox(ClaudeAgent(), dockerfile=layer).build()
+            assert image.tag != "botbox-claude:latest"
 
         async def it_builds_the_dockerfile_it_was_given(buildx: Buildx, layer: Path) -> None:
             await Botbox(ClaudeAgent(), dockerfile=layer).build()
@@ -160,22 +161,21 @@ def describe_build() -> None:
 
         async def it_returns_the_same_tag_each_call(layer: Path) -> None:
             box = Botbox(ClaudeAgent(), dockerfile=layer)
-            assert await box.build() == await box.build()
+            assert (await box.build()).tag == (await box.build()).tag
 
         async def it_tags_different_dockerfiles_differently(layer: Path, tmp_path: Path) -> None:
             other = tmp_path / "other" / "Dockerfile"
             other.parent.mkdir()
             other.write_text(LAYER)
-            assert (
-                await Botbox(ClaudeAgent(), dockerfile=layer).build()
-                != await Botbox(ClaudeAgent(), dockerfile=other).build()
-            )
+            assert (await Botbox(ClaudeAgent(), dockerfile=layer).build()).tag != (
+                await Botbox(ClaudeAgent(), dockerfile=other).build()
+            ).tag
 
         async def it_raises_with_the_builds_error_when_the_layer_fails(
             buildx: Buildx, layer: Path
         ) -> None:
             buildx.fail(
-                await Botbox(ClaudeAgent(), dockerfile=layer).build(),
+                (await Botbox(ClaudeAgent(), dockerfile=layer).build()).tag,
                 "ERROR: failed to solve: npm ERR!\n",
             )
             with pytest.raises(DockerException) as error:

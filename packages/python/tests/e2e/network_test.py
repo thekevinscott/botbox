@@ -228,7 +228,7 @@ def upstream(box: Botbox) -> Iterator[tuple[str, str]]:
     name = f"botbox-e2e-upstream-{secrets.token_hex(6)}"
     server = [
         *("docker", "run", "--detach", "--rm", "--name", name, "--network", "bridge"),
-        *("--user", "root", "--entrypoint", "node", asyncio.run(box.build()), "-e", UPSTREAM),
+        *("--user", "root", "--entrypoint", "node", asyncio.run(box.build()).tag, "-e", UPSTREAM),
     ]
     subprocess.run(server, check=True, capture_output=True)
     try:
