@@ -9,9 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from adocker import DockerException
 from botbox.Botbox import Botbox
-from botbox.RunResult import RunResult
 
 LABEL_VALUE = "/tmp/runs/2026-10-27T14:38:00-ab12"
 
@@ -89,6 +87,12 @@ def docker_build(dockerfile: Mock) -> Mock:
 
 class CommandFailed(Exception):
     """Stands in for the SDK's `DockerException`."""
+
+
+@pytest.fixture(autouse=True)
+def docker_exception() -> Iterator[None]:
+    with patch("botbox.Botbox.DockerException", CommandFailed):
+        yield
 
 
 class Timeout(Exception):
@@ -613,13 +617,14 @@ def describe_run() -> None:
     async def it_keeps_a_named_agent_and_its_owned_volume(
         runner: Mock, docker_run: Mock, jail: Mock, steps: list[str]
     ) -> None:
-        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        missing = CommandFailed("no such container")
         wrapped = Mock(
             inspect=AsyncMock(side_effect=[missing, {"Config": {"Labels": {"botbox.run": TOKEN}}}])
         )
         with patch("botbox.Botbox.Container", return_value=wrapped):
             result = await Botbox(runner).run("true", keep="saved")
-        assert result == RunResult(3, ENDED.oom_killed, "saved")
+        assert (result.exit_code, result.container_name) == (3, "saved")
+        assert result.oom_killed is ENDED.oom_killed
         assert docker_run.call_args.kwargs["name"] == "saved"
         assert jail.volume.keep is True
         assert not any(step == "remove saved" for step in steps)
@@ -639,7 +644,7 @@ def describe_run() -> None:
     async def it_removes_a_volume_when_the_named_agent_never_started(
         runner: Mock, docker_run: Mock, jail: Mock
     ) -> None:
-        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        missing = CommandFailed("no such container")
         wrapped = Mock(inspect=AsyncMock(side_effect=[missing, missing]))
         docker_run.side_effect = FileNotFoundError("docker")
         jail.volume.keep = False
@@ -703,7 +708,7 @@ def describe_run() -> None:
 
     async def it_keeps_the_snapshot_when_replacement_setup_fails(runner: Mock) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
-        missing = DockerException(["docker", "inspect"], 1, "no such container")
+        missing = CommandFailed("no such container")
         old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, missing]),
