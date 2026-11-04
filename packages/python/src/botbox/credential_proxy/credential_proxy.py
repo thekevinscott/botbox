@@ -57,6 +57,7 @@ async def credential_proxy(  # noqa: PLR0913
     stdin = preloaded(sds_secret(credential.secret))
     try:
         with log.open("ab") as stream:
+            start = stream.tell()
             container = Container(name)
             try:
                 container = await Image(IMAGE).run(
@@ -82,7 +83,7 @@ async def credential_proxy(  # noqa: PLR0913
                     entrypoint="sh",
                 )
                 client = cast("asyncio.Task[int]", container.client)
-                await wait_for_socket(proxy, SOCKET, client, log, READY_SECONDS)
+                await wait_for_socket(proxy, SOCKET, client, log, READY_SECONDS, start=start)
                 yield CredentialProxy(container, SOCKET)
             finally:
                 await settle(stop_container(container))

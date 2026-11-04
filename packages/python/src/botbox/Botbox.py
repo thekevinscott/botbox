@@ -341,6 +341,7 @@ class Botbox:
                 (folder / "stdout.txt").open("ab") as out,
                 (folder / "stderr.txt").open("ab") as err,
             ):
+                start = err.tell()
                 container = await Image(image).run(
                     *command,
                     name=name,
@@ -354,7 +355,8 @@ class Botbox:
                     await send_home(stdin, home)
                     stdin.close()
                 client = await container.wait()
-            result = await agent_exit(container, client, last_stderr(folder / "stderr.txt"))
+            stderr = last_stderr(folder / "stderr.txt", start)
+            result = await agent_exit(container, client, stderr)
         finally:
             if keep is None:
                 await settle(warned(remove_within(container), f"remove its agent container {name}"))
@@ -444,8 +446,8 @@ class Botbox:
         }
 
 
-def last_stderr(path: Path) -> str:
-    """Read the last `STDERR_BYTES` of the run's stderr for an error."""
+def last_stderr(path: Path, start: int) -> str:
+    """Read the last `STDERR_BYTES` of the run's stderr past byte `start`, for an error."""
     with path.open("rb") as stderr:
-        stderr.seek(max(0, stderr.seek(0, os.SEEK_END) - STDERR_BYTES))
+        stderr.seek(max(start, stderr.seek(0, os.SEEK_END) - STDERR_BYTES))
         return stderr.read().decode(errors="replace")

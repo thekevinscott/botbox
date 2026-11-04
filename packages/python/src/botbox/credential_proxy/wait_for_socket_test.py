@@ -53,8 +53,10 @@ async def running() -> AsyncIterator[asyncio.Future[int]]:
     client.cancel()
 
 
-def wait(through: Through, client: asyncio.Future[int], log: Path, timeout: float) -> Any:
-    return wait_for_socket(through, SOCKET, client, log, timeout)  # type: ignore[arg-type]
+def wait(
+    through: Through, client: asyncio.Future[int], log: Path, timeout: float, start: int = 0
+) -> Any:
+    return wait_for_socket(through, SOCKET, client, log, timeout, start=start)  # type: ignore[arg-type]
 
 
 def describe_wait_for_socket() -> None:
@@ -86,6 +88,15 @@ def describe_wait_for_socket() -> None:
         client.set_result(1)
         with pytest.raises(RuntimeError, match=r"did not start:\nenvoy said this\n$"):
             await wait(through, client, log, 5)
+
+    async def it_leaves_out_text_before_start(through: Through, log: Path) -> None:
+        earlier = log.read_bytes()
+        with log.open("ab") as stream:
+            stream.write(b"this run\n")
+        client: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+        client.set_result(1)
+        with pytest.raises(RuntimeError, match=r"did not start:\nthis run\n$"):
+            await wait(through, client, log, 5, len(earlier))
 
     async def it_chains_the_clients_failure(through: Through, log: Path) -> None:
         client: asyncio.Future[int] = asyncio.get_running_loop().create_future()

@@ -1222,6 +1222,17 @@ def describe_run_output() -> None:
         assert (tmp_path / "proxy.log").read_bytes() == b"first\n"
         assert (tmp_path / "credentials.log").read_bytes() == b"first\n"
 
+    async def it_leaves_a_previous_runs_stderr_out_of_the_error(
+        runner: Mock, agent_exit: Mock, tmp_path: Path
+    ) -> None:
+        (tmp_path / "stderr.txt").write_bytes(b"first\n")
+        box = Botbox(runner)
+        setup = box._setup(  # noqa: SLF001
+            mounts=(), workdir=None, timeout=None, output=tmp_path, append=True
+        )
+        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
+        assert agent_exit.call_args.args[2] == "err\n"
+
     async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
         runner: Mock, docker_build: Mock, tmp_path: Path
     ) -> None:
