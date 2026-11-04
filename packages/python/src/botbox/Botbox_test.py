@@ -1142,6 +1142,19 @@ def describe_run() -> None:
                 await Botbox(runner, timeout=0.01).run("true", output=output)
             assert raised.value.result.exit_code == -1
 
+        async def it_does_not_report_an_uncreated_kept_container(
+            runner: Mock, lockdown: Mock, output: Path
+        ) -> None:
+            lockdown.side_effect = stuck_lockdown
+            missing = CommandFailed("no such container")
+            container = Mock(inspect=AsyncMock(side_effect=missing))
+            with (
+                patch("botbox.Botbox.Container", return_value=container),
+                pytest.raises(Timeout) as raised,
+            ):
+                await Botbox(runner, timeout=0.01).run("true", keep="saved", output=output)
+            assert raised.value.result.container_name is None
+
         async def it_lets_another_timeout_error_through(
             runner: Mock, docker_run: Mock, output: Path
         ) -> None:

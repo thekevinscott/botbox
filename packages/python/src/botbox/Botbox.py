@@ -274,6 +274,7 @@ class Botbox:
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         deadline = asyncio.timeout(limit)
+        kept = False
         try:
             allow = (*agent.allow, *self.allow)
             try:
@@ -307,19 +308,21 @@ class Botbox:
                         if keep is not None:
 
                             async def mark_owned_volume() -> None:
+                                nonlocal kept
                                 try:
                                     details = await Container(keep).inspect()
                                 except DockerException:
                                     return
-                                jail.volume.keep = (
+                                kept = (
                                     details["Config"]["Labels"].get("botbox.run") == token
                                 )
+                                jail.volume.keep = kept
 
                             await settle(mark_owned_volume())
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                raise Timeout(limit, RunResult(-1, container_name=keep)) from timed_out
+                raise Timeout(limit, RunResult(-1, container_name=keep if kept else None)) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return result
