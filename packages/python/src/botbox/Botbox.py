@@ -225,7 +225,11 @@ class Botbox:
             mounts=mounts, workdir=workdir, timeout=timeout, output=output, append=True
         )
         image = await previous.commit(f"botbox-restart:{uuid4().hex}")
-        await previous.remove()
+        try:
+            await previous.remove()
+        except BaseException:
+            await settle(warned(image.remove(), f"remove its restart image {image.tag}"))
+            raise
         await Volume(f"botbox-run-{token}").remove()
         try:
             return await self._run(command, setup, workdir=workdir, keep=name, image=image.tag)
@@ -313,16 +317,16 @@ class Botbox:
                                     details = await Container(keep).inspect()
                                 except DockerException:
                                     return
-                                kept = (
-                                    details["Config"]["Labels"].get("botbox.run") == token
-                                )
+                                kept = details["Config"]["Labels"].get("botbox.run") == token
                                 jail.volume.keep = kept
 
                             await settle(mark_owned_volume())
             except TimeoutError as timed_out:
                 if limit is None or not deadline.expired():
                     raise
-                raise Timeout(limit, RunResult(-1, container_name=keep if kept else None)) from timed_out
+                raise Timeout(
+                    limit, RunResult(-1, container_name=keep if kept else None)
+                ) from timed_out
         finally:
             await settle(warned(asyncio.to_thread(scratch.cleanup), "remove its temp directory"))
         return result

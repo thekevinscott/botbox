@@ -728,6 +728,38 @@ def describe_run() -> None:
         container.remove.assert_not_called()
         volume.assert_not_called()
 
+    async def it_removes_the_snapshot_if_old_container_removal_fails(runner: Mock) -> None:
+        snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        container = Mock(
+            inspect=AsyncMock(return_value=old),
+            commit=AsyncMock(return_value=snapshot),
+            remove=AsyncMock(side_effect=CommandFailed("still present")),
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            patch("botbox.Botbox.Volume", autospec=True) as volume,
+            pytest.raises(CommandFailed, match="still present"),
+        ):
+            await Botbox(runner).restart("saved", "true")
+        snapshot.remove.assert_awaited_once()
+        volume.assert_not_called()
+
+    async def it_removes_the_snapshot_if_old_container_removal_is_cancelled(runner: Mock) -> None:
+        snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        container = Mock(
+            inspect=AsyncMock(return_value=old),
+            commit=AsyncMock(return_value=snapshot),
+            remove=AsyncMock(side_effect=asyncio.CancelledError),
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await Botbox(runner).restart("saved", "true")
+        snapshot.remove.assert_awaited_once()
+
     async def it_rejects_a_container_without_a_run_label(runner: Mock) -> None:
         container = Mock(inspect=AsyncMock(return_value={"Config": {"Labels": {}}}))
         with (
