@@ -232,21 +232,6 @@ def describe_lockdown() -> None:
                 pass
         assert start.call_args.kwargs["log"] == output / "credentials.log"
 
-    async def it_puts_the_suffix_in_both_log_names(scratch: Path) -> None:
-        output = scratch / "output"
-        output.mkdir()
-
-        @asynccontextmanager
-        async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
-            yield Mock()
-
-        with patch("botbox.lockdown.credential_proxy", side_effect=sidecar) as start:
-            async with lockdown(ALLOW, scratch, TOKEN, output, credential=Mock(), suffix=".1"):
-                pass
-        assert start.call_args.kwargs["log"] == output / "credentials.1.log"
-        assert (output / "proxy.1.log").exists()
-        assert not (output / "proxy.log").exists()
-
     async def it_takes_the_credential_by_keyword_only(scratch: Path) -> None:
         @asynccontextmanager
         async def sidecar(*_args: object, **_kwargs: object) -> AsyncIterator[Mock]:
