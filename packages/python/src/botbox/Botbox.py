@@ -81,10 +81,8 @@ class Botbox:
         if pids is not None and pids < 1:
             raise ValueError("pids must be at least 1 or None")
         self.pids = pids
-        if labels is not None:
-            for reserved in ("botbox.run", "botbox.keep"):
-                if reserved in labels:
-                    raise ValueError(f"{reserved} is reserved for botbox cleanup")
+        if labels is not None and "botbox.run" in labels:
+            raise ValueError("botbox.run is reserved for botbox cleanup")
         self.labels = dict(labels or {})
         self._unwinding: asyncio.Task[Any] | None = None
         self._entry: object | None = None
@@ -219,7 +217,7 @@ class Botbox:
         previous = Container(name)
         details = await previous.inspect()
         token = details["Config"]["Labels"].get("botbox.run")
-        if not token or details["Config"]["Labels"].get("botbox.keep") != name:
+        if not token:
             raise ValueError(f"{name} is not a botbox run container")
         setup = self._setup(
             mounts=mounts, workdir=workdir, timeout=timeout, output=output, append=True
@@ -295,8 +293,6 @@ class Botbox:
                     self._following(jail, source, credential),
                 ):
                     flags = self._lockdown_flags(token, home, jail, volumes, workdir, labels=labels)
-                    if keep is not None:
-                        flags["labels"]["botbox.keep"] = keep
                     try:
                         result = await self._attach(
                             token,

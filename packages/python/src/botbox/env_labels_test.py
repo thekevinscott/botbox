@@ -23,7 +23,3 @@ def describe_env_labels() -> None:
     def it_reserves_the_cleanup_label() -> None:
         with pytest.raises(ValueError, match=r"botbox\.run"):
             env_labels({"BOTBOX_LABELS": "botbox.run=other"})
-
-    def it_reserves_the_keep_label() -> None:
-        with pytest.raises(ValueError, match=r"botbox\.keep"):
-            env_labels({"BOTBOX_LABELS": "botbox.keep=other"})

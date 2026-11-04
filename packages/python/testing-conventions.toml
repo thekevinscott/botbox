@@ -1,7 +1,7 @@
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["95-96", "128"]
+lines = ["93-94", "126"]
 reason = "is -> == is equivalent: the main thread, SIG_DFL and each entry's bare object() compare by identity"
 
 [[python.exempt]]
@@ -13,7 +13,7 @@ reason = "== 0 -> <= 0 is equivalent: a uid is never negative"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["384"]
+lines = ["380"]
 reason = "or -> and is equivalent: credential is None exactly when source is None. Each check narrows a different Optional for mypy"
 
 [[python.exempt]]
@@ -31,7 +31,7 @@ reason = "!= -> < is equivalent: os.write never returns more than it was given"
 [[python.exempt]]
 path = "src/botbox/Botbox.py"
 rules = ["mutation"]
-lines = ["201", "250", "271", "339", "395", "422"]
+lines = ["199", "248", "269", "335", "391", "418"]
 reason = "* -> / on restart, _setup, _run, _attach, _prepare_output and _lockdown_flags only widens how callers may pass keywords. ruff's PLR0917 rules out dropping the marker"
 
 [[python.exempt]]

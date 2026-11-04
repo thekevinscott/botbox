@@ -170,10 +170,6 @@ def describe_botbox() -> None:
         labels["test.run"] = "two"
         assert box.labels == {"test.run": LABEL_VALUE}
 
-    def it_reserves_the_keep_label(agent: Mock) -> None:
-        with pytest.raises(ValueError, match=r"botbox\.keep"):
-            Botbox(agent, labels={"botbox.keep": "other"})
-
     def it_reserves_the_cleanup_label(agent: Mock) -> None:
         with pytest.raises(ValueError, match=r"botbox\.run"):
             Botbox(agent, labels={"botbox.run": "other"})
@@ -630,7 +626,6 @@ def describe_run() -> None:
         assert (result.exit_code, result.container_name) == (3, "saved")
         assert result.oom_killed is ENDED.oom_killed
         assert docker_run.call_args.kwargs["name"] == "saved"
-        assert docker_run.call_args.kwargs["labels"]["botbox.keep"] == "saved"
         assert jail.volume.keep is True
         assert not any(step == "remove saved" for step in steps)
 
@@ -684,7 +679,7 @@ def describe_run() -> None:
         runner: Mock, image: Mock
     ) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         new = {"Config": {"Image": "".join(("snapshot:", "one"))}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, new]),
@@ -714,7 +709,7 @@ def describe_run() -> None:
         runner: Mock, bind_mounts: Mock
     ) -> None:
         bind_mounts.side_effect = ValueError("bad mount")
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         container = Mock(
             inspect=AsyncMock(return_value=old), commit=AsyncMock(), remove=AsyncMock()
         )
@@ -730,7 +725,7 @@ def describe_run() -> None:
 
     async def it_removes_the_snapshot_if_old_container_removal_fails(runner: Mock) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         container = Mock(
             inspect=AsyncMock(return_value=old),
             commit=AsyncMock(return_value=snapshot),
@@ -747,7 +742,7 @@ def describe_run() -> None:
 
     async def it_removes_the_snapshot_if_old_container_removal_is_cancelled(runner: Mock) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         container = Mock(
             inspect=AsyncMock(return_value=old),
             commit=AsyncMock(return_value=snapshot),
@@ -769,25 +764,10 @@ def describe_run() -> None:
             await Botbox(runner).restart("other", "true")
         container.commit.assert_not_called()
 
-    @pytest.mark.parametrize("keep_label", [None, "other"])
-    async def it_rejects_a_run_container_without_its_keep_label(
-        runner: Mock, keep_label: str | None
-    ) -> None:
-        labels = {"botbox.run": "oldtoken"}
-        if keep_label is not None:
-            labels["botbox.keep"] = keep_label
-        container = Mock(inspect=AsyncMock(return_value={"Config": {"Labels": labels}}))
-        with (
-            patch("botbox.Botbox.Container", return_value=container),
-            pytest.raises(ValueError, match="not a botbox run container"),
-        ):
-            await Botbox(runner).restart("saved", "true")
-        container.commit.assert_not_called()
-
     async def it_keeps_the_snapshot_when_replacement_setup_fails(runner: Mock) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
         missing = CommandFailed("no such container")
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, missing]),
             commit=AsyncMock(return_value=snapshot),
@@ -807,7 +787,7 @@ def describe_run() -> None:
         runner: Mock, owner: str
     ) -> None:
         snapshot = Mock(tag="snapshot:one", remove=AsyncMock())
-        old = {"Config": {"Labels": {"botbox.run": "oldtoken", "botbox.keep": "saved"}}}
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
         other = {"Config": {"Image": owner}}
         container = Mock(
             inspect=AsyncMock(side_effect=[old, other]),
