@@ -23,7 +23,7 @@ await box.run(
 
 Returns a [`RunResult`](./run-result). A non-zero exit is a normal `RunResult`.
 
-To continue on a kept container's filesystem, call `await box.restart(name, command, output=..., mounts=..., workdir=..., timeout=...)`. Restart commits the stopped container to an image, removes it and its old socket volume, then creates a new container under the same name with a fresh proxy and lockdown. The new container is kept. `output` is handled as in `run`, so its log files are truncated; pass a new `output` to keep the earlier run's logs. An existing name passed to `keep` raises during setup. The kept container's socket volume remains until restart or manual cleanup; remove the container before removing the volume.
+To continue on a kept container's filesystem, call `await box.restart(name, command, output=..., mounts=..., workdir=..., timeout=...)`. Restart commits the stopped container to an image, removes it and its old socket volume, then creates a new container under the same name with a fresh proxy and lockdown. The new container is kept. Restart appends to the log files already in `output` (`stdout.txt`, `stderr.txt`, `proxy.log`, `credentials.log`) instead of truncating them. Nothing marks where the restart's output begins: if you need the boundary, have the command print a marker line first (`echo '--- restart'; ...`), or pass a new `output`. An existing name passed to `keep` raises during setup. The kept container's socket volume remains until restart or manual cleanup; remove the container before removing the volume.
 
 The agent's staged home is included in the restart image. For agents with a `credential_source`, its staged credential is a placeholder. For agents whose credential is copied into the home, the image contains the real credential. Store and remove these images accordingly. Docker logging is disabled for agent containers, so `docker logs` on a kept container is empty; pass `output` to retain stdout and stderr.
 
@@ -44,7 +44,7 @@ result = await box.run("echo hello", output=output)
 print((output / "stdout.txt").read_text())
 ```
 
-`stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
+For `run`, `stdout.txt`, `stderr.txt` and `proxy.log` are created or truncated immediately after the
 output directory is created or reused, before setup starts; other files in the directory,
 `transcripts/` included, are preserved. Sessions already in `transcripts/` are visible to the
 agent. To continue one, pass `resume=True` for the latest session or its ID for a specific one,

@@ -38,7 +38,7 @@ botbox reads only the temporary copies: the end of `stderr.txt` for a `DockerExc
 
 Transcripts are different. With `output`, `output/transcripts/` is bind-mounted over the harness's sessions directory, and the CLI writes its transcripts there itself. There is no temporary copy. Without `output`, the CLI writes them into its home in the container, and they go with it.
 
-`run()` truncates `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image. Other files there, `transcripts/` included, are kept.
+`run()` truncates `stdout.txt`, `stderr.txt` and `proxy.log` in `output` before building the image, and removes a stale `credentials.log`. Other files there, `transcripts/` included, are kept. Every log file is then opened for append, so `restart()` adds to them rather than replacing them. The proxy counts as ready only on a ready line written after its log was opened.
 
 Every teardown step runs shielded, so a second cancel can't cut it short. A step that fails is a `RuntimeWarning`, and the result still comes back. The attached client forwards SIGTERM to the container and keeps waiting, so a cancel kills it outright. Every container in a run carries the label `botbox.run=<token>`. A cancel that lands between Docker creating a container and starting it can leave a created one behind; the label finds it.
 

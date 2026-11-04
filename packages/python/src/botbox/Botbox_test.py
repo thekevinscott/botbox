@@ -690,6 +690,7 @@ def describe_run() -> None:
             patch("botbox.Botbox.Container", return_value=container),
             patch("botbox.Botbox.Volume", autospec=True) as volume,
             patch.object(Botbox, "_run", new_callable=AsyncMock, return_value=ENDED) as run,
+            patch.object(Botbox, "_setup", autospec=True) as setup,
         ):
             result = await Botbox(runner).restart("saved", "cat ~/memo")
         assert result is ENDED
@@ -699,6 +700,8 @@ def describe_run() -> None:
         volume.return_value.remove.assert_awaited_once()
         assert run.call_args.kwargs["keep"] == "saved"
         assert run.call_args.kwargs["image"] == snapshot.tag
+        assert setup.call_args.kwargs["append"] is True
+        assert run.call_args.args[1] is setup.return_value
         snapshot.remove.assert_awaited_once()
         image.assert_not_called()
 
@@ -1191,15 +1194,33 @@ def describe_run_output() -> None:
         (tmp_path / "stdout.txt").write_text("old stdout contents")
         (tmp_path / "stderr.txt").write_text("old stderr contents")
         (tmp_path / "proxy.log").write_text("old proxy log")
+        (tmp_path / "credentials.log").write_text("old credentials log")
         (tmp_path / "keep").write_text("keep")
         (tmp_path / "transcripts").mkdir()
         (tmp_path / "transcripts" / "old.jsonl").write_text("old")
         await Botbox(runner).run("true", output=tmp_path)
         assert (tmp_path / "transcripts" / "old.jsonl").read_text() == "old"
         assert (tmp_path / "proxy.log").read_bytes() == b""
+        assert not (tmp_path / "credentials.log").exists()
         assert (tmp_path / "stdout.txt").read_bytes() == b"out\xff\n"
         assert (tmp_path / "stderr.txt").read_bytes() == b"err\n"
         assert (tmp_path / "keep").read_text() == "keep"
+
+    @pytest.mark.usefixtures("file_run")
+    async def it_appends_a_restarts_streams(runner: Mock, tmp_path: Path) -> None:
+        (tmp_path / "stdout.txt").write_bytes(b"first\n")
+        (tmp_path / "stderr.txt").write_bytes(b"first\n")
+        (tmp_path / "proxy.log").write_bytes(b"first\n")
+        (tmp_path / "credentials.log").write_bytes(b"first\n")
+        box = Botbox(runner)
+        setup = box._setup(  # noqa: SLF001
+            mounts=(), workdir=None, timeout=None, output=tmp_path, append=True
+        )
+        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
+        assert (tmp_path / "stdout.txt").read_bytes() == b"first\nout\xff\n"
+        assert (tmp_path / "stderr.txt").read_bytes() == b"first\nerr\n"
+        assert (tmp_path / "proxy.log").read_bytes() == b"first\n"
+        assert (tmp_path / "credentials.log").read_bytes() == b"first\n"
 
     async def it_rejects_a_path_docker_cannot_mount_before_touching_anything(
         runner: Mock, docker_build: Mock, tmp_path: Path

@@ -1,6 +1,6 @@
 # Reading the result
 
-Pass `run()` an `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`.
+Pass `run()` an `output` directory. The command's stdout and stderr, the proxy log and the agent's transcripts are written there while it runs, and stay after it ends. Use a separate directory for each run: reusing one truncates `stdout.txt`, `stderr.txt` and `proxy.log`. `restart()` is the exception. It appends to them, so print a marker line first if you need to tell the runs apart.
 
 The streams and the proxy log are copies. botbox writes them first to the run's temp directory, under `TMPDIR`, and reads errors from there. If a write to `output` fails, botbox warns and stops writing that file, and the run goes on. Keep `TMPDIR` on disk, not a tmpfs: a chatty agent fills memory otherwise.
 

@@ -225,11 +225,15 @@ def describe_run() -> None:
 
     async def it_restarts_on_the_kept_filesystem(box: Botbox, runs: Runs, output: Path) -> None:
         name = f"botbox-kept-{uuid4().hex[:12]}"
-        await box.run("echo remembered > ~/remembered", keep=name)
+        await box.run("echo first; echo remembered > ~/remembered", keep=name, output=output)
         [old_token] = runs.tokens
+        proxy_log = (output / "proxy.log").read_bytes()
         result = await box.restart(name, "cat ~/remembered", output=output)
         assert result == RunResult(0, oom_killed=False, container_name=name)
-        assert (output / "stdout.txt").read_text() == "remembered\n"
+        assert (output / "stdout.txt").read_text() == "first\nremembered\n"
+        appended = (output / "proxy.log").read_bytes()
+        assert appended.startswith(proxy_log)
+        assert appended.count(b"botbox-proxy: listening\n") == 2
         assert volumes(old_token) == []
         assert containers(old_token) == []
         [new_token] = runs.tokens - {old_token}

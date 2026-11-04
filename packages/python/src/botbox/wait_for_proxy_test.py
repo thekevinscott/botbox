@@ -46,8 +46,22 @@ def describe_wait_for_proxy() -> None:
         output: Path, client: Mock, sleep: AsyncMock
     ) -> None:
         output.write_bytes(b"NOTICE Initializing tinyproxy\n" + READY)
-        await wait_for_proxy(client, output, 30)
+        await wait_for_proxy(client, output, 30, start=0)
         sleep.assert_not_awaited()
+
+    async def it_ignores_a_ready_line_before_start(
+        output: Path, client: Mock, sleep: AsyncMock
+    ) -> None:
+        earlier = b"NOTICE earlier run\n" + READY
+
+        async def appear(_seconds: float) -> None:
+            with output.open("ab") as log:
+                log.write(READY)
+
+        output.write_bytes(earlier)
+        sleep.side_effect = appear
+        await wait_for_proxy(client, output, 30, start=len(earlier))
+        sleep.assert_awaited_once_with(POLL)
 
     async def it_polls_until_the_proxy_says_it_is_listening(
         output: Path, client: Mock, sleep: AsyncMock
@@ -57,7 +71,7 @@ def describe_wait_for_proxy() -> None:
                 log.write(READY)
 
         sleep.side_effect = appear
-        await wait_for_proxy(client, output, 30)
+        await wait_for_proxy(client, output, 30, start=0)
         sleep.assert_awaited_once_with(POLL)
 
     async def it_raises_with_the_output_when_the_client_exits_first(
@@ -65,14 +79,14 @@ def describe_wait_for_proxy() -> None:
     ) -> None:
         client.done.return_value = True
         with pytest.raises(RuntimeError) as raised:
-            await wait_for_proxy(client, output, 30)
+            await wait_for_proxy(client, output, 30, start=0)
         assert str(raised.value) == "botbox proxy did not start:\ntinyproxy: bad config\ufffd\n"
 
     async def it_raises_from_what_the_client_raised(output: Path, client: Mock) -> None:
         client.done.return_value = True
         client.exception.return_value = FileNotFoundError("docker")
         with pytest.raises(RuntimeError) as raised:
-            await wait_for_proxy(client, output, 30)
+            await wait_for_proxy(client, output, 30, start=0)
         assert raised.value.__cause__ is client.exception.return_value
 
     async def it_raises_once_the_timeout_passes(
@@ -80,7 +94,7 @@ def describe_wait_for_proxy() -> None:
     ) -> None:
         clock.monotonic.side_effect = [100.0, 129.0, 130.0, 130.5]
         with pytest.raises(RuntimeError, match="did not start") as raised:
-            await wait_for_proxy(client, output, 30)
+            await wait_for_proxy(client, output, 30, start=0)
         assert raised.value.__cause__ is None
         assert sleep.await_count == 2
         client.exception.assert_not_called()
@@ -89,7 +103,7 @@ def describe_wait_for_proxy() -> None:
         output.write_bytes(b"prefix" + b"x" * (64 * 1024 - 1) + b"\xff")
         client.done.return_value = True
         with pytest.raises(RuntimeError) as raised:
-            await wait_for_proxy(client, output, 30)
+            await wait_for_proxy(client, output, 30, start=0)
         assert (
             str(raised.value) == "botbox proxy did not start:\n" + "x" * (64 * 1024 - 1) + "\ufffd"
         )
@@ -101,7 +115,7 @@ def describe_wait_for_proxy() -> None:
         client.done.return_value = True
         client.exception.return_value = FileNotFoundError("docker")
         with pytest.raises(RuntimeError) as raised:
-            await wait_for_proxy(client, output, 30)
+            await wait_for_proxy(client, output, 30, start=0)
         assert str(raised.value) == "botbox proxy did not start:\n"
         assert raised.value.__cause__ is client.exception.return_value
 
@@ -114,5 +128,5 @@ def describe_wait_for_proxy() -> None:
             output.write_bytes(READY)
 
         sleep.side_effect = appear
-        await wait_for_proxy(client, output, 30)
+        await wait_for_proxy(client, output, 30, start=0)
         sleep.assert_awaited_once_with(POLL)

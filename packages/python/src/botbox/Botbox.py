@@ -157,8 +157,8 @@ class Botbox:
         stdout, stderr and the proxy's output go to stdout.txt, stderr.txt and proxy.log in
         `output` when given, or in the run's temp directory under `TMPDIR` otherwise. With
         `output`, transcripts/ there is mounted over the agent's `sessions_dir`. The three files
-        are truncated; other files are kept. A path with `:` raises `ValueError`, since Docker
-        can't mount it.
+        are truncated and a stale credentials.log removed; other files are kept. A path with `:`
+        raises `ValueError`, since Docker can't mount it.
 
         Mounts, `workdir` and `output` are checked, and the credentials staged, before anything
         is built. The agent's home is in the container, created by the image, and goes with the
@@ -204,8 +204,9 @@ class Botbox:
     ) -> RunResult:
         """Run on a kept container's filesystem with a fresh proxy and lockdown.
 
-        `output` is handled as in `run`: its log files are truncated. Pass a new `output` to
-        keep the earlier run's logs.
+        Logs are appended to the files already in `output`, with nothing marking where the
+        restart begins. A caller that needs the boundary can print a marker line first, or pass
+        a new `output`.
 
         Mounts, `workdir`, `output` and the credentials are checked before the old container is
         touched, so a rejected restart leaves it in place. Committing the container includes its
@@ -218,7 +219,9 @@ class Botbox:
         token = details["Config"]["Labels"].get("botbox.run")
         if not token:
             raise ValueError(f"{name} is not a botbox run container")
-        setup = self._setup(mounts=mounts, workdir=workdir, timeout=timeout, output=output)
+        setup = self._setup(
+            mounts=mounts, workdir=workdir, timeout=timeout, output=output, append=True
+        )
         image = await previous.commit(f"botbox-restart:{uuid4().hex}")
         await previous.remove()
         await Volume(f"botbox-run-{token}").remove()
@@ -243,6 +246,7 @@ class Botbox:
         workdir: str | Path | None,
         timeout: float | None,
         output: str | Path | None,
+        append: bool = False,
     ) -> _Setup:
         """Check the arguments and stage the credentials and output, before any Docker work."""
         limit = self.timeout if timeout is None else check_timeout(timeout)
@@ -250,7 +254,7 @@ class Botbox:
         volumes = bind_mounts(mounts, workdir=workdir, home=self.agent.home)
         source = self._credential_source()
         credential = None if source is None else source.read()
-        prepared = self._prepare_output(output, volumes)
+        prepared = self._prepare_output(output, volumes, append=append)
         home = self._home_files()
         return _Setup(limit, labels, volumes, source, credential, prepared, home)
 
@@ -334,8 +338,8 @@ class Botbox:
         folder = scratch if output is None else output
         try:
             with (
-                (folder / "stdout.txt").open("wb") as out,
-                (folder / "stderr.txt").open("wb") as err,
+                (folder / "stdout.txt").open("ab") as out,
+                (folder / "stderr.txt").open("ab") as err,
             ):
                 container = await Image(image).run(
                     *command,
@@ -375,18 +379,21 @@ class Botbox:
         return home.archive()
 
     def _prepare_output(
-        self, output: str | Path | None, volumes: list[tuple[str, str, str]]
+        self, output: str | Path | None, volumes: list[tuple[str, str, str]], *, append: bool
     ) -> Path | None:
-        """Truncate the stream files in `output` and mount its transcripts/ over `sessions_dir`."""
+        """Truncate the log files in `output`, unless appending, and mount its transcripts/ over
+        `sessions_dir`."""
         if output is None:
             return None
         output = Path(output).resolve()
         if ":" in str(output):
             raise ValueError(f"output {output} contains ':', which Docker can't mount")
         output.mkdir(parents=True, exist_ok=True)
-        (output / "stdout.txt").open("wb").close()
-        (output / "stderr.txt").open("wb").close()
-        (output / "proxy.log").open("wb").close()
+        if not append:
+            (output / "stdout.txt").open("wb").close()
+            (output / "stderr.txt").open("wb").close()
+            (output / "proxy.log").open("wb").close()
+            (output / "credentials.log").unlink(missing_ok=True)
         (output / "transcripts").mkdir(exist_ok=True)
         sessions = f"{self.agent.home}/{self.agent.sessions_dir}"
         volumes.append((str(output / "transcripts"), sessions, "rw"))
