@@ -658,15 +658,9 @@ def describe_run() -> None:
     async def it_uses_a_supplied_image_for_a_restart(
         runner: Mock, image: Mock, docker_build: Mock
     ) -> None:
-        await Botbox(runner)._run(  # noqa: SLF001
-            "true",
-            mounts=(),
-            workdir=None,
-            timeout=None,
-            output=None,
-            keep=None,
-            image="snapshot:one",
-        )
+        box = Botbox(runner)
+        setup = box._setup(mounts=(), workdir=None, timeout=None, output=None)  # noqa: SLF001
+        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
         image.assert_called_once_with("snapshot:one")
         docker_build.assert_not_called()
 
@@ -694,9 +688,27 @@ def describe_run() -> None:
         volume.return_value.remove.assert_awaited_once()
         assert run.call_args.kwargs["keep"] == "saved"
         assert run.call_args.kwargs["image"] == snapshot.tag
-        assert run.call_args.kwargs["restarting"] is True
+        assert run.call_args.args[1].suffix == ""
         snapshot.remove.assert_awaited_once()
         image.assert_not_called()
+
+    async def it_checks_its_arguments_before_removing_the_old_container(
+        runner: Mock, bind_mounts: Mock
+    ) -> None:
+        bind_mounts.side_effect = ValueError("bad mount")
+        old = {"Config": {"Labels": {"botbox.run": "oldtoken"}}}
+        container = Mock(
+            inspect=AsyncMock(return_value=old), commit=AsyncMock(), remove=AsyncMock()
+        )
+        with (
+            patch("botbox.Botbox.Container", return_value=container),
+            patch("botbox.Botbox.Volume", autospec=True) as volume,
+            pytest.raises(ValueError, match="bad mount"),
+        ):
+            await Botbox(runner).restart("saved", "true")
+        container.commit.assert_not_called()
+        container.remove.assert_not_called()
+        volume.assert_not_called()
 
     async def it_rejects_a_container_without_a_run_label(runner: Mock) -> None:
         container = Mock(inspect=AsyncMock(return_value={"Config": {"Labels": {}}}))
@@ -1199,15 +1211,11 @@ def describe_run_output() -> None:
         (tmp_path / "stderr.txt").write_text("first")
         (tmp_path / "proxy.log").write_text("first")
         (tmp_path / "stdout.1.txt").write_text("second")
-        await Botbox(runner)._run(  # noqa: SLF001
-            "true",
-            mounts=(),
-            workdir=None,
-            timeout=None,
-            output=tmp_path,
-            keep=None,
-            restarting=True,
+        box = Botbox(runner)
+        setup = box._setup(  # noqa: SLF001
+            mounts=(), workdir=None, timeout=None, output=tmp_path, restarting=True
         )
+        await box._run("true", setup, workdir=None, keep=None, image="snapshot:one")  # noqa: SLF001
         assert (tmp_path / "stdout.txt").read_text() == "first"
         assert (tmp_path / "stderr.txt").read_text() == "first"
         assert (tmp_path / "proxy.log").read_text() == "first"

@@ -7,7 +7,7 @@ from contextlib import AbstractAsyncContextManager, nullcontext
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
-from typing import Any, Self, cast
+from typing import Any, NamedTuple, Self, cast
 from uuid import uuid4
 
 from posix_tools import settle
@@ -30,6 +30,17 @@ from botbox.Timeout import Timeout
 from botbox.warned import warned
 
 STDERR_BYTES = 64 * 1024
+
+
+class _Setup(NamedTuple):
+    limit: float | None
+    labels: dict[str, str]
+    volumes: list[tuple[str, str, str]]
+    source: CredentialSource | None
+    credential: Credential | None
+    output: Path | None
+    suffix: str
+    home: bytes
 
 
 class Botbox:
@@ -174,9 +185,15 @@ class Botbox:
         The timeout, `timeout` or else the box's, starts once the image is built. When it runs
         out, the run tears down as a cancel does and raises `Timeout` with `exit_code` -1.
         """
-        return await self._run(
-            command, mounts=mounts, workdir=workdir, timeout=timeout, output=output, keep=keep
-        )
+        if keep is not None:
+            try:
+                await Container(keep).inspect()
+            except DockerException:
+                pass
+            else:
+                raise ValueError(f"container {keep} already exists")
+        setup = self._setup(mounts=mounts, workdir=workdir, timeout=timeout, output=output)
+        return await self._run(command, setup, workdir=workdir, keep=keep, image=await self.build())
 
     async def restart(  # noqa: PLR0913
         self,
@@ -193,7 +210,9 @@ class Botbox:
         Earlier attempts' files in `output` are kept. This attempt's are numbered one past the
         highest there: `stdout.1.txt`, `stderr.1.txt`, `proxy.1.log`, then `.2`, and so on.
 
-        Committing the container includes its home. For agents without a credential source,
+        Mounts, `workdir`, `output` and the credentials are checked before the old container is
+        touched, so a rejected restart leaves it in place. Committing the container includes its
+        home. For agents without a credential source,
         the committed image contains the real staged credential. The image tag is removed after
         the replacement exists; if setup fails before then, the snapshot remains on the daemon.
         """
@@ -202,20 +221,14 @@ class Botbox:
         token = details["Config"]["Labels"].get("botbox.run")
         if not token:
             raise ValueError(f"{name} is not a botbox run container")
+        setup = self._setup(
+            mounts=mounts, workdir=workdir, timeout=timeout, output=output, restarting=True
+        )
         image = await previous.commit(f"botbox-restart:{uuid4().hex}")
         await previous.remove()
         await Volume(f"botbox-run-{token}").remove()
         try:
-            return await self._run(
-                command,
-                mounts=mounts,
-                workdir=workdir,
-                timeout=timeout,
-                output=output,
-                keep=name,
-                image=image.tag,
-                restarting=True,
-            )
+            return await self._run(command, setup, workdir=workdir, keep=name, image=image.tag)
         finally:
 
             async def remove_used_image() -> None:
@@ -228,35 +241,36 @@ class Botbox:
 
             await settle(remove_used_image())
 
-    async def _run(  # noqa: PLR0913
+    def _setup(
         self,
-        command: str,
         *,
         mounts: Sequence[Mount],
         workdir: str | Path | None,
         timeout: float | None,
         output: str | Path | None,
-        keep: str | None,
-        image: str | None = None,
         restarting: bool = False,
-    ) -> RunResult:
-        agent = self.agent
-        if keep is not None:
-            try:
-                await Container(keep).inspect()
-            except DockerException:
-                pass
-            else:
-                raise ValueError(f"container {keep} already exists")
+    ) -> _Setup:
+        """Check the arguments and stage the credentials and output, before any Docker work."""
         limit = self.timeout if timeout is None else check_timeout(timeout)
         labels = {**env_labels(os.environ), **self.labels}
-        volumes = bind_mounts(mounts, workdir=workdir, home=agent.home)
+        volumes = bind_mounts(mounts, workdir=workdir, home=self.agent.home)
         source = self._credential_source()
         credential = None if source is None else source.read()
-        output, suffix = self._prepare_output(output, volumes, restarting=restarting)
+        prepared, suffix = self._prepare_output(output, volumes, restarting=restarting)
         home = self._home_files()
-        if image is None:
-            image = await self.build()
+        return _Setup(limit, labels, volumes, source, credential, prepared, suffix, home)
+
+    async def _run(
+        self,
+        command: str,
+        setup: _Setup,
+        *,
+        workdir: str | Path | None,
+        keep: str | None,
+        image: str,
+    ) -> RunResult:
+        agent = self.agent
+        limit, labels, volumes, source, credential, output, suffix, home = setup
         token = uuid4().hex[:12]
         scratch = TemporaryDirectory(prefix=f"botbox-{token}-")
         deadline = asyncio.timeout(limit)

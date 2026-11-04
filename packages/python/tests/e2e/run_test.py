@@ -238,6 +238,17 @@ def describe_run() -> None:
         assert containers(new_token) == [name]
         assert volumes(new_token) == [f"botbox-run-{new_token}"]
 
+    async def it_keeps_the_container_when_a_restart_is_rejected(box: Botbox, runs: Runs) -> None:
+        name = f"botbox-kept-{uuid4().hex[:12]}"
+        await box.run("echo remembered > ~/remembered", keep=name)
+        [old_token] = runs.tokens
+        with pytest.raises(ValueError, match="workdir"):
+            await box.restart(name, "true", workdir="/nowhere")
+        assert containers(old_token) == [name]
+        assert volumes(old_token) == [f"botbox-run-{old_token}"]
+        result = await box.restart(name, "cat ~/remembered")
+        assert result.exit_code == 0
+
     async def it_labels_all_three_containers_from_botbox_labels(runs: Runs, env_run: str) -> None:
         task = asyncio.create_task(Botbox(ClaudeAgent()).run("sleep 600"))
         try:
